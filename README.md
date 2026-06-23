@@ -53,6 +53,7 @@ Example event:
     content: "this intro is pure copper wizardry"
   }
 }
+```
 
 🧾 Simulation Engine (Deterministic Core)
 
