@@ -3,7 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+// ============================================================================
+// DATA FETCH POLICY (per docs/architecture.md /sim/data vs /sim/projections):
+// Static seed data — HISTORICAL_PLATFORMS, DEMO_EFFECTS, TECHNOLOGY_TREE,
+// INITIAL_NPCS, INITIAL_GROUPS, PARTY_CALENDAR — is read directly from
+// @sim/data. /sim/projections is reserved for WorldState-derived views, NOT
+// seed lookups, so we do not pass-through these constants through a projection.
+// ============================================================================
+import React, { useState, useEffect, useRef } from "react";
 import {
   PlatformId,
   EraId,
@@ -25,7 +32,7 @@ import {
   BBSThread,
   BBSInfoType,
   BBSMessage
-} from "./types";
+} from "@packages/types";
 import {
   HISTORICAL_PLATFORMS,
   DEMO_EFFECTS,
@@ -33,12 +40,18 @@ import {
   INITIAL_NPCS,
   INITIAL_GROUPS,
   PARTY_CALENDAR,
-  HISTORIC_RIVAL_RELEASES
-} from "./data";
+  RIVAL_RELEASES,
+  type RivalRelease,
+} from "@sim/data";
+import { rivalFocusFor } from "@sim/domain";
 import GddViewer from "./components/GddViewer";
 import DemoScreen from "./components/DemoScreen";
 import SocialGraphTab from "./components/SocialGraphTab";
 
+import MainMenu from "./components/MainMenu";
+import { SimulationLoop } from "@sim/engine/simulationLoop";
+import { emptyWorldState } from "@sim/engine/reducer";
+import { getCurrentTick } from "@sim/events/appendEvent";
 // SVG/Lucide Icons
 import {
   Wrench,
@@ -341,6 +354,18 @@ export default function App() {
   const [playerHandle, setPlayerHandle] = useState<string>("AssemblyKid");
   const [playerGroupName, setPlayerGroupName] = useState<string>("Tricycle Crews");
 
+
+  // ----- Main-menu / identity-setup splash overlay -----
+  // True on mount so NEW GAME always prompts the player for a scener
+  // handle + crew group name. Continue / Load-from-file auto-dismiss
+  // via the autosave-hydration effect further down.
+  const [showMainMenu, setShowMainMenu] = useState<boolean>(true);
+  // Snapshot of the localStorage autosave so MainMenu can show a
+  // one-line summary next to its Continue button.
+  const [mainMenuSaveInfo, setMainMenuSaveInfo] = useState<
+    { timestamp: string; summary: string } | null
+  >(null);
+
   const [activePlatform, setActivePlatform] = useState<PlatformId>(PlatformId.C64);
   const [ownedRigs, setOwnedRigs] = useState<PlatformId[]>([PlatformId.C64]);
   const [unlockedTechs, setUnlockedTechs] = useState<string[]>(["raster_sync"]);
@@ -564,6 +589,46 @@ export default function App() {
 
   // Auto-Save notification
   const [saveNotice, setSaveNotice] = useState<string>("");
+
+  // ===== SENTINEL: SIM_LOOP_BOOTSTRAP_V1 =====
+  // Sim-loop bootstrap per docs/architecture.md + docs/event-sourcing.md.
+  // App.tsx remains mid-migration: useState is the UI source of truth
+  // for now, but this loop is the typed boundary future event-source
+  // handlers should reach through. The onTick callback is a no-op -
+  // the existing src/App.tsx autosave effect already serializes
+  // useState values to localStorage; a second writer here would race.
+  const simulationLoopRef = useRef<SimulationLoop | null>(null);
+  useEffect(() => {
+    if (simulationLoopRef.current !== null) return;
+    const loop = new SimulationLoop({
+      initial: emptyWorldState(),
+      intervalMs: 1000,
+      onTick: () => {
+        /* heartbeat only - App's existing autosave writes 'demoscene_sim_autosave' */
+      },
+    });
+    simulationLoopRef.current = loop;
+
+    // Seed event-log with a ScenarioLoaded marker (DRAFT form per
+    // docs/event-sourcing.md "Pattern A"). Without this the loop's
+    // appendEvent log would be forever empty: no UI handler dispatches.
+    loop.dispatch({
+      type: "ScenarioLoaded",
+      ts: getCurrentTick(),
+      scenario: "1985_8bit",
+    });
+
+    loop.start();
+    return () => {
+      // Cleanup fires under React 18 StrictMode unmount/remount too.
+      // The next mount's useRef-cached `null` re-creates the loop,
+      // which re-appends a second ScenarioLoaded. Acceptable for now -
+      // a future patch will guard the seed dispatch via an idempotency
+      // key on appendEvent. See docs/event-sourcing.md.
+      loop.stop();
+      simulationLoopRef.current = null;
+    };
+  }, []);
 
   // --------- BBS TERMINAL PORTAL STATE ---------
   const [bbsDialed, setBbsDialed] = useState<boolean>(false);
@@ -1267,27 +1332,50 @@ export default function App() {
     setPartyStep(1);
     setPartyContestLogger(["Party hall lights are dimmed...", "The big screen projection boots up!", `Category: ${selectedProd.type} Competition`]);
 
-    // Setup 4 historical/fictional rival entries with random variance
+    // Derive eligible rivals from the typed seed (sim/data/rivalReleases.ts).
+    // A rival is eligible iff:
+    //   (a) it has already released at or before the player's current month,
+    //   (b) it has not disbanded (replaces the in-line Spaceballs hack),
+    //   (c) its declared platformFocus matches the active party's focus (or
+    //       matches the player's rig when the party is platformFocus="all").
+    // Score = baselineScore + random roll up to scoreVariance (same shape as
+    // the inline rivals had before this migration).
+    const playerFocus: PartyEvent["platformFocus"] =
+      activeParty == null || activeParty.platformFocus === "all"
+        ? rivalFocusFor(activePlatform)
+        : activeParty.platformFocus;
+    const isReleasedBefore = (r: RivalRelease): boolean =>
+      r.year < currentYear || (r.year === currentYear && r.month <= currentMonth);
+    const isDisbanded = (r: RivalRelease): boolean =>
+      r.disbandedAfter !== undefined && currentYear > r.disbandedAfter;
+    const focusMatches = (r: RivalRelease): boolean =>
+      playerFocus === "all" || r.platformFocus === "all" || r.platformFocus === playerFocus;
+    const eligibleRivals: RivalRelease[] = RIVAL_RELEASES.filter(
+      (r) => isReleasedBefore(r) && !isDisbanded(r) && focusMatches(r)
+    );
     const rivalsList = [
-      { id: "rival_1", name: "Second Reality", group: "Future Crew", isPlayer: false, score: 92 + Math.floor(Math.random() * 8), title: "SPHERICAL FLUIDS" },
-      { id: "rival_2", name: "Werkzeug", group: "Farbrausch", isPlayer: false, score: 86 + Math.floor(Math.random() * 12), title: "PROCESSED PIXELS" },
-      { id: "rival_3", name: "State of Art", group: "Spaceballs", isPlayer: false, score: 75 + Math.floor(Math.random() * 15), title: "VECTORS GREETING" },
-      { id: "rival_4", name: "Lifeforce", group: "Andromeda", isPlayer: false, score: 70 + Math.floor(Math.random() * 20), title: "COPPER CODES" },
-      { id: "player_entry", name: selectedProd.name, group: playerGroupName, isPlayer: true, score: selectedProd.totalScore, title: selectedProd.name }
+      ...eligibleRivals.map((r) => ({
+        id: r.id,
+        name: r.name,
+        group: r.group,
+        title: r.title,
+        isPlayer: false as const,
+        score: r.baselineScore + Math.floor(Math.random() * r.scoreVariance),
+      })),
+      {
+        id: "player_entry",
+        name: selectedProd.name,
+        group: playerGroupName,
+        title: selectedProd.name,
+        isPlayer: true as const,
+        score: selectedProd.totalScore,
+      },
     ];
-
-    // Filter rivals based on current era matching to keep things historic
-    // e.g. Future Crew does not compete on Pentium III modern shaders
-    const filteredRivals = rivalsList.filter((r) => {
-      if (currentYear > 1999 && r.group === "Spaceballs") return false;
-      return true;
-    });
-
-    setPartyRivals(filteredRivals);
+    setPartyRivals(rivalsList);
 
     // Initial tally
     const tally: Record<string, number> = {};
-    filteredRivals.forEach((r) => {
+    rivalsList.forEach((r) => {
       tally[r.id] = 10 + Math.floor(Math.random() * 10);
     });
     setPartyVoteTally(tally);
@@ -1298,7 +1386,7 @@ export default function App() {
         const next = { ...prev };
         let finished = true;
 
-        filteredRivals.forEach((r) => {
+        rivalsList.forEach((r) => {
           const cap = Math.floor(r.score * 8); // Scaled points
           if (next[r.id] < cap) {
             next[r.id] += Math.floor(Math.random() * 25) + 5;
@@ -1310,7 +1398,7 @@ export default function App() {
         if (finished || tick > 15) {
           clearInterval(interval);
           setPartyStep(2); // Jump to scoreboard static show
-          awardPartyContestPoints(filteredRivals, next);
+          awardPartyContestPoints(rivalsList, next);
         }
         return next;
       });
@@ -2787,6 +2875,26 @@ export default function App() {
       setCharacters(nlist);
 
       setSaveNotice("Autosave Loaded Successfully!");
+
+      try {
+        const parsed = JSON.parse(raw);
+        const handle =
+          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).playerHandle) || "AssemblyKid";
+        const group =
+          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).playerGroupName) || "Tricycle Crews";
+        const year =
+          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).currentYear) || 1985;
+        const month =
+          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).currentMonth) || 1;
+        setMainMenuSaveInfo({
+          summary: `${group} · ${year}/${String(month).padStart(2, "0")} · ${handle}`,
+          timestamp: new Date().toISOString(),
+        });
+        setShowMainMenu(false);
+      } catch {
+        // Best-effort parse; if parse fails, MainMenu still
+        // renders with hasLocalSave=false and the splash stays up.
+      }
       setTimeout(() => setSaveNotice(""), 3000);
     } catch (e) {
       window.alert("CRITICAL CORRUPTED DATA ERROR: Failed to decode localStorage variables.");
@@ -2801,6 +2909,38 @@ export default function App() {
   };
 
   // Setup initial load of active save session if existing
+  // --------- MAIN-MENU HANDLERS ---------
+  // New Game: dismiss splash and apply the player-supplied identity.
+  const handleNewGame = (handle: string, groupName: string) => {
+    setPlayerHandle(handle);
+    setPlayerGroupName(groupName);
+    setShowMainMenu(false);
+  };
+
+  // Continue: dismiss splash -- the autosave-hydration effect below
+  // already populated state from localStorage on mount.
+  const handleContinue = () => {
+    setShowMainMenu(false);
+  };
+
+  // Load from file: stash the parsed snapshot under the same key the
+  // hydration effect reads from, so the existing setter sequence
+  // can re-apply it. If localStorage write fails (private mode) we
+  // still dismiss the splash so the user isn't trapped on it.
+  const handleLoadFromFile = (snapshot: unknown) => {
+    try {
+      if (snapshot && typeof snapshot === "object") {
+        localStorage.setItem(
+          "demoscene_sim_autosave",
+          JSON.stringify(snapshot)
+        );
+      }
+    } catch {
+      // localStorage unavailable; fall through with splash dismissal.
+    }
+    setShowMainMenu(false);
+  };
+
   useEffect(() => {
     const raw = localStorage.getItem("demoscene_sim_autosave");
     if (raw) {
@@ -2831,7 +2971,24 @@ export default function App() {
     }
   }, []);
 
-  return (
+  // Short-circuit: if the splash overlay is active, render only
+  // the MainMenu and exit early. The handlers above (handleNewGame,
+  // handleContinue, handleLoadFromFile) control showMainMenu.
+  if (showMainMenu) {
+    return (
+      <MainMenu
+        hasLocalSave={mainMenuSaveInfo !== null}
+        localSaveTimestamp={mainMenuSaveInfo?.timestamp ?? null}
+        localSaveSummary={mainMenuSaveInfo?.summary ?? null}
+        onNewGame={handleNewGame}
+        onContinue={handleContinue}
+        onLoadFromFile={handleLoadFromFile}
+        schemaVersion={1}
+      />
+    );
+  }
+
+    return (
     <div className="min-h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col font-mono text-sm antialiased pb-12 selection:bg-[#22d3ee] selection:text-black">
       {/* Dynamic Header Bar resembling classic tracker layout */}
       <header className="bg-[#2d2d30] border-b border-[#3f3f46] px-4 py-2 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-md">

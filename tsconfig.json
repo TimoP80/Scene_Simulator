@@ -15,12 +15,29 @@
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
+    "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"],
+      "@packages/types": ["./packages/types/src"],
+      "@packages/types/*": ["./packages/types/src/*"],
+      "@packages/utils": ["./packages/utils/src"],
+      "@packages/utils/*": ["./packages/utils/src/*"],
+      "@sim/*": ["./sim/*"],
+      "@apps/ui/*": ["./apps/ui/*"],
+      "@apps/server/*": ["./apps/server/*"],
+      "@apps/llm/*": ["./apps/llm/*"],
+      "@tools/*": ["./tools/*"]
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
-}
+  },  "include": [
+    "src/**/*",
+    "packages/**/*",
+    "sim/**/*",
+    "apps/**/*",
+    "tools/**/*",
+    "electron/**/*",
+    "electron.vite.config.ts",
+    "vite.config.ts"
+  ],
+  "exclude": ["node_modules", "dist", "dist-electron"]}

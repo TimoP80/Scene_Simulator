@@ -9,7 +9,7 @@ import {
   SocialEdge, 
   SocialEdgeType, 
   SocialNodeType 
-} from "../types";
+} from "@packages/types";
 import { 
   Users, 
   Share2, 

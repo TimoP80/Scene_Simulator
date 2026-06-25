@@ -3,33 +3,101 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "dist-electron/main.cjs",
+  "description": "A demoscene life-sim spanning 1985-2005. Recruit sceners, research effects, compile demos, and compete at parties.",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:electron": "concurrently -k -n vite,electron -c cyan,magenta \"cross-env VITE_DEV_SERVER_URL=http://localhost:3000 vite --port=3000 --host=0.0.0.0\" \"wait-on http://localhost:3000 && electron .\"",
     "build": "vite build",
+    "build:electron": "vite build -c electron.vite.config.ts",
+    "build:all": "vite build && vite build -c electron.vite.config.ts",
+    "icons": "node scripts/generate-icons.mjs",
+    "dist:win": "npm run build:all && electron-builder --win --x64",
+    "dist:dir": "npm run build:all && electron-builder --dir",
     "preview": "vite preview",
-    "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "clean": "rm -rf dist server.js dist-electron",
+    "lint": "tsc --noEmit",
+    "test:smoke": "tsx sim/__tests__/dispatchStampedEvent.smoke.ts",
+    "test:audit-docs": "tsx sim/__tests__/audit-docs.smoke.ts",
+    "test:load-during-import": "tsx sim/__tests__/loadDuringImport.smoke.ts",
+    "audit:docs": "node scripts/audit-docs.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
     "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3",
-    "express": "^4.21.2",
-    "dotenv": "^17.2.3",
-    "motion": "^12.23.24"
+    "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^10.0.3",
+    "cross-env": "^10.1.0",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "wait-on": "^9.0.10"
+  },
+  "build": {
+    "appId": "com.tricyclecrews.demoscene",
+    "productName": "Demoscene Simulator",
+    "copyright": "Copyright (c) 1985-2026 Tricycle Crews",
+    "directories": {
+      "buildResources": "build",
+      "output": "release"
+    },
+    "files": [
+      "dist/**",
+      "dist-electron/**",
+      "package.json",
+      "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/*.d.ts",
+      "!**/node_modules/.bin",
+      "!**/*.{o,hprof,orig,pyc,pyo,rbc}",
+      "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}"
+    ],
+    "asar": true,
+    "icon": "build/icon.png",
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": "x64"
+        },
+        {
+          "target": "portable",
+          "arch": "x64"
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Demoscene Simulator",
+      "uninstallDisplayName": "${productName}",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "${productName}-Portable-${version}.${ext}",
+      "requestExecutionLevel": "user"
+    },
+    "electronVersion": "42.5.0"
   }
 }

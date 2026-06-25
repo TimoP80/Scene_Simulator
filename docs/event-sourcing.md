@@ -1,0 +1,201 @@
+# Event sourcing
+
+This is the *only* way state mutations flow in the simulator. Every gameplay-relevant change is an event; the reducer is the only thing that produces the next `WorldState`.
+
+## The contract
+
+There are TWO different writes in this system and they are not interchangeable:
+
+| Call                       | Stamps id+reducedAt | Pushes to `eventStore` | Runs `reduce` |
+| -------------------------- | ------------------- | ---------------------- | ------------- |
+| `appendEvent(draft)`       | yes                 | yes                    | **NO**        |
+| `loop.dispatch(draft)`     | yes                 | yes                    | yes (sync)    |
+| `loop.advanceMonth()`      | yes                 | yes                    | yes (sync)    |
+
+ASCII overview:
+
+```
+   (caller)            (boundary)             (kernel)               (projections / UI)
+┌──────────┐        ┌───────────────┐      ┌──────────────┐      ┌──────────────────────────┐
+│ UI hook  │──()──▶ │ appendEvent   │──()──▶│ eventStore   │      │ snapshot() re-render     │
+└──────────┘        │ (stamps +     │      │ (append-only)│      │                          │
+                    │  writes to    │      └──────────────┘      └──────────────────────────┘
+                    │  store only)  │
+                    └───────────────┘
+                              OR (for state-mutating actions)
+                    ┌────────────────────────┐
+                    │ loop.dispatch(draft)   │──()──▶ reduce(state, evt) → state  → re-render
+                    │  (stamps + writes +    │
+                    │   reduces)             │
+                    └────────────────────────┘
+```
+
+1. The caller (UI / tool / LLM proxy) constructs a *draft* event.
+2. **If you only want the event on the record**, call `appendEvent(draft)`. The store gets one entry, but `WorldState` is unchanged.
+3. **If you want state updated**, call `loop.dispatch(draft)`. The event lands in the store AND `reduce(state, evt)` runs synchronously, returning a fresh `WorldState`. Callers subscribed via `loop.onTick(state)` re-render.
+4. `loop.advanceMonth()` is the canonical tick path — it issues a `MonthAdvanced` event via `emit.monthAdvanced(...)` and runs reduce; you should not hand-roll month-rollover from UI handlers.
+
+That is the entire shape of the system. If you find yourself writing anything that mutates state outside this contract, **stop and use `appendEvent` instead.** See `simulation-rules.md` for the canonical anti-examples.
+
+## The discriminated union — `SimEvent`
+
+A single source-of-truth union in `sim/events/eventTypes.ts`. Every gameplay event must extend it; if you add a new gameplay reality, you must add an event variant.
+
+### Categories (21 variants in the current union)
+
+| Category                          | Variants                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Player economy                    | `MoneyChanged`, `ReputationChanged`, `ResearchPointsChanged`                                                          |
+| Calendar / scenario               | `MonthAdvanced`, `ScenarioLoaded`                                                                                     |
+| Tech / rigs                       | `TechResearched`, `RigPurchased`                                                                                      |
+| Crew                              | `CrewHired`, `CrewFired`, `BurnoutReduced`                                                                            |
+| Productions                       | `DemoCompiled`                                                                                                        |
+| Parties                           | `PartyStarted`, `PartyVoteTicked`, `PartyResultsAwarded`                                                              |
+| Social graph                      | `NodeAdded`, `EdgeAdded`, `EdgeWeightChanged`                                                                         |
+| BBS / scene press                 | `NewsArticlePublished`, `BbsThreadMutated`                                                                            |
+| NPC cognitive drift               | `NpcMemoryTransformed`, `NpcOpinionDrifted`                                                                           |
+
+All share a `BaseEvent` shape:
+
+```ts
+interface BaseEvent {
+  id: string;          // generated by generateId(event.type.toLowerCase()) — a one-arg helper
+  ts: EventTimestamp;  // simulated calendar tick (year * 12 + month)
+  reducedAt: number;   // wall-clock stamp
+}
+```
+
+`EventTimestamp` is `number`, computed as `year * 12 + month` (calendar arithmetic — e.g. `Y1985 M1` = `1985 * 12 + 1` = **23821**). This is NOT "months since year 0" in the Unix-epoch sense; it's an opaque linear ID for ordering events. UI formatting (`simTimestamp(y, m)` → `"Y1985 M1"`) happens at the projection layer — the sim kernel never formats strings.
+
+### Adding a new event — order of operations
+
+Strict order, in the reviews of past migrations:
+
+1. **Extend the union** in `sim/events/eventTypes.ts`. Run `tsc --noEmit` — `default: const _exhaust: never = event;` in the reducer will fail until step 3.
+2. **Add a reducer case** in `sim/engine/reducer.ts` that returns a fresh `WorldState` — never `return state;` without a comment.
+3. **Add an `emit.*` helper** in `sim/events/appendEvent.ts` if it will be called from more than one place. Helper must take all *required* fields and let TS narrow via the `type` literal.
+4. **Add a Projection reader** in `sim/projections/<area>.ts` so the UI layer never has to read raw `WorldState`. *(projections are stubbed currently.)*
+5. Update `docs/event-sourcing.md` and `prompts/add-feature.md` if the new event is in a new category.
+
+## `appendEvent` + `EventDraft` — the distributive `Omit` trap
+
+The single most common AI mistake in this codebase is using the naive `Omit<SimEvent, "id" | "reducedAt">` as the parameter type for a draft event. **That pattern is wrong, and `tsc --noEmit` will reject it.** Here's why:
+
+```ts
+// Naive Omit — TypeScript treats SimEvent as a single intersection of required
+// fields; no literal draft satisfies it. Every emit.* helper fails compilation.
+function appendEvent(draft: Omit<SimEvent, "id" | "reducedAt">): SimEvent { … }
+
+// Distributive Omit — preserved as a union of variants. Each variant is a
+// partial-of-itself, so any literal is assignable.
+type DistributeOmit<T, K extends keyof any> = T extends any ? Omit<T, K> : never;
+export type EventDraft = DistributeOmit<SimEvent, "id" | "reducedAt">;
+```
+
+**Rule: every `appendEvent` / `loop.dispatch` parameter is typed `EventDraft`** (defined and exported from `sim/events/appendEvent.ts`). Anything you see typed with raw `Omit<SimEvent, …>` is a regression and should be migrated — the naive `Omit` flattens the discriminated union and TypeScript will then reject every literal draft.
+
+### Convenience builders
+
+`sim/events/appendEvent.ts` ships a default `emit.*` set:
+
+```ts
+emit.moneyChanged(delta, reason)
+emit.reputationChanged(delta, reason)
+emit.researchChanged(delta, reason)
+emit.monthAdvanced(prevY, prevM, nextY, nextM)
+emit.demoCompiled(production)
+emit.newsArticle(article)
+emit.edgeWeightChanged(edgeId, previousWeight, newWeight, reason)
+emit.partyResultsAwarded(productionId, placement, partyName, cashPrize, repPrize)
+```
+
+`emit.*` returns a fully-stamped `SimEvent`. **You must pass a *draft* to `loop.dispatch`, not a stamped event.** Two valid call shapes:
+
+```ts
+import { appendEvent, getCurrentTick } from "@sim/events/appendEvent";
+import { SimulationLoop } from "@sim/engine/simulationLoop";
+
+// Pattern A — store-only (no reduce):
+const evt = appendEvent({
+  type: "RigPurchased",
+  ts: getCurrentTick(),                                 // public helper, not the internal `currentTick`
+  platformId: PlatformId.AMIGA_500,
+});
+// evt is now stamped and stored — but state is unchanged. Call this from tooling,
+// not from UI handlers unless you specifically want a marker event.
+
+// Pattern B — store + reduce (UI handlers):
+const loop: SimulationLoop = /* … */;
+loop.dispatch({
+  type: "RigPurchased",
+  ts: getCurrentTick(),
+  platformId: PlatformId.AMIGA_500,
+});
+// Stamping + store + reduce all happen ONCE.
+
+```
+
+> ❌ **NEVER do this:** `loop.dispatch(appendEvent({…}))` or `loop.dispatch(emit.moneyChanged(…))` — the stamped event is already in the store and dispatch will write a SECOND copy with a fresh id. The appended buffer gets polluted. The dedicated smoke test `sim/__tests__/dispatchStampedEvent.smoke.ts` pins this behavior as a regression guard; if you ever change how dispatch handles a fully-stamped event, that test must be updated together with this rule.
+
+**Note on `emit.edgeAdded`:** `EdgeAddedEvent` now carries the full `edge: SocialEdge` payload (alongside `edgeId`), so a future `emit.edgeAdded(edge: SocialEdge)` helper would be safe — the event payload preserves the full data and the reducer case already spreads it into `state.socialGraph.edges`. The helper is not exposed today only because there is no current caller; add it on demand when one appears.
+
+## `eventStore` — append-only log + subscribe
+
+```ts
+import { eventStore } from "@sim/events/eventStore";
+
+eventStore.append(event);                  // do NOT call directly — go through appendEvent
+eventStore.all(): readonly SimEvent[];     // total log (replay debugger)
+eventStore.since(tick): readonly SimEvent[];  // post-cutoff events
+const off = eventStore.on("MoneyChanged" | "*", (e) => { … });  // unsubscribe via off()
+```
+
+The store is a process-singleton. `__resetWith(events)` exists for testing only — never call it from production code.
+
+## `reduce(state, event) → state` — the reducer contract
+
+```ts
+export function reduce(state: WorldState, event: SimEvent): WorldState;
+```
+
+- **Pure.** No side effects. No `Date.now()`. No `Math.random()`. The event's `id` / `reducedAt` were set by `appendEvent` already.
+- **Exhaustive.** The default branch carries:
+
+  ```ts
+  default: { const _exhaust: never = event; void _exhaust; return state; }
+  ```
+
+  This is the compile-time check that every `SimEvent` variant has a case. If you add a variant and skip a case, the build breaks here. That's a feature, not a bug.
+- **Spread, don't alias.** A reducer case that returns `return state;` for an event that should mutate something is **data loss** — see the `BbsThreadMutated`, `NpcMemoryTransformed`, `NpcOpinionDrifted` cases in the current reducer for the correct shape. When you truly must no-op (e.g. `BurnoutReduced` — cost is debited via a separate `MoneyChanged`), leave an in-code comment explaining why.
+
+## `SimulationLoop` — the tick boundary
+
+```ts
+import { SimulationLoop } from "@sim/engine/simulationLoop";
+
+const loop = new SimulationLoop({
+  initial: emptyWorldState(),
+  intervalMs: 1000,            // wall-clock between ticks
+  onTick: (state) => { /* UI re-render */ },
+});
+
+loop.start();
+loop.dispatch({
+  type: "MoneyChanged",
+  ts: getCurrentTick(),
+  delta: -50,
+  reason: "rent",
+}); // routes through appendEvent + reduce
+loop.advanceMonth();                              // canonical tick event
+const snapshot = loop.snapshot();                 // returns the latest reduced WorldState (post-merge)
+loop.stop();
+```
+
+- - `dispatch(draft: EventDraft)` is the standard wiring for a UI user-action — it stamps the event, writes it to the store, AND runs reduce. Note: `appendEvent` writes to the store without running reduce. Use `loop.dispatch` whenever you want both the store entry AND the `WorldState` update. Its signature *must* match `appendEvent`'s signature exactly, otherwise cross-file inference breaks and TS rejects literal drafts.
+- `advanceMonth()` is the canonical month-rollover path — don't hand-roll `MonthAdvanced` from the UI layer. The loop updates the module-level `currentTick` via `setCurrentTick(nextY * 12 + nextM)`. Both `setCurrentTick(ts)` and `getCurrentTick()` are also **exported public helpers** (from `sim/events/appendEvent.ts`) — any code path can read or write the tick, but production code should reach for `loop.advanceMonth()` first.
+- The internal `tickOnce` runs a passive heartbeat (no event emission) — so `MoneyChanged{delta:0}` events no longer pollute the replay log. This was the previous source of "ghost finances" in the saved log.
+- `ticking` + `firedThisInterval` + `queueMicrotask` reset is the StrictMode-safe pattern. Do not simplify it away; React 18+ dev intentionally double-invokes effects, and a naïve `setInterval`-driven callback would fire twice per tick.
+
+## Why this matters
+
+The original bug landed because `setCompilerProgress((p) => { if (p>=100) { finishCompilation(); ... }})` mixed side effects into React state updates — StrictMode double-invoked the updater and `finishCompilation()` ran twice, duplicating every release. Under the event source, that class of bug is **structurally impossible**: side effects live in `appendEvent`, which is called once per dispatch; reducers are pure and called once per event. The two events fired by a double-invoked React effect are simply `dispatch(...)` twice — and the second `dispatch` reads `loop.snapshot()` from the *first* dispatch's persistence, so the projection sees one consistent timeline.
