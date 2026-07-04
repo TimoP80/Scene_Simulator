@@ -3,6 +3,8 @@
 # 🎛️ Demoscene Simulator
 by T. Pitkänen
 
+Itch.io page: https://timbor80.itch.io/demoscene-simulator
+
 Initial project started with Google AI studio, further development made locally with other AI tools.
 
 A **hybrid simulation + narrative system** that models a living demoscene ecosystem (1985–2005 era) using:
