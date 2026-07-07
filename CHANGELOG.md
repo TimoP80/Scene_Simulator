@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-07
+
+### Added
+- **Event-sourced player identity (`PlayerIdentitySet`)** — a new `SimEvent` variant carries `handle` + `groupName`. App.tsx's `handleNewGame` dispatches the event so `state.player.groupName` flows from the event log instead of being baked into `emptyWorldState()`. Reducer case is idempotent on `(handle, groupName)` so a stale-snapshot re-dispatch is a no-op. This closes the v0.1.0 `TODO(dynamic-name)` hardcode planning item.
+- **`emit.playerIdentitySet` builder** — `sim/events/appendEvent.ts` now exposes a convenience helper alongside the other `emit.*` builders. App.tsx uses `simulationLoopRef.current?.dispatch(draft)` so the dispatch survives an in-flight StrictMode `null` ref.
+- **`sim/__tests__/economicsView.smoke.ts`** — end-to-end exercise of the EconomyView projection: M1 double-store deposit→buy-hardware pattern, ledger invariant (`state.player.money === sum(income) - sum(expense)`), hardware/software purchases, travel subscription round-trip, and the trust-weighted job payout band `[0.7× .. 1.5×]`. Six Scenarios + a catalog sanity gate that fails fast if a future ship strips `HARDWARE_CATALOG` / `JOB_TEMPLATES` / `SOFTWARE_CATALOG` / `SPONSORSHIP_CATALOG` to empty.
+- **`sim/__tests__/appendOnlyReplayDeterminism.smoke.ts`** — pins the `docs/event-sourcing.md` "If all events are replayed in order, the world state must be identical" invariant. Replays a fixed `EventDraft` sequence three times through `reduceAll` and asserts structural equality; secondary Scenarios cover `SimulationLoop`-path idempotency, `ts → (year, month)` decoding, and the `MoneySpent` balance floor (`Math.max(0, …)`) under repeated insufficient-budget spends.
+- **`.github/workflows/ci.yml`** — GitHub Actions workflow runs `tsc --noEmit`, every smoke test (`test:all`), and `vite build` on every PR + push to `main`. Fails on any non-zero exit. Default Ubuntu runner + Node 20.
+- **`CONTRIBUTING.md`** — first-run dev loop, three-layer rules, path-alias cheatsheet, test layout, code-style rules, PR-template checklist. Anchors the merge-blockers from `docs/architecture.md` for new contributors.
+- **`scripts/capture-preview.mjs` + `src/preview/CapturePreview.tsx`** — headless capture pipeline that drives Playwright-compatible `puppeteer-core` + system Chrome (mandatory for CI); writes `build/preview.png`, `build/preview.webm`, and (via `ffmpeg-static`) `build/preview.gif`. The capture runs vite dev under a short-lived subprocess and tears it down on exit, so `capture:preview` is self-contained.
+- **`window.__CAPTURE__` + `<canvas id="capture-target-canvas">`** — DemoScreen exposes the live canvas + `resize()` / `isPlaying()` helpers to the page window (NOT cleaned up on unmount) so the StrictMode-safe capture script can waitForFunction-poll until the canvas is reachable.
+- **Seed-in-state bootstrap (`sim/engine/reducer.ts`)** — the $250 starting allowance now lives inside `emptyWorldState()` itself as a leading `IncomeLedgerEntry` row in `ledger.income`, so the LITERAL invariant `state.player.money === sum(ledger.income) - sum(ledger.expense)` holds by construction across every consumer (production App.tsx bootstrap, smoke tests, replay runs, projections, /apps/ui mirrors). It stays correct under replay because `MoneyEarned`'s reducer case already dedups by `event.id` (so an accidental duplicate `MoneyEarned{id: "seed", ...}` would short-circuit against the baked-in row), AND live production callers route exclusively through M1 ledger-aware reducers `MoneyEarned`/`MoneySpent` — the diagnostic `MoneyChanged` reducer bypasses the ledger by design (it carries its own accounting) and the only legitimate live use is `sim/__tests__/dispatchStampedEvent.smoke.ts`'s M1-bug regression pin (no production dispatcher fires it).
+
+### Changed
+- **`sim/engine/reducer.ts`** — `emptyWorldState().player.groupName` retains the `"Tricycle Crews"` seed default only for the brief pre-MainMenu bootstrap window. The comment now documents the contract: the value is *overwritten* by the first `PlayerIdentitySet` event dispatched at NEW GAME, so projection readers should treat `state.player.groupName` as derived from the event log (the same way they treat `money` from `MoneyEarned`).
+- **`package.json`** — bumped `0.1.0` → `0.2.0`. New scripts: `test:all` (run every smoke test sequentially, fail fast), `test:economics` (just the EconomyView smoke), `test:replay` (just the determinism smoke). `capture:preview*` scripts preserved.
+- **`src/main.tsx`** — branched entry tree: `/` mounts `<App>` wrapped in `<ApiKeyBootstrap>`, `/?capture=1` mounts `<CapturePreview>` directly so the headless capture doesn't need to navigate MainMenu or pass the API-key gate. The same React tree runs in both modes (no `electronAPI`-mocking required for normal launch).
+
+### Removed
+- **Bootstrap `MoneyEarned` dispatch in `src/App.tsx`** — the SIM_LOOP_BOOTSTRAP useEffect no longer credits the starting allowance; the seed row in `emptyWorldState()` is now the single source of truth for `player.money = 250` (no `IncomeSource` import needed in App.tsx anymore).
+- **Local `dispatchSeed(loop)` helpers** in `sim/__tests__/economicsView.smoke.ts` and `sim/__tests__/dispatchStampedEvent.smoke.ts` — the helpers existed only to dispatch the canonical seed event before each scenario; with the seed baked into `emptyWorldState()`, fresh loops already start with the canonical state.
+- **`GEED_SEED` alias + leading seed-allowance `MoneyEarned` event** in `sim/__tests__/appendOnlyReplayDeterminism.smoke.ts::deterministicEventSequence` — the seed lives in `emptyWorldState()` now, so the scene's stamped sequence starts at the first user-action event (`PlayerIdentitySet`).
+
+### Fixed
+- **`src/App.tsx` `any`-cast tighten** — `competitors: any[]` replaced with a local `RivalEntry` interface matching the `startPartyVotingProcess` rivalsList shape; `m: any` cast in the BBS message map typed as `BBSMessage`; `choice: any` cast in the BBS choice map typed via `BBSThread["choices"][number]`; `type: "collaboration" as any` replaced with `as SocialEdgeType` (already imported). Zero new `any` types introduced into `src/`.
+
 ## [0.1.0] - 2026-06-29
 
 ### Added
@@ -28,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Electron + electron-builder** packaging (`dist:win`, `dist:dir`; NSIS + portable).
 - **`MainMenu` splash overlay** with New Game / Continue / Load-from-file, and **`ApiKeyBootstrap`** for first-run Gemini key entry.
 - **Deterministic, event-sourced economy system** (`@sim/data/hardwareCatalog.ts`, `jobTemplates.ts`, `softwareCatalog.ts`, `sponsorshipCatalog.ts`, plus `packages/types/src/economy.ts`):
-  - New event variants in `sim/events/eventTypes.ts`: `MoneyEarned`, `MoneySpent`, `JobAccepted`, `JobCompleted`, `HardwarePurchased`, `HardwareSold`, `TravelExpensePaid`, `SoftwarePurchased`, `PartyPrizeAwarded`, `TravelSubscriptionChanged` (10 new variants, **30-variant SimEvent union**).
+  - New event variants in `sim/events/eventTypes.ts`: `MoneyEarned`, `MoneySpent`, `JobAccepted`, `JobCompleted`, `HardwarePurchased`, `HardwareSold`, `TravelExpensePaid`, `SoftwarePurchased`, `PartyPrizeAwarded`, `TravelSubscriptionChanged` (10 new variants, **30-variant SimEvent union**). `MoneyChanged`, a pre-existing variant in the same union (not one of the 10 listed), bypasses the ledger by design and is reserved for diagnostic / test-migration use only — production dispatchers must fire `MoneyEarned`/`MoneySpent` exclusively. See the [0.2.0] "Seed-in-state bootstrap" entry above for the architectural narrowing.
   - `WorldState.economy` slice (income/expense ledger, hardware/software inventories, freelance job board, travel subscription, last-travel marker).
   - Reducer cases for every new event with idempotency guards (`instanceId` dedup), money floor (`>= 0`), no fabricated state on miss, intentional no-op comments where applicable.
   - New `emit.*` builders in `sim/events/appendEvent.ts` for every new variant.

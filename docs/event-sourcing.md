@@ -41,19 +41,30 @@ That is the entire shape of the system. If you find yourself writing anything th
 
 A single source-of-truth union in `sim/events/eventTypes.ts`. Every gameplay event must extend it; if you add a new gameplay reality, you must add an event variant.
 
-### Categories (21 variants in the current union)
+### Categories (30+ variants in the current union)
+
+The category table is illustrative, not exhaustive. Production callers should import the `SimEvent` union from `sim/events/eventTypes.ts` directly — do not pattern-match on this prose table. Notable split inside the Player economy group:
+
+- **M1 ledger-aware reducers** (`MoneyEarned`, `MoneySpent`, …) — every economy mutation that changes `state.player.money` MUST route through these AND emit a paired ledger row, so the invariant `state.player.money === sum(ledger.income) - sum(ledger.expense)` holds. They are the canonical player-facing money paths.
+- **Diagnostic-only reducer** (`MoneyChanged`) — by design does NOT add a ledger row; it carries its own accounting and is reserved for test-migration / regression-pin use (see `sim/__tests__/dispatchStampedEvent.smoke.ts`'s M1-bug characterization). Production paths must NOT fire it — if a UI handler reaches for `MoneyChanged`, route through `MoneyEarned`/`MoneySpent` instead.
+
+> `emit.moneyChanged(delta, reason)` in `sim/events/appendEvent.ts` is a **constructor**, not a dispatch site — grep audits and PR reviews should not flag the builder. (`test:audit-docs` guards the doc/sim-parity side; the live-fire rule is independently pinned by `sim/__tests__/dispatchStampedEvent.smoke.ts` as the M1 regression pin.)
 
 | Category                          | Variants                                                                                                              |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Player economy                    | `MoneyChanged`, `ReputationChanged`, `ResearchPointsChanged`                                                          |
+| Player economy                    | `MoneyEarned`, `MoneySpent`, `MoneyChanged` (diagnostic), `ReputationChanged`, `ResearchPointsChanged`                |
 | Calendar / scenario               | `MonthAdvanced`, `ScenarioLoaded`                                                                                     |
 | Tech / rigs                       | `TechResearched`, `RigPurchased`                                                                                      |
-| Crew                              | `CrewHired`, `CrewFired`, `BurnoutReduced`                                                                            |
+| Crew / NPC labor                  | `CrewHired`, `CrewFired`, `BurnoutReduced`                                                                            |
+| Economy / assets & party prizes    | `JobAccepted`, `JobCompleted`, `HardwarePurchased`, `HardwareSold`, `SoftwarePurchased`, `TravelExpensePaid`, `TravelSubscriptionChanged`, `PartyPrizeAwarded` (party-prize row mutates `state.party.*`; the actual money flow is paired via `MoneyEarned{source: PartyPrize}`) |
 | Productions                       | `DemoCompiled`                                                                                                        |
 | Parties                           | `PartyStarted`, `PartyVoteTicked`, `PartyResultsAwarded`                                                              |
 | Social graph                      | `NodeAdded`, `EdgeAdded`, `EdgeWeightChanged`                                                                         |
 | BBS / scene press                 | `NewsArticlePublished`, `BbsThreadMutated`                                                                            |
 | NPC cognitive drift               | `NpcMemoryTransformed`, `NpcOpinionDrifted`                                                                           |
+| Identity                          | `PlayerIdentitySet`                                                                                                   |
+
+> **Note on `PartyPrizeAwarded`:** the row above lists it under Economy for compactness, but the reducer case (see `sim/engine/reducer.ts` `case "PartyPrizeAwarded"`) mutates `state.party.*` (`lastCashPrize`, `lastRepPrize`, `lastPlacement`); the actual money flow is paired via `MoneyEarned{source: PartyPrize}` dispatched by the caller. So the asset shape lives in `WorldState.party`, not `WorldState.economy`.
 
 All share a `BaseEvent` shape:
 
@@ -172,6 +183,7 @@ export function reduce(state: WorldState, event: SimEvent): WorldState;
 
 ```ts
 import { SimulationLoop } from "@sim/engine/simulationLoop";
+import { ExpenseCategory } from "@packages/types";
 
 const loop = new SimulationLoop({
   initial: emptyWorldState(),
@@ -181,15 +193,17 @@ const loop = new SimulationLoop({
 
 loop.start();
 loop.dispatch({
-  type: "MoneyChanged",
+  type: "MoneySpent",
   ts: getCurrentTick(),
-  delta: -50,
-  reason: "rent",
-}); // routes through appendEvent + reduce
+  amount: 50,
+  category: ExpenseCategory.Rent,
+}); // routes through appendEvent + reduce (M1 ledger-aware reducer, NOT the diagnostic `MoneyChanged` variant — see the Player-economy row of the categories table above)
 loop.advanceMonth();                              // canonical tick event
 const snapshot = loop.snapshot();                 // returns the latest reduced WorldState (post-merge)
 loop.stop();
 ```
+
+> **Note (post-v0.2.0):** The `$250` starting allowance is **not** part of this bootstrap sequence. `emptyWorldState()` ships `player.money = 250` AND a matching `IncomeLedgerEntry` row in `ledger.income`, so the LITERAL invariant `state.player.money === sum(ledger.income) - sum(ledger.expense)` holds by construction — there is no synthetic `MoneyEarned{amount: 250, source: IncomeSource.Other, sourceRefId: "starting_allowance"}` to dispatch. UI layers must NOT add such a dispatch (re-introducing it would double-credit the seed); if you need the seed row's id for compatibility with the existing `MoneyEarned` reducer's id-keyed dedup, it is the literal string `"seed"`.
 
 - - `dispatch(draft: EventDraft)` is the standard wiring for a UI user-action — it stamps the event, writes it to the store, AND runs reduce. Note: `appendEvent` writes to the store without running reduce. Use `loop.dispatch` whenever you want both the store entry AND the `WorldState` update. Its signature *must* match `appendEvent`'s signature exactly, otherwise cross-file inference breaks and TS rejects literal drafts.
 - `advanceMonth()` is the canonical month-rollover path — don't hand-roll `MonthAdvanced` from the UI layer. The loop updates the module-level `currentTick` via `setCurrentTick(nextY * 12 + nextM)`. Both `setCurrentTick(ts)` and `getCurrentTick()` are also **exported public helpers** (from `sim/events/appendEvent.ts`) — any code path can read or write the tick, but production code should reach for `loop.advanceMonth()` first.
