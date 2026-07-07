@@ -7,6 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-07
+
+### Added
+- **Tracker-music player (`.MOD` / `.XM` / `.IT` / `.S3M`)** — full chiptune3 AudioWorklet integration end-to-end:
+  - `electron/main.ts` IPC: `music:import-files` (native file picker + SHA-256 de-dup into `userData/music/<hash>.<ext>`), `music:read-file` (Uint8Array over IPC), `music:delete-file`, `music:init-worklet` (copies bundled worklet scripts into `userData/worklets/` on first use). Every file-serving handler rejects path traversal (`..`, `\\`, leading slashes).
+  - Custom privileged `worklet://` scheme registered via `protocol.registerSchemesAsPrivileged` before `app.whenReady()`, served through `protocol.handle()` mapping to `userData/worklets/` so the renderer can call `audioContext.audioWorklet.addModule('worklet:///chiptune3.worklet.js')` same-origin. The `will-navigate` allow-list now permits the new scheme alongside `file://`.
+  - `electron/preload.ts` exposes a typed surface (`importMusicFiles`, `readMusicFile`, `deleteMusicFile`, `getWorkletUrl`); `electron/settings.ts` schema bumped v1 → v2 with a new `music.playlist[]` field that persists `{storedName, displayName, format, size}` and auto-migrates pre-0.3.0 settings files.
+  - `package.json` `build.extraResources` copies `node_modules/chiptune3/chiptune3.worklet.js` and `libopenmpt.worklet.js` into `process.resourcesPath/worklets/` for the packaged build.
+  - `src/audio/trackerPlayer.ts` — singleton with `init() / play() / pause() / next() / prev() / setVolume() / setShuffle() / setRepeat() / importFiles() / clearPlaylist() / removeAt()`, strict `RepeatMode = 'off' | 'all' | 'one'`, exported `MusicFile` type. `formatDetection.ts` maps AudioWorklet metadata to a human-readable format label.
+  - `src/hooks/useTrackerPlayer.ts` — subscription hook so any component can read live transport state.
+  - `src/components/MusicPlayer.tsx` — floating "Now Playing" bar pinned to the bottom of the viewport with full transport (prev / play-pause / next), volume slider + mute, color-coded format badge, progress strip, autoplay-block hint, and an idle compact `♪ MUSIC` button when the library is empty.
+  - `src/components/PlaylistManager.tsx` — portal-rendered modal for import / shuffle / repeat-mode cycle / per-track remove / clear-all, with empty-state, error banner, format-color tags, and ESC-to-close.
+  - New dependency: `chiptune3 ^0.8.7`.
+- **Data migration to JSON + Zod validation** — all sim data moved out of hand-maintained `sim/data/*.ts` modules into typed JSON packs under `data/`:
+  - 15 JSON packs: `bbs_threads`, `effects`, `groups`, `hardware`, `jobs`, `manifest`, `parties`, `platforms`, `productions`, `research`, `rival_releases`, `sceners`, `software`, `sponsorships`, plus `data/manifest.json` declaring `version`, schema, and the pack list.
+  - `scripts/migrate_data_to_json.ts` + `npm run migrate:data` regenerates the JSON from any source-of-truth TypeScript.
+  - `src/content/ContentLoader.ts` + `ContentStore.ts` + `useContentStore.ts` + `schema.ts` — manifest-driven loader, Zod-validated, with a React hook that re-emits on pack reload.
+  - `sim/__tests__/data_migration.smoke.ts` — pins the round-trip invariant `migrate(load(sourceTs)) === load(targetJson)` across every pack. New `npm run test:migration` script; `test:all` now runs it.
+  - New dependency: `zod ^4.4.3`.
+- **DevTools surface (`src/devtools/`)** — opt-in dev-only editor shell:
+  - `DevModeContext` (toggled via `?dev=1` URL param or env flag) gates the menu.
+  - `DevMenu.tsx` — floating control to open editors.
+  - `EditorShell.tsx` — generic scaffold (header, save / cancel, undo / redo).
+  - `useUndo.ts` — capped-history undo / redo.
+  - `editors/BbsEditor.tsx` + `editors/ScenerEditor.tsx` — first editors for the BBS thread list and scener roster.
+- **Multi-category scoring engine + Artistic Directions + Effect Synergies**:
+  - `sim/domain/scoring.ts` — pure `scoreProduction(production, crew, effects, profile)` returning a 7-category `ScoreBreakdown` (programming, graphics, music, originality, optimization, audience appeal, technical difficulty) plus 8 `Factor` contributions (skill / effect / synergy / direction / optimization / music-module / platform-fit / dev-time) and a single `overall` value.
+  - `sim/data/artisticDirections.ts` — 5 directions (`Technical Showcase`, `Artistic`, `Experimental`, `Oldschool`, `Music-Driven`), each with a multi-category weighting and a small set of preferred synergy tags.
+  - `sim/data/effectSynergies.ts` — declarative synergy table (id, name, description, required tags, score bonus). `EffectSynergy` exported from `@packages/types`.
+  - `sim/data/judgingProfiles.ts` — per-party judging weights consumed by the competition-prediction code.
+  - `packages/types/src/demo.ts` — new exported types: `ArtisticDirection`, `OptimizationFocus`, `DemoDuration`, `EffectSynergy`, `ScoreBreakdown`, `DemoSummary`, `CompetitionPrediction`, plus `ARTISTIC_DIRECTIONS` / `OPTIMIZATION_FOCUSES` / `DEMO_DURATIONS` display-order arrays. Legacy `DemoEffect` fields (`cpuCost`, `ramCostKb`, `difficulty`, `originality`, `audienceAppeal`) are retained for back-compat; the new fields (`complexity`, `visualImpact`, `compatiblePlatforms`, `synergyTags`, `researchRequired`) feed the expanded scoring engine.
+  - `sim/data/demoEffects.ts` — every effect enriched with the new metadata so the scoring engine has data to consume from day one.
+- **DemoSummary modal (`src/components/DemoSummary.tsx`)** — portal-rendered report shown right after the compiler finishes: production metadata strip, overall-score hero, 7-category score-bar grid, 8-tile factor-contribution grid, triggered-synergy list, effect pill list, music-track row, top-5 competition predictions per upcoming party, awards-earned grid, and a procedural judge-comment list. Fixed tailwind token palette (cyan / rose / amber / violet / emerald / pink / yellow) matching the 4k-aesthetic.
+- **Expanded BBS message catalog (`sim/data/bbsMessages.ts`)** — additional era-themed quote lines available to the BBS reply / recruit paths.
+
+### Changed
+- **`package.json`** — bumped `0.2.0` → `0.3.0`. New dependencies: `chiptune3 ^0.8.7`, `zod ^4.4.3`. New scripts: `migrate:data`, `test:migration`. `test:all` now also runs `test:migration`.
+- **`electron/settings.ts`** — schema version bumped 1 → 2 with a new `music` block (empty playlist on read for v1 files). New `getMusicPlaylist()` / `setMusicPlaylist()` accessors.
+- **`src/App.tsx`** — wires the new music player + playlist modal into the root, mounts `<MusicPlayer>` once at the App root so the bar survives tab navigation, opens `<PlaylistManager>` on demand, calls the player's `init()` on mount (idempotent), and propagates the `audioContextSuspended` flag to the resume-hint UI.
+- **`index.html`** — `<title>` updated from the AI-Studio default (`"My Google AI Studio App"`) to `"Demoscene Simulator"`.
+- **`README.md`** — removed the AI-Studio provenance line. The description of v0.2.0 features is preserved as the historical baseline; v0.3.0 features live in `CHANGELOG.md`.
+- **`.env.example`** — rewording for the Electron + Vite split: `GEMINI_API_KEY` documents both first-run Electron prompt and the Vite dev export; `APP_URL` is now described as an optional override.
+- **`.gitignore`** — added a comment explaining the electron-builder `release/` ignore block; `dist-electron/` was already excluded.
+- **`docs/architecture.md`** — minor wording fix in the `apps/server/` row.
+
+### Fixed
+- **TypeScript `import.meta.env` types** — `src/vite-env.d.ts` declares `import.meta.env.VITE_*` so `tsc --noEmit` recognises those references (fixes a CI failure introduced when the capture pipeline began reading `import.meta.env`).
+- **`npm run test:all` chain** — now includes the new `test:migration` step so a broken migration halts CI instead of silently passing.
+- **Electron `will-navigate` allow-list** — the new `worklet://` scheme is explicitly permitted alongside `file://` in production so the AudioWorklet `addModule` call doesn't trip the sandbox-escape guard.
+
 ## [0.2.0] - 2026-07-07
 
 ### Added
