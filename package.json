@@ -7,7 +7,7 @@
   "description": "A demoscene life-sim spanning 1985-2005. Recruit sceners, research effects, compile demos, and compete at parties.",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
-    "dev:electron": "concurrently -k -n vite,electron -c cyan,magenta \"cross-env VITE_DEV_SERVER_URL=http://localhost:3000 vite --port=3000 --host=0.0.0.0\" \"wait-on http://localhost:3000 && electron .\"",
+    "dev:electron": "concurrently -k -n vite,electron,host -c cyan,magenta,yellow \"cross-env VITE_DEV_SERVER_URL=http://localhost:3000 vite --port=3000 --host=0.0.0.0\" \"wait-on http://localhost:3000 dist-electron/preload.cjs && cross-env VITE_DEV_SERVER_URL=http://localhost:3000 electron .\" \"vite build -c electron.vite.config.ts --watch\"",
     "build": "vite build",
     "build:electron": "vite build -c electron.vite.config.ts",
     "build:all": "vite build && vite build -c electron.vite.config.ts",

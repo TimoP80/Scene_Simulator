@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`npm run dev:electron` did not build the Electron host before launching** — the script was just `concurrently vite + electron .`, so `electron .` loaded `package.json`'s `main` field (`dist-electron/main.cjs`) which never existed on a fresh checkout. The renderer would load from Vite, but the Electron main process would either fail to start or launch with a missing preload, leaving `window.electronAPI` undefined. That made the music player (and every other Electron-bridged feature) trip the "requires Electron host" error in `src/audio/trackerPlayer.ts::init`. Now the script also runs `vite build -c electron.vite.config.ts --watch` in a third concurrent process, and `wait-on` blocks the Electron launch until both the Vite dev server and the freshly-built `dist-electron/preload.cjs` are ready. The host-watcher keeps `main.cjs` / `preload.cjs` up to date on subsequent `electron/*` edits; reload the window (Ctrl+R / Cmd+R) to pick up host changes (Electron itself does not auto-reload the preload in this setup).
+
 ## [0.3.0] - 2026-07-07
 
 ### Added
