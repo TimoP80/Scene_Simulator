@@ -323,12 +323,21 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
   // Headless capture hook — exposes the rendered canvas + a resize()
   // helper to the page context so scripts/capture-preview.mjs (driving
   // puppeteer-core) can grab the canvas reference and target a specific
-  // release-friendly resolution before snapshotting. No-op in production
-  // Electron builds; persists for the lifetime of the component (NOT
-  // cleaned up on unmount) so double-mount under React.StrictMode does
-  // not race with the capture script's waitForFunction poll.
+  // release-friendly resolution before snapshotting.
+  //
+  // Gated on dev mode (`import.meta.env.PROD === false`) so production
+  // Electron builds do NOT expose the canvas ref + isPlaying state on
+  // window — any DevTools user could otherwise call
+  // `window.__CAPTURE__.resize(...)` to mess with the renderer. The
+  // capture pipeline runs against the `vite dev` build, so this gate is
+  // safe (dev builds are what `npm run capture:preview` drives).
+  //
+  // Persists for the lifetime of the component (NOT cleaned up on
+  // unmount) so double-mount under React.StrictMode does not race with
+  // the capture script's waitForFunction poll.
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (import.meta.env.PROD) return;
     const target = window as unknown as {
       __CAPTURE__?: {
         canvas: HTMLCanvasElement | null;
