@@ -71,7 +71,9 @@ console.log("\nScenario 1: appendEvent alone — store-only path");
   const loop = freshLoop();
 
   let stamped: SimEvent | undefined;
-  check("snapshot().player.money starts at 250 (the seed)", () => {
+  // v0.2.0 inversion: seed lives in emptyWorldState() so money === 250
+  // out-of-the-box without a bootstrap dispatch.
+  check("snapshot().player.money is 250 (seed baked into emptyWorldState())", () => {
     assert.equal(loop.snapshot().player.money, 250);
   });
 
@@ -192,6 +194,8 @@ console.log("\nScenario 3: loop.dispatch({...draft}) — the correct UI handler"
 
 {
   const loop2 = freshLoop();
+  // v0.2.0 inversion: seed lives in emptyWorldState() so starting balance
+  // is already 250 without a bootstrap dispatch.
   const startingMoney2 = loop2.snapshot().player.money;
 
   loop2.dispatch({
