@@ -36,6 +36,25 @@ export interface BaseEvent {
 
 // --- Player economy ---------------------------------------------------------
 
+/**
+ * Emitted exactly ONCE per run, at NEW GAME (MainMenu's `onNewGame` -> App.tsx
+ * `handleNewGame` -> `loop.dispatch`). After this event lands, every
+ * projection / UI surface that needs the player's handle or crew name should
+ * read it from WorldState derived from the event log — NOT from a useState
+ * primitive mirrored in App.tsx.
+ *
+ * Invariant: the reducer MUST be idempotent on this event id (a stale-snapshot
+ * re-dispatch should be a no-op), and SHOULD short-circuit when handle +
+ * groupName already match — App.tsx's local useState mirror can fire the same
+ * identity-set on every New Game and we want neither the ledger nor any
+ * downstream re-projection noise.
+ */
+export interface PlayerIdentitySetEvent extends BaseEvent {
+  type: "PlayerIdentitySet";
+  handle: string;
+  groupName: string;
+}
+
 export interface MoneyChangedEvent extends BaseEvent {
   type: "MoneyChanged";
   delta: number;
@@ -283,6 +302,7 @@ export interface TravelSubscriptionChangedEvent extends BaseEvent {
 // --- Discriminated union ----------------------------------------------------
 
 export type SimEvent =
+  | PlayerIdentitySetEvent
   | MoneyChangedEvent
   | ReputationChangedEvent
   | ResearchPointsChangedEvent

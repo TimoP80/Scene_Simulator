@@ -1,0 +1,104 @@
+# .github/workflows/ci.yml
+#
+# Demoscene Simulator CI — runs the full gate on every push to `main` and on
+# every PR. The gate is:
+#   1. `npm ci` to lock the dep tree (npm install lockfile-aware)
+#   2. `npm run lint`         → `tsc --noEmit` — type errors block the build
+#   3. `npm run test:all`     → every `sim/__tests__/*` smoke test runner
+#   4. `npm run audit:docs`   → doc-vs-export parity check
+#   5. `npm run build`        → `vite build` for the renderer entry
+#
+# The capture pipeline (`capture:preview`) is intentionally NOT part of
+# the CI gate — it requires system Chrome and a writable `build/` dir,
+# and is opt-in via the dedicated manual `nightly` workflow (see below).
+
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+# Cancel a previous in-flight run for the same PR when a new commit
+# lands — saves the runner budget on noisy PRs.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: tsc + smoke + audit + vite build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: tsc --noEmit (npm run lint)
+        run: npm run lint
+
+      - name: Audit docs (sim exports ↔ docs/prompts references)
+        run: npm run audit:docs
+
+      - name: Run every smoke test (npm run test:all)
+        run: npm run test:all
+
+      - name: vite build (renderer)
+        run: npm run build
+
+  # Manual opt-in workflow for the capture pipeline. Requires a Linux
+  # runner that has system Chrome installed; the default ubuntu-latest
+  # ships WITHOUT Chrome, so we skip the capture job on the regular gate
+  # and let release engineers trigger it manually when they need to
+  # refresh `build/preview.{png,webm,gif}`.
+  capture-preview:
+    name: capture:preview (manual, requires system Chrome)
+    runs-on: ubuntu-latest
+    needs: gate
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      # Install system Chrome from the snap store. The capture script
+      # auto-discovers it via PUPPETEER_EXECUTABLE_PATH.
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
+          echo "PUPPETEER_EXECUTABLE_PATH=$(which chromium-browser)" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Capture preview PNG + WebM (skip GIF for CI determinism)
+        run: npm run capture:preview:no-gif
+
+      - name: Upload capture artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: v0.2.0-preview
+          path: |
+            build/preview.png
+            build/preview.webm
+          if-no-files-found: error
+          retention-days: 14
