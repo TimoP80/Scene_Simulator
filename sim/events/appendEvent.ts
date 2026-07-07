@@ -74,6 +74,18 @@ import type {
 } from "@packages/types";
 
 export const emit = {
+  /**
+   * Sets the player's handle + crew group name. The reducer in
+   * sim/engine/reducer.ts writes both fields into WorldState.player; the
+   * emission point is App.tsx's `handleNewGame` (after MainMenu dispatches
+   * `onNewGame(handle, groupName)`). App.tsx is mid-migration: the local
+   * `setPlayerHandle` / `setPlayerGroupName` useState mirror is still the
+   * path the rest of the UI tree reads, but the truth lives in the event log
+   * and the SimulationLoop snapshot. See the TODO(dynamic-name) comment that
+   * has now been replaced in sim/engine/reducer.ts.
+   */
+  playerIdentitySet: (handle: string, groupName: string) =>
+    appendEvent({ type: "PlayerIdentitySet", ts: currentTick, handle, groupName }),
   moneyChanged: (delta: number, reason: string) =>
     appendEvent({ type: "MoneyChanged", ts: currentTick, delta, reason }),
   reputationChanged: (delta: number, reason: string) =>

@@ -319,6 +319,34 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
     id = requestAnimationFrame(run);
     return () => cancelAnimationFrame(id);
   }, [isPlaying, effects, demoName, groupName]);
+
+  // Headless capture hook — exposes the rendered canvas + a resize()
+  // helper to the page context so scripts/capture-preview.mjs (driving
+  // puppeteer-core) can grab the canvas reference and target a specific
+  // release-friendly resolution before snapshotting. No-op in production
+  // Electron builds; persists for the lifetime of the component (NOT
+  // cleaned up on unmount) so double-mount under React.StrictMode does
+  // not race with the capture script's waitForFunction poll.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const target = window as unknown as {
+      __CAPTURE__?: {
+        canvas: HTMLCanvasElement | null;
+        isPlaying: () => boolean;
+        resize: (width: number, height: number) => void;
+      };
+    };
+    target.__CAPTURE__ = {
+      canvas: canvasRef.current,
+      isPlaying: () => isPlaying,
+      resize: (width: number, height: number) => {
+        const c = canvasRef.current;
+        if (!c) return;
+        c.width = width;
+        c.height = height;
+      },
+    };
+  }, [isPlaying]);
   useEffect(() => {
     if (!audioEnabled || !isPlaying) {
       if (synthIntervalRef.current) {
@@ -422,6 +450,7 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
           style={{ aspectRatio: "4/3" }}
         >
           <canvas
+            id="capture-target-canvas"
             ref={canvasRef}
             width={360}
             height={270}

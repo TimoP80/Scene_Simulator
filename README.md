@@ -17,6 +17,28 @@ A **hybrid simulation + narrative system** that models a living demoscene ecosys
 
 This project simulates the culture, drama, creativity, and technical evolution of the demoscene as a living system rather than a traditional management game.
 
+## 📸 Screenshots & Captures
+
+> v0.1.0 shipped with an SVG mockup of the in-game CRT demo screen. v0.2.0
+> added a real `puppeteer-core` capture pipeline that renders the released
+> `<DemoScreen>` against a hero effect preset (raster bars + starfield +
+> plasma + pixel fire + vector cube + tunnel + sine scroller) and writes
+> PNG + WebM + GIF under `build/`:
+
+| Asset | Path | How to refresh |
+| --- | --- | --- |
+| Single-frame PNG | `build/preview.png` | `npm run capture:preview` |
+| 6-second 30fps WebM | `build/preview.webm` | `npm run capture:preview` |
+| 30-second 24fps GIF | `build/preview.gif` | `npm run capture:preview` (omit with `--no-gif`) |
+| 1920x1080 hi-res PNG | `build/preview.png` (override width) | `npm run capture:preview:hi-res` |
+
+Pre-requisites the capture script needs and your machine must provide:
+
+1. **System Chrome** (the script does not bundle one). The script searches `CHROME_PATH` / `PUPPETEER_EXECUTABLE_PATH`, then the standard Windows / macOS / Linux install paths.
+2. **`ffmpeg-static`** — auto-installed as a devDep (no system ffmpeg required). The pipeline uses it ONLY for the `webm → gif` palette-quantized pass; PNG + WebM emit even if ffmpeg is missing.
+
+Capture bootstrap loads the React tree with `/?capture=1` so the headless pipeline bypasses `<ApiKeyBootstrap>` and `<MainMenu>`. See [`src/preview/CapturePreview.tsx`](src/preview/CapturePreview.tsx) for the hero preset and [`scripts/capture-preview.mjs`](scripts/capture-preview.mjs) for the orchestration layer.
+
 ---
 
 ## 🧠 Core Design Philosophy
