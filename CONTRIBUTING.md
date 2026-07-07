@@ -54,9 +54,11 @@ Both `tsconfig.json` (`paths`) and `vite.config.ts` (`resolve.alias`) resolve th
 | `@sim/projections` | `sim/projections/`       |
 | `@sim/domain`     | `sim/domain/`             |
 | `@tools`          | `tools/`                  |
-| `@apps/ui`        | `apps/ui/`                |
-| `@apps/server`    | `apps/server/`            |
-| `@apps/llm`       | `apps/llm/`               |
+| `@apps/ui`        | `apps/ui/` (reserved — folder not yet present) |
+| `@apps/server`    | `apps/server/` (reserved — folder not yet present) |
+| `@apps/llm`       | `apps/llm/` (reserved — folder not yet present) |
+
+> **Note on `@apps/*`:** the aliases are pre-declared in `tsconfig.json` and `vite.config.ts` so v0.3.0+ can introduce a third app layer (`apps/ui` for the React app, `apps/server` for the future multiplayer relay, `apps/llm` for the LLM-proxy shim) without a tsconfig migration. **Do not** create these folders or add files there in v0.2.x — the three-layer rule in `docs/architecture.md` is the active rule, and the only `apps`-layer equivalent right now is `/src/**` + `/electron/**`.
 
 If you ever see `./types` or `./data` imports reaching into `src/`, that's a pre-migration leftover and must be migrated to `@packages/types` / `@sim/data`.
 
