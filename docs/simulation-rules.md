@@ -73,6 +73,8 @@ loop.dispatch({
 loop.dispatch(/* seed NPC hire events */);
 ```
 
+> **Note (post-v0.2.0):** The `$250` starting allowance is **already** part of `emptyWorldState()` — `player.money = 250` plus a matching `IncomeLedgerEntry` row in `ledger.income` (`id: "seed"`, year 1985, month 1, `source: IncomeSource.Other`, `sourceRefId: "starting_allowance"`). The literal invariant `state.player.money === sum(ledger.income) - sum(ledger.expense)` holds by construction across every consumer — production paths, smoke tests, replay runs, projections — so the bootstrap is single-source-of-truth. UI handlers (including the App.tsx `SIM_LOOP_BOOTSTRAP` `useEffect`) MUST NOT dispatch a synthetic `MoneyEarned{amount: 250, source: IncomeSource.Other, sourceRefId: "starting_allowance"}` to credit the seed; doing so would double-credit the seed row and break the invariant. If you need the seed-allowance ledger row in a new test or replay harness, dispatch the income via M1 with a matching `id: "seed"`, or simply rely on `emptyWorldState()`'s baked-in row.
+
 ### DO document intentional reducer no-ops
 
 ```ts
@@ -196,6 +198,34 @@ onClick={() => loop.dispatch({
   reason: "rent",
 })}
 ```
+
+### DO NOT dispatch the bootstrap seed ($250) from a UI layer / autosave path
+
+```ts
+// ❌ Wrong — /sim owns the bootstrap seed. emptyWorldState() already ships
+//        player.money = 250 AND a matching IncomeLedgerEntry row in
+//        ledger.income. A UI/autosave/llm dispatch of the canonical
+//        synthetic deposit would double-credit the seed and break the
+//        literal invariant `state.player.money === sum(ledger.income) -
+//        sum(ledger.expense)`. This applies even when the dispatch looks
+//        "defensive" (e.g. on autosave rehydrate, on MainMenu reopen).
+onClick={() => loop.dispatch({
+  type: "MoneyEarned",
+  ts: getCurrentTick(),
+  amount: 250,
+  source: IncomeSource.Other,
+  sourceRefId: "starting_allowance",
+})}
+
+// ✅ Right — construct a loop and the seed is already there. The literal
+//        invariant holds by construction across every consumer (production,
+//        smoke tests, replay runs, projections) without any UI-side dispatch.
+const loop = new SimulationLoop({ initial: emptyWorldState(), onTick, ... });
+// loop.snapshot().player.money === 250
+// loop.snapshot().economy.ledger.income[0].id === "seed"
+```
+
+> ⚠️ If you genuinely need to dispatch a `MoneyEarned` carrying the seed amount (e.g. for a replay harness that does not start from `emptyWorldState()`), use `id: "seed"` so `MoneyEarned`'s id-keyed dedup short-circuits against the baked-in row. Any other `id` (even with the same amount/source) will NOT dedup and will silently double-credit.
 
 `SimulationLoop.dispatch` is the only place where UI events connect to the reducer's view-update path. `appendEvent` is the layer-1 primitive; UI handlers always call `.dispatch()`.
 

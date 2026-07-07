@@ -33,7 +33,7 @@ If a contributor violates this, the fix is to move the file into the layer it be
 | Folder       | Purpose                                                                                            |
 | ------------ | -------------------------------------------------------------------------------------------------- |
 | `events/`    | Discriminated union of every gameplay event. `appendEvent()` is the single sanctioned entry point. |
-| `engine/`    | `reduce(state, event)` pure reducer + `SimulationLoop` tick scheduler.                             |
+| `engine/`    | `reduce(state, event)` pure reducer + `SimulationLoop` tick scheduler. Owns `emptyWorldState()` — the canonical bootstrap shape including the `$250` starting-allowance ledger row (id `"seed"`) so the literal ledger invariant holds by construction without any UI-layer dispatch. |
 | `data/`      | Static / seed data (`HISTORICAL_PLATFORMS`, `INITIAL_NPCS`, `PARTY_CALENDAR`, …).                  |
 | `projections/`| Read-only view-models derived from `WorldState` that the UI layer consumes. *(currently stubbed)* |
 | `domain/`    | Per-domain helpers (npc, bbs, demo, party, reputation rule logic). *(currently stubbed)*           |
@@ -113,3 +113,11 @@ A change is **NOT mergeable** if it:
 6. Uses the naive `Omit<SimEvent, "id" | "reducedAt">` anywhere — that flattens the discriminated union and TS gets angry. Always use `EventDraft` (`DistributeOmit`).
 
 If you break an invariant, the regression that surfaces will be subtle (StaleState / StrictMode double-fire / data-loss on resume). Run `docs/simulation-rules.md` before submitting a change.
+
+## Bootstrap ownership (post-v0.2.0)
+
+`/sim` owns the bootstrap seed. Concretely:
+
+- `sim/engine/reducer.ts::emptyWorldState()` ships `player.money = 250` AND a matching `IncomeLedgerEntry` row in `ledger.income` (id `"seed"`, year 1985, month 1, `source: IncomeSource.Other`, `sourceRefId: "starting_allowance"`). The literal invariant `state.player.money === sum(ledger.income) - sum(ledger.expense)` holds by construction — every consumer (production App.tsx, smoke tests, replay runs, projections) reads the same canonical state.
+- `/apps/**` MUST NOT credit the seed via a synthetic dispatch. If a UI handler, autosave rehydrate path, or LLM-driven tool tries to dispatch `MoneyEarned{amount: 250, source: IncomeSource.Other, sourceRefId: "starting_allowance"}` to "top up" the allowance, it will double-credit the seed row and break the invariant. `MoneyEarned`'s reducer case already dedups by `event.id` (so an accidental `MoneyEarned{id: "seed", ...}` would short-circuit harmlessly) but other shapes (different `id`, same amount/source) are NOT protected.
+- Seed-policy enforcement is **architectural** (single source in `/sim`), not enforced by the type system. The concrete process rule — what to grep for, what to flag in a PR review — lives in `simulation-rules.md`'s DO NOT list (see the "DO NOT dispatch the bootstrap seed (`$250`) from a UI layer / autosave path" entry).
