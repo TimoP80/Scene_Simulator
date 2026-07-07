@@ -15,6 +15,7 @@
  */
 
 import {
+  IncomeSource,
   PlatformId,
   TravelSubscriptionTier,
   type ActiveJob,
@@ -84,10 +85,26 @@ export interface WorldState {
    * Economy slice — hardware inventory, software inventory, freelance job
    * board, income/expense ledger, and travel subscription details.
    *
-   * Invariant: `state.player.money === sum(ledger.income) - sum(ledger.expense)`
-   * is maintained by the reducer for MoneyEarned / MoneySpent events.
-   * MoneyChanged and the legacy `BurnoutReduced -> MoneyChanged` flow
-   * continue to work alongside; both paths clamp balance >= 0.
+   * Bootstrap seeds `player.money = 250` AND a matching synthetic
+   * `IncomeLedgerEntry` row in `ledger.income` so the LITERAL invariant
+   *
+   *      state.player.money === sum(ledger.income) - sum(ledger.expense)
+   *
+   * holds by construction across every consumer (production App.tsx
+   * bootstrap, smoke tests, replay runs, projections, /apps/ui mirrors).
+   * The seed lives inside `emptyWorldState()` itself — the bootstrap path
+   * across /sim and /apps/ui is therefore single-source-of-truth.
+   *
+   * Post-bootstrap, every change to `state.player.money` either:
+   *   1. lands in the ledger via the M1 double-store pattern (MoneyEarned
+   *      / MoneySpent), OR
+   *   2. is a `MoneyChanged` delta which carries its own accounting
+   *      (debited without a ledger row).
+   *
+   * `MoneyEarned`'s reducer case dedups by `event.id`, so a duplicate
+   * `MoneyEarned{amount: 250, source: IncomeSource.Other, ...}` with id
+   * `"seed"` would short-circuit against the baked-in seed row — the
+   * invariant is preserved end-to-end through replay too.
    */
   economy: {
     ledger: {
@@ -117,16 +134,26 @@ export function emptyWorldState(): WorldState {
   return {
     meta: { startedAt: new Date().toISOString(), scenario: "custom" },
     player: {
+      // Seed $250 lives INSIDE `emptyWorldState()` along with the matching
+      // `IncomeLedgerEntry` row in `economy.ledger.income` below. The
+      // LITERAL invariant
+      //   `state.player.money === sum(ledger.income) - sum(ledger.expense)`
+      // holds by construction; no bootstrap dispatch is needed anywhere
+      // in /apps/ui or in /sim smoke tests. See the `economy` slice
+      // doc-comment for the cross-cutting rationale.
       money: 250,
       reputation: 20,
       researchPoints: 30,
       handle: "AssemblyKid",
-      // TODO(dynamic-name): this default is hardcoded so the seed
-      // bootstraps before the player has typed a name in MainMenu.
-      // Once the UI reads world state from the event-sourced store
-      // (instead of hydrating directly via setPlayerGroupName),
-      // route this through the same "Tricycle Crews" -> playerGroupName
-      // rebind the App-level useEffects already perform.
+      // Bootstrap default applied ONLY for the brief seed window BEFORE
+      // MainMenu dispatches a `PlayerIdentitySet` event. Once a fresh game
+      // begins, the dispatch in App.tsx's `handleNewGame` lands BOTH
+      // handle + groupName into the event log AND into WorldState.player
+      // through the reducer case below. Post-`PlayerIdentitySet`, the
+      // event log is the source of truth — `state.player.groupName` is
+      // derived from it like every other projection, and the legacy UI
+      // `setPlayerGroupName` useState mirror in App.tsx is best-effort for
+      // pre-migration consumers only.
       groupName: "Tricycle Crews",
       activePlatform: PlatformId.C64,
       ownedRigs: [PlatformId.C64],
@@ -147,7 +174,28 @@ export function emptyWorldState(): WorldState {
       lastRepPrize: 0,
     },
     economy: {
-      ledger: { income: [], expense: [] },
+      // Synthetic $250 starting-allowance row, baked into `emptyWorldState()`
+      // so the literal ledger invariant
+      //   `state.player.money === sum(ledger.income) - sum(ledger.expense)`
+      // holds by construction. `id: "seed"` is a stable literal so a
+      //   `MoneyEarned` event carrying the same id would dedup against
+      //   this row (the reducer case short-circuits via id-keyed match).
+      // `year` / `month` align with the smoke-test canonical NOW_TS
+      // (`1985 * 12 + 1`) so the ledger's first row decodes to the same
+      // (1985, 1) grid cell as a MoneyEarned dispatched at NOW_TS.
+      ledger: {
+        income: [
+          {
+            id: "seed",
+            year: 1985,
+            month: 1,
+            amount: 250,
+            source: IncomeSource.Other,
+            sourceRefId: "starting_allowance",
+          },
+        ],
+        expense: [],
+      },
       hardware: [],
       software: [],
       jobs: { active: [], templatesAvailable: [] },
@@ -165,6 +213,28 @@ export function emptyWorldState(): WorldState {
 
 export function reduce(state: WorldState, event: SimEvent): WorldState {
   switch (event.type) {
+    case "PlayerIdentitySet": {
+      // Idempotency-on-event-id isn't enough here (MainMenu could legitimately
+      // re-fire the same name on Continue -> New Game cycles); idempotency on
+      // the (handle, groupName) pair is also important because the App.tsx
+      // local useState mirror calls setPlayerHandle/setPlayerGroupName in
+      // lock-step with the dispatch. Short-circuit on either axis so a
+      // double-fire doesn't churn downstream projections.
+      if (
+        state.player.handle === event.handle &&
+        state.player.groupName === event.groupName
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        player: {
+          ...state.player,
+          handle: event.handle,
+          groupName: event.groupName,
+        },
+      };
+    }
     case "MoneyChanged":
       return {
         ...state,

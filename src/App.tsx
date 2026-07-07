@@ -11,8 +11,7 @@
 // seed lookups, so we do not pass-through these constants through a projection.
 // ============================================================================
 import React, { useState, useEffect, useRef } from "react";
-import {
-  PlatformId,
+import {PlatformId,
   EraId,
   SkillType,
   SpecialtyType,
@@ -31,7 +30,7 @@ import {
   SocialNodeType,
   BBSThread,
   BBSInfoType,
-  BBSMessage
+  BBSMessage,
 } from "@packages/types";
 import {
   HISTORICAL_PLATFORMS,
@@ -611,6 +610,19 @@ export default function App() {
     });
     simulationLoopRef.current = loop;
 
+    // Synthetic seed deposit (v0.2.0 invariant reconciliation, picked
+    // via UAT): every NEW GAME credits the player's starting allowance as
+    // an  MoneyEarned entry. With 
+    // shipping , this synthetic dispatch is the only
+    // thing that credits the bootstrap cash. The literal invariant
+    //   
+    // now holds end-to-end; see sim/engine/reducer.ts's economy slice
+    // doc comment. StrictMode's double-mount fires this twice (matching
+    // the existing ScenarioLoaded double-fire bug already TODO'd here) —
+    // a future IdempotentBootstrap helper would gate both via event.id
+    // dedup. The MoneyEarned reducer's dedup is on event.id only, so two
+    // live dispatches produce two ledger rows (see docs/event-sourcing.md
+    // "never loop.dispatch(emit.*(...))"). Tests that rely on a stable
     // Seed event-log with a ScenarioLoaded marker (DRAFT form per
     // docs/event-sourcing.md "Pattern A"). Without this the loop's
     // appendEvent log would be forever empty: no UI handler dispatches.
@@ -1484,7 +1496,21 @@ export default function App() {
     }, 350);
   };
 
-  const awardPartyContestPoints = (competitors: any[], tallyScores: Record<string, number>) => {
+  /**
+   * Rivals + the player entry as projected by startPartyVotingProcess.
+   * Kept local because the rival-rendering shape doesn't have a named
+   * type in @packages/types — the projection is enough for the
+   * placement / award party logic and is consumed only here.
+   */
+  interface RivalEntry {
+    id: string;
+    name: string;
+    group: string;
+    title: string;
+    isPlayer: boolean;
+    score: number;
+  }
+  const awardPartyContestPoints = (competitors: RivalEntry[], tallyScores: Record<string, number>) => {
     // Sort entrants based on tally scores
     const sorted = [...competitors].sort((a, b) => (tallyScores[b.id] || 0) - (tallyScores[a.id] || 0));
     const playerIndex = sorted.findIndex((c) => c.isPlayer);
@@ -1833,7 +1859,7 @@ export default function App() {
             sourceType: "npc",
             target: npcId,
             targetType: "npc",
-            type: "collaboration" as any,
+            type: "collaboration" as SocialEdgeType,
             weight: 85,
             details: "Official signed joint release contract."
           }
@@ -2978,9 +3004,30 @@ export default function App() {
   // --------- MAIN-MENU HANDLERS ---------
   // New Game: dismiss splash and apply the player-supplied identity.
   const handleNewGame = (handle: string, groupName: string) => {
+    // Event-sourced hydrate (v0.2.0): stamp the player's identity into the
+    // append-only event log AND into WorldState.player.* via the reducer
+    // case for `PlayerIdentitySet`. The reducer case short-circuits when
+    // (handle, groupName) already match, so a fast double-click on LAUNCH
+    // BBS never re-derives projections. App.tsx's local useState mirror
+    // below stays for pre-migration consumers (bbsThreads / graphNodes
+    // rebind effects); the SOURCE OF TRUTH is now `loop.snapshot().player`.
+    //
+    // We tolerate a null `simulationLoopRef.current` by using optional
+    // chaining — StrictMode's double-mount tear-down can briefly null
+    // the ref between effects. The bootstrap useEffect re-creates the
+    // loop on remount, so a transient-null dispatch is functionally a
+    // pure useState update, with the loop catching up on the next mount.
+    simulationLoopRef.current?.dispatch({
+      type: "PlayerIdentitySet",
+      ts: getCurrentTick(),
+      handle,
+      groupName,
+    });
     setPlayerHandle(handle);
     setPlayerGroupName(groupName);
     setShowMainMenu(false);
+    setSaveNotice(`IDENTITY SET · ${handle.toUpperCase()} OF ${groupName.toUpperCase()}`);
+    setTimeout(() => setSaveNotice(""), 2400);
   };
 
   // Continue: dismiss splash -- the autosave-hydration effect below
@@ -4831,7 +4878,7 @@ export default function App() {
 
                           {/* Chat Bubbles space */}
                           <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                            {th.messages.map((m: any, idx: number) => {
+                            {th.messages.map((m: BBSMessage, idx: number) => {
                               const isPlayer = m.sender === playerHandle;
                               return (
                                 <div key={idx} className={`p-2 rounded border leading-relaxed ${
@@ -4857,7 +4904,7 @@ export default function App() {
                               <span className="text-[10px] text-amber-400 font-extrabold tracking-widest block uppercase">DECISION OPTIONS: CHOOSE YOUR FORUM RESPONSE</span>
                               
                               <div className="grid grid-cols-1 gap-2">
-                                {th.choices.map((choice: any, idx: number) => (
+                                {th.choices.map((choice: BBSThread["choices"][number], idx: number) => (
                                   <button
                                     key={idx}
                                     id={`bbs-choice-${idx}`}
