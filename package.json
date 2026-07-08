@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.3.1",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "description": "A demoscene life-sim spanning 1985-2005. Recruit sceners, research effects, compile demos, and compete at parties.",
@@ -24,7 +24,8 @@
     "test:economics": "tsx sim/__tests__/economicsView.smoke.ts",
     "test:replay": "tsx sim/__tests__/appendOnlyReplayDeterminism.smoke.ts",
     "test:migration": "tsx sim/__tests__/data_migration.smoke.ts",
-    "test:all": "npm run test:smoke && npm run test:audit-docs && npm run test:load-during-import && npm run test:economics && npm run test:replay && npm run test:migration",
+    "test:music": "tsx electron/__tests__/musicLibrary.smoke.ts",
+    "test:all": "npm run test:smoke && npm run test:audit-docs && npm run test:load-during-import && npm run test:economics && npm run test:replay && npm run test:migration && npm run test:music",
     "audit:docs": "node scripts/audit-docs.mjs",
     "capture:preview": "node scripts/capture-preview.mjs",
     "capture:preview:no-gif": "node scripts/capture-preview.mjs --no-gif",
