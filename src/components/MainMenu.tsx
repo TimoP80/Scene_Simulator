@@ -22,6 +22,8 @@ import {
   User,
   Flag,
   ArrowRight,
+  Music2,
+  Wrench,
 } from "lucide-react";
 
 interface MainMenuProps {
@@ -39,6 +41,20 @@ interface MainMenuProps {
   onLoadFromFile: (snapshot: unknown) => void;
   /** Current schema version the app was built against — shown in About. */
   schemaVersion: number;
+  /** Called when the user wants to open the tracker-music library. */
+  onOpenMusicLibrary?: () => void;
+  /** Number of tracks currently in the music library (badge). */
+  musicTrackCount?: number;
+  /**
+   * Called when the player clicks the DEV TOOLS toolbar button. Toggles
+   * the global DevMode flag (which gates the DevMenu in DevModeContext).
+   */
+  onToggleDevMode?: () => void;
+  /**
+   * Reflects the current DevMode state. Renders the toolbar button with
+   * an "ON / OFF" affordance (orange pulse vs muted outline).
+   */
+  isDevMode?: boolean;
 }
 
 /**
@@ -62,6 +78,10 @@ export default function MainMenu({
   onContinue,
   onLoadFromFile,
   schemaVersion,
+  onOpenMusicLibrary,
+  musicTrackCount = 0,
+  onToggleDevMode,
+  isDevMode = false,
 }: MainMenuProps) {
   const [showAbout, setShowAbout] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -176,13 +196,18 @@ export default function MainMenu({
       if (k === "n") openIdentityForm();
       else if (k === "c" && hasLocalSave) onContinue();
       else if (k === "l") handleLoadClick();
+      else if (k === "m" && onOpenMusicLibrary) onOpenMusicLibrary();
+      // "d" / Ctrl-Cmd-Shift-D hotkey is handled globally in App.tsx so
+      // we don't capture it here — see App.tsx keydown effect. Removing
+      // this branch avoids double-toggling when the main-menu action
+      // list has focus.
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // handleLoadClick closes over refs, so we keep this stable by depending
     // on the boolean flags only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAbout, showIdentityForm, hasLocalSave]);
+  }, [showAbout, showIdentityForm, hasLocalSave, onOpenMusicLibrary]);
 
   // Dedicated ESC handler for the Identity form so it remains reachable
   // even though the global shortcuts useEffect early-returns when
@@ -263,7 +288,7 @@ export default function MainMenu({
               {hasLocalSave ? "READY" : "EMPTY"}
             </span>
           </span>
-          <span className="text-[#71717a]">CTRL: N / C / L</span>
+          <span className="text-[#71717a]">CTRL: N / C / L / D</span>
         </div>
       </div>
 
@@ -469,6 +494,28 @@ export default function MainMenu({
           <span className="text-[10px] tracking-widest text-[#d8b4fe]/80">[ L ]</span>
         </button>
 
+        <button
+          id="btn-music-library"
+          onClick={onOpenMusicLibrary}
+          className="group flex items-center justify-between gap-3 px-5 py-4 rounded border-2 border-[#22d3ee] bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 active:scale-[0.98] transition shadow-[0_0_16px_rgba(34,211,238,0.3)] hover:shadow-[0_0_24px_rgba(34,211,238,0.55)]"
+        >
+          <span className="flex items-center gap-3">
+            <Music2 className="w-5 h-5 text-[#22d3ee]" />
+            <span className="font-bold text-[15px] tracking-[0.2em] text-[#22d3ee]">
+              MUSIC LIBRARY
+            </span>
+            {musicTrackCount > 0 && (
+              <span
+                className="px-1.5 py-0.5 rounded text-[9px] font-extrabold tracking-widest bg-[#22d3ee]/20 text-[#22d3ee] border border-[#22d3ee]/40"
+                title={`${musicTrackCount} track${musicTrackCount === 1 ? "" : "s"} loaded`}
+              >
+                {musicTrackCount} TRK
+              </span>
+            )}
+          </span>
+          <span className="text-[10px] tracking-widest text-[#67e8f9]/80">[ M ]</span>
+        </button>
+
         {loadError && (
           <div
             id="load-error-banner"
@@ -486,6 +533,46 @@ export default function MainMenu({
           onChange={handleFileChange}
           className="hidden"
         />
+
+        {onToggleDevMode && (
+          <button
+            id="btn-toggle-dev-mode"
+            onClick={onToggleDevMode}
+            aria-pressed={isDevMode}
+            title={
+              isDevMode
+                ? "Dev mode is on — click to disable (or press Ctrl/Cmd+Shift+D later)"
+                : "Enable dev tools (opens the content editor panel — Ctrl/Cmd+Shift+D)"
+            }
+            className={`group flex items-center justify-between gap-3 px-5 py-4 rounded border-2 transition active:scale-[0.98] ${
+              isDevMode
+                ? "border-[#fb923c] bg-[#fb923c]/15 hover:bg-[#fb923c]/30 shadow-[0_0_18px_rgba(251,146,60,0.4)]"
+                : "border-[#3f3f46]/80 bg-[#18181b]/40 hover:bg-[#27272a]/80 hover:border-[#fb923c]/50"
+            }`}
+          >
+            <span className="flex items-center gap-3">
+              <Wrench
+                className={`w-5 h-5 ${isDevMode ? "text-[#fb923c]" : "text-[#a1a1aa]"}`}
+              />
+              <span
+                className={`font-bold text-[15px] tracking-[0.2em] ${
+                  isDevMode ? "text-[#fb923c]" : "text-[#d4d4d8]"
+                }`}
+              >
+                {isDevMode ? "DEV MODE IS ON" : "DEV TOOLS"}
+              </span>
+              {isDevMode && (
+                <span
+                  className="px-1.5 py-0.5 rounded text-[9px] font-extrabold tracking-widest bg-[#fb923c]/25 text-[#fb923c] border border-[#fb923c]/50"
+                  title="Click again to disable"
+                >
+                  ON
+                </span>
+              )}
+            </span>
+            <span className="text-[10px] tracking-widest text-[#71717a]">[ D ]</span>
+          </button>
+        )}
 
         <button
           id="btn-toggle-about"

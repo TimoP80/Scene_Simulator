@@ -8,8 +8,19 @@
  *   1. Window lifecycle (create / activate / quit-on-all-closed).
  *   2. Load the renderer from Vite dev server (DEV) or from disk (PROD).
  *   3. Expose IPC handlers used by `electron/preload.ts` to read/write
- *      the user-scoped settings file (currently just the Gemini API
- *      key). We never shell out or hit the network from here.
+ *      the user-scoped settings file (Gemini key + music library) and
+ *      to import / read tracker-module files.
+ *
+ * Removed in this revision: the `worklet://` custom-scheme plumbing.
+ * The renderer used to call `await window.electronAPI.getWorkletUrl()`
+ * → main copied chiptune3's two worklet files into `userData/worklets/`
+ * and served them via `protocol.handle('worklet', ...)`. That fell
+ * apart in Electron 42 with `addModule()` rejecting the multi-hop
+ * static `import './libopenmpt.worklet.js'` chain — "Unable to load a
+ * worklets module" even after we patched `Content-Type`. The fix
+ * (scripts/bundle-worklet.mjs) concatenates both files into a single
+ * Vite-served asset at `public/worklets/openmpt.bundled.worklet.js`,
+ * served at the document's same-origin URL.
  *
  * SECURITY:
  *   - sandbox: true              - the renderer cannot touch Node directly
@@ -22,9 +33,17 @@
  * dist paths resolve correctly.
  */
 
-import { app, BrowserWindow, ipcMain, shell, Menu } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, shell, Menu } from 'electron';
 import { fileURLToPath } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, join, extname } from 'node:path';
+import { createHash } from 'node:crypto';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  unlinkSync,
+} from 'node:fs';
 // extensionless so Vite's default resolver (which doesn't include `.cjs`
 // in `resolve.extensions`) finds `./settings.ts`. Rollup then inlines
 // settings into `main.cjs` rather than emitting a sibling chunk.
@@ -50,10 +69,51 @@ if (!gotLock) {
 const DEV_URL = process.env.VITE_DEV_SERVER_URL ?? 'http://localhost:3000';
 const IS_DEV = !app.isPackaged;
 
-// `app.getAppPath()` resolves to the project root in dev and the asar root
-// in prod. For prod we want `.../resources/app.asar/dist/index.html`.
+// ---- paths -------------------------------------------------------------------
+
+/** `userData` for the running app. */
+function userDataPath(): string {
+  return app.getPath('userData');
+}
+
+/** Folder for the music library (one file per imported track). */
+function musicDir(): string {
+  return join(userDataPath(), 'music');
+}
+
+/** `app.getAppPath()` resolves to the project root in dev and the asar root in prod. */
 function rendererIndexPath(): string {
   return join(__dirname, '..', 'dist', 'index.html');
+}
+
+// ---- music-library helpers ---------------------------------------------------
+
+const SUPPORTED_EXTS = new Set(['.mod', '.xm', '.it', '.s3m']);
+
+function sha256(buffer: Buffer): string {
+  return createHash('sha256').update(buffer).digest('hex').slice(0, 32);
+}
+
+function formatFromExtension(filename: string): 'MOD' | 'XM' | 'IT' | 'S3M' | 'OTHER' {
+  const ext = extname(filename).toLowerCase();
+  switch (ext) {
+    case '.mod':
+      return 'MOD';
+    case '.xm':
+      return 'XM';
+    case '.it':
+      return 'IT';
+    case '.s3m':
+      return 'S3M';
+    default:
+      return 'OTHER';
+  }
+}
+
+function stripExtension(filename: string): string {
+  const dot = filename.lastIndexOf('.');
+  if (dot <= 0) return filename;
+  return filename.slice(0, dot);
 }
 
 // ---- window creation ---------------------------------------------------------
@@ -116,7 +176,6 @@ function createMainWindow(): BrowserWindow {
 
   if (IS_DEV) {
     void win.loadURL(DEV_URL);
-    // DevTools is opt-in. We don't auto-open it to keep first-run tidy.
   } else {
     void win.loadFile(rendererIndexPath());
   }
@@ -134,10 +193,6 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle('settings:get-api-key', async () => {
-    // Returned to the renderer ONLY for in-memory use, never written
-    // to disk there. The trust boundary is what follows: the renderer
-    // gets the secret, but live-Devtools exposure is a known risk the
-    // user accepted by choosing "ask once, persist on disk".
     return settingsStore.getGeminiKey();
   });
 
@@ -155,6 +210,116 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('settings:clear-api-key', async () => {
     settingsStore.clearGeminiKey();
+    return true;
+  });
+
+  // ----- music library -------------------------------------------------------
+
+  /**
+   * Open the native file picker (filtered to .mod/.xm/.it/.s3m) and
+   * copy each chosen file into `userData/music/<sha256>.<ext>`.
+   * Returns the lightweight MusicFile[] entries. Files whose bytes
+   * already exist under that hash are de-duped automatically.
+   */
+  ipcMain.handle('music:import-files', async () => {
+    if (!mainWindow) throw new Error('No window available for file picker');
+    const picks = await dialog.showOpenDialog(mainWindow, {
+      title: 'Add tracker music to your library',
+      buttonLabel: 'Add to library',
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: 'Tracker modules', extensions: ['mod', 'xm', 'it', 's3m'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (picks.canceled || picks.filePaths.length === 0) return [];
+
+    mkdirSync(musicDir(), { recursive: true });
+    const imported: Array<{
+      storedName: string;
+      displayName: string;
+      format: 'MOD' | 'XM' | 'IT' | 'S3M' | 'OTHER';
+      size: number;
+    }> = [];
+    const existingPlaylist = settingsStore.getMusicPlaylist();
+    const existingHashes = new Set(
+      existingPlaylist.map((p) => p.storedName.split('.')[0])
+    );
+
+    for (const srcPath of picks.filePaths) {
+      const ext = extname(srcPath).toLowerCase();
+      if (!SUPPORTED_EXTS.has(ext)) continue;
+      const buf = readFileSync(srcPath);
+      const hash = sha256(buf);
+      const storedName = `${hash}${ext}`;
+      const destPath = join(musicDir(), storedName);
+      if (!existsSync(destPath)) {
+        copyFileSync(srcPath, destPath);
+      } else {
+        existingHashes.add(hash);
+      }
+      // Skip if already in the playlist (by storedName).
+      if (existingPlaylist.some((p) => p.storedName === storedName)) continue;
+      const filename = srcPath.split(/[\\/]/).pop() ?? `track${ext}`;
+      imported.push({
+        storedName,
+        displayName: stripExtension(filename),
+        format: formatFromExtension(filename),
+        size: buf.length,
+      });
+    }
+    if (imported.length > 0) {
+      settingsStore.setMusicPlaylist([...existingPlaylist, ...imported]);
+    }
+    return imported;
+  });
+
+  /**
+   * Read a stored music file's bytes. Returns a Uint8Array for the
+   * renderer to feed into the AudioWorklet. Throws if the file is
+   * missing (the user may have wiped userData/ externally).
+   */
+  ipcMain.handle('music:read-file', async (_event, storedName: unknown) => {
+    if (typeof storedName !== 'string' || !storedName) {
+      throw new Error('music:read-file expects a non-empty string');
+    }
+    // Reject path traversal — `storedName` must be a flat filename.
+    if (storedName.includes('/') || storedName.includes('\\') || storedName.includes('..')) {
+      throw new Error('music:read-file: invalid stored name');
+    }
+    const full = join(musicDir(), storedName);
+    if (!existsSync(full)) {
+      throw new Error(`Music file no longer on disk: ${storedName}`);
+    }
+    const buf = readFileSync(full);
+    // Return as Uint8Array — Electron serialises the underlying buffer
+    // efficiently across the IPC bridge.
+    return new Uint8Array(buf);
+  });
+
+  /**
+   * Remove a stored music file from both disk and the playlist.
+   * Returns true on success. If the file is the currently-playing
+   * track, the renderer is responsible for stopping playback first
+   * (this handler is destructive and synchronous).
+   */
+  ipcMain.handle('music:delete-file', async (_event, storedName: unknown) => {
+    if (typeof storedName !== 'string' || !storedName) return false;
+    if (storedName.includes('/') || storedName.includes('\\') || storedName.includes('..')) {
+      return false;
+    }
+    const full = join(musicDir(), storedName);
+    if (existsSync(full)) {
+      try {
+        unlinkSync(full);
+      } catch {
+        // Best-effort; continue even if the FS delete fails.
+      }
+    }
+    const playlist = settingsStore
+      .getMusicPlaylist()
+      .filter((p) => p.storedName !== storedName);
+    settingsStore.setMusicPlaylist(playlist);
     return true;
   });
 }

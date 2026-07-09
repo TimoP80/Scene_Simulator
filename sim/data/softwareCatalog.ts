@@ -107,7 +107,7 @@ export const SOFTWARE_CATALOG: SoftwareOffering[] = [
     type: "image_editor",
     releaseYear: 1998,
     purchasePrice: 280,
-    effectUnlocks: ["procedural_textures" as string, "cloth_physics"],
+    effectUnlocks: ["domain_warp_field", "cloth_physics"],
     description:
       "Limited Photoshop release with bundled Kodak CMS. Used by intro crews to author texture sets for shaders.",
   },

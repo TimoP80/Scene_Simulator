@@ -7,5 +7,6 @@ coverage/
 .env*
 !.env.example
 dist-electron/
+# electron-builder output (NSIS installers, portable EXEs, blockmaps, latest.yml, win-unpacked/)
 release/
 nul

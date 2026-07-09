@@ -5,14 +5,16 @@
  * DemoScreen — two complementary surfaces:
  *
  *   1. <DemoScreen/>  : the small inline CRT monitor card used in the
- *                       WORKSPACE tab. Unchanged behavior plus a new
- *                       "Fullscreen" button in the toolbar that opens…
+ *                       WORKSPACE tab.
  *
  *   2. <FullscreenDemoView/> : a portal-rendered immersive overlay
  *                       (mounted on document.body) that takes the same
- *                       effects/demoName/groupName props and renders them
- *                       at native fullscreen resolution. Closes on ESC,
- *                       'F' again, or by clicking the EXIT button.
+ *                       effects/demoName/groupName/musicTrackStoredName/
+ *                       audioEnabled/isPlaying props (audioEnabled and
+ *                       isPlaying are LIFTED from App.tsx so the
+ *                       fullscreen overlay preserves the inline toggle
+ *                       state when the user opens the overlay
+ *                       mid-session).
  *
  * Both render their own canvas with requestAnimationFrame loops. They
  * are intentionally NOT synchronised to the millisecond — they are
@@ -20,6 +22,16 @@
  * the same scene. That decoupling keeps the fullscreen player deployable
  * as a standalone React tree and avoids sharing animation state across
  * portals.
+ *
+ * AUDIO:
+ *   The previous inline Web-Audio chip-tune synthesiser was removed.
+ *   Audio playback now defers to the singleton `trackerPlayer` engine,
+ *   so the user's imported tracker module (.mod/.xm/.it/.s3m) plays in
+ *   the upper-left "NOW PLAYING" badge during demo playback — matching
+ *   the production's `musicTrackStoredName`. The toggle in the toolbar
+ *   is a master enable/disable on top of the tracker engine, not a
+ *   synthesizer switch. The toggle handler is owned by App.tsx so the
+ *   two DemoScreen surfaces share state.
  */
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
@@ -33,19 +45,46 @@ import {
   Maximize2,
   Minimize2,
   X,
+  Music2,
+  Disc3,
 } from "lucide-react";
+import { trackerPlayer } from "../audio/trackerPlayer";
+import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 
 interface DemoScreenProps {
   effects: string[]; // List of effect IDs to enable
   demoName?: string;
   groupName?: string;
+  /**
+   * storedName of the tracker track attached to the production currently
+   * rendered in the CRT monitor. When set, DemoScreen auto-plays the
+   * matching playlist entry via the shared trackerPlayer engine.
+   *
+   * Empty string or undefined = no track attached → tracker is paused.
+   */
+  musicTrackStoredName?: string;
+  /**
+   * Lifted from App.tsx — master audio enable on top of the tracker
+   * engine. Owned at the App level so the fullscreen overlay preserves
+   * the inline toggle state across mount transitions.
+   */
+  audioEnabled: boolean;
+  /**
+   * Lifted from App.tsx — animation play/pause for the canvas frame
+   * loop. Same rationale as audioEnabled: the fullscreen overlay
+   * should not snap the user's play/pause choice back to a default.
+   */
+  isPlaying: boolean;
+  /** Toggle `audioEnabled`. Owned by App.tsx (useCallback wrapper). */
+  onToggleAudio: () => void;
+  /** Toggle `isPlaying`. Owned by App.tsx (useCallback wrapper). */
+  onTogglePlay: () => void;
 }
 
 // ---------------------------------------------------------------------------
 // Shared effect painter — keeps the inline + fullscreen canvases visually
 // identical without forcing them to share a single animation tree.
 // ---------------------------------------------------------------------------
-type AnyAudioCtx = AudioContext;
 
 function paintDemoFrame(
   ctx: CanvasRenderingContext2D,
@@ -97,8 +136,7 @@ function paintDemoFrame(
     }
   }
 
-  // 3. TRIGONOMETRIC SINE PLASMA — cheaper at native res by using a
-  //    larger grid step in the fullscreen variant.
+  // 3. TRIGONOMETRIC SINE PLASMA
   if (effects.includes("animated_plasma")) {
     const gridSize = Math.max(4, Math.floor(width / 240));
     for (let x = 0; x < width; x += gridSize) {
@@ -108,21 +146,17 @@ function paintDemoFrame(
         const cx = x - width / 2;
         const cy = y - height / 2;
         const v3 = Math.sin(Math.sqrt(cx * cx + cy * cy) * 0.04 - f * 0.08);
-
         const v = (v1 + v2 + v3) / 3;
         const r = Math.floor((Math.sin(v * Math.PI) + 1) * 127);
         const g = Math.floor((Math.sin(v * Math.PI + (2 * Math.PI) / 3) + 1) * 127);
         const b = Math.floor((Math.sin(v * Math.PI + (4 * Math.PI) / 3) + 1) * 127);
-
         ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.35)`;
         ctx.fillRect(x, y, gridSize, gridSize);
       }
     }
   }
 
-  // 4. RETRO DOOM PIXEL FIRE — uses a per-instance scratch Uint8Array
-  //    threaded through the `scratch` parameter so two simultaneous
-  //    surfaces do not race on a global buffer.
+  // 4. RETRO DOOM PIXEL FIRE
   if (effects.includes("pixel_fire")) {
     const fireWidth = 80;
     const fireHeight = 50;
@@ -214,7 +248,7 @@ function paintDemoFrame(
     });
   }
 
-  // 6. TUNNEL / VOXEL / RAYMARCH (concentric rings)
+  // 6. TUNNEL / VOXEL / RAYMARCH
   if (effects.includes("tunnel_effect") || effects.includes("voxel_hills") || effects.includes("raymarching_3d")) {
     const cx = width / 2;
     const cy = height / 2;
@@ -279,18 +313,152 @@ function paintDemoFrame(
 
 
 // ---------------------------------------------------------------------------
+// Small "NOW PLAYING" badge — lives in the upper-left corner of the CRT
+// canvas. Four modes:
+//   - active  : playlist match + engine playing
+//   - armed   : match but engine paused/idle/error (button → resumeAudioContext)
+//   - none    : no track selected
+//   - stale   : storedName pointer points at a track removed from the library
+// ---------------------------------------------------------------------------
+function MusicBadge({
+  musicTrackStoredName,
+  audioEnabled,
+  onToggleAudio,
+}: {
+  musicTrackStoredName: string | undefined;
+  audioEnabled: boolean;
+  onToggleAudio: () => void;
+}) {
+  const trackerState = useTrackerPlayer();
+  const match = musicTrackStoredName
+    ? trackerState.playlist.find((t) => t.storedName === musicTrackStoredName)
+    : undefined;
+  const isThisOne =
+    trackerState.currentTrack?.storedName === musicTrackStoredName;
+  const playing = audioEnabled && trackerState.status === "playing" && isThisOne;
+
+  if (musicTrackStoredName && !match) {
+    const staleAria = `Music track unavailable: stored name ${musicTrackStoredName} was removed from the playlist.`;
+    return (
+      <div
+        id="music-badge-stale"
+        role="status"
+        aria-live="polite"
+        aria-label={staleAria}
+        className="px-2 py-1 rounded border border-[#ef4444] bg-[#ef4444]/15 text-[10.5px] font-mono tracking-widest text-[#fca5a5] backdrop-blur-sm pointer-events-auto cursor-default max-w-[260px]"
+        title={staleAria}
+      >
+        <Disc3 className="inline w-3 h-3 mr-1 align-text-top" />
+        ♫ TRACK_STALE · removed from library
+      </div>
+    );
+  }
+
+  if (playing && match) {
+    const activeAria = `Now playing: ${match.displayName}, ${match.format} tracker module, via chiptune3 AudioWorklet.`;
+    return (
+      <div
+        id="music-badge-active"
+        role="status"
+        aria-live="polite"
+        aria-label={activeAria}
+        className="px-2 py-1 rounded border border-[#4ade80] bg-[#4ade80]/15 text-[10.5px] font-mono tracking-widest text-[#4ade80] backdrop-blur-sm pointer-events-auto flex items-center gap-1.5 max-w-[260px] shadow-[0_0_10px_rgba(74,222,128,0.45)]"
+        title={activeAria}
+      >
+        <span className="w-1.5 h-1.5 rounded-full bg-[#4ade80] animate-pulse" />
+        <Music2 className="w-3 h-3" />
+        <span className="font-extrabold truncate">{match.displayName}</span>
+        <span className="text-[#a1a1aa] truncate">{match.format}</span>
+      </div>
+    );
+  }
+
+  if (match) {
+    const armedAria = `Enable audio to play ${match.displayName}, ${match.format} tracker module.`;
+    return (
+      <button
+        id="music-badge-armed"
+        type="button"
+        onClick={onToggleAudio}
+        aria-label={armedAria}
+        className="px-2 py-1 rounded border border-[#fb923c] bg-[#fb923c]/15 text-[10.5px] font-mono tracking-widest text-[#fb923c] backdrop-blur-sm pointer-events-auto cursor-pointer hover:bg-[#fb923c]/30 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#fb923c] focus-visible:ring-offset-2 focus-visible:ring-offset-black transition flex items-center gap-1.5 max-w-[260px]"
+        title={armedAria}
+      >
+        <VolumeX className="w-3 h-3" />
+        <span className="font-extrabold truncate">{match.displayName}</span>
+        <span className="text-[#a1a1aa] truncate">{match.format}</span>
+        <span className="text-[#fdba74]">· TAP TO PLAY</span>
+      </button>
+    );
+  }
+
+  const noneAria = "No music track attached to this production. Open the MUSIC menu to pick one from your library.";
+  return (
+    <div
+      id="music-badge-none"
+      role="status"
+      aria-label={noneAria}
+      className="px-2 py-1 rounded border border-[#3f3f46] bg-[#18181b]/70 text-[10.5px] font-mono tracking-widest text-[#a1a1aa] backdrop-blur-sm pointer-events-none max-w-[260px]"
+      title={noneAria}
+    >
+      <Music2 className="inline w-3 h-3 mr-1 align-text-top text-[#71717a]" />
+      ♫ NO TRACK · open MUSIC menu to pick one
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tracker playback hook — used by both inline + fullscreen surfaces.
+// Resolves musicTrackStoredName to a playlist index and drives the engine.
+// The deps are exactly (audioEnabled, isPlaying, musicTrackStoredName) so
+// re-renders caused by other props/effects don't restart playback. The
+// playlist is read at call-time so importing/deleting other tracks
+// elsewhere does NOT cause a re-init.
+// ---------------------------------------------------------------------------
+function useTrackerPlayback(
+  musicTrackStoredName: string | undefined,
+  audioEnabled: boolean,
+  isPlaying: boolean,
+): void {
+  useEffect(() => {
+    if (!audioEnabled || !isPlaying || !musicTrackStoredName) {
+      trackerPlayer.pause();
+      return;
+    }
+    const idx = trackerPlayer
+      .getState()
+      .playlist.findIndex((t) => t.storedName === musicTrackStoredName);
+    if (idx < 0) {
+      trackerPlayer.pause();
+      return;
+    }
+    void trackerPlayer.resumeAudioContext().then(() => {
+      void trackerPlayer.play(idx);
+    });
+  }, [audioEnabled, isPlaying, musicTrackStoredName]);
+}
+
+// ---------------------------------------------------------------------------
 // Inline (card) view
 // ---------------------------------------------------------------------------
 
-export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupName = "CREW" }: DemoScreenProps) {
+export default function DemoScreen({
+  effects = [],
+  demoName = "UNTITLED",
+  groupName = "CREW",
+  musicTrackStoredName,
+  audioEnabled,
+  isPlaying,
+  onToggleAudio,
+  onTogglePlay,
+}: DemoScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  // audioEnabled + isPlaying are LIFTED to App.tsx so the fullscreen
+  // overlay preserves the inline toggle state. Both surfaces read the
+  // same lifted props; toggles call back into App.tsx via useCallback
+  // wrappers.
   const [scanlines, setScanlines] = useState(true);
   const [isFullscreenOpen, setIsFullscreenOpen] = useState(false);
-
-  const audioContextRef = useRef<AnyAudioCtx | null>(null);
-  const synthIntervalRef = useRef<any>(null);
 
   const frameRef = useRef(0);
   const scratchRef = useRef({
@@ -299,7 +467,7 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
     firePixels: new Uint8Array(80 * 50),
   });
 
-  // Use same shared painter to keep behavior consistent.
+  // Frame painter loop.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -320,8 +488,8 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
     return () => cancelAnimationFrame(id);
   }, [isPlaying, effects, demoName, groupName]);
 
-  // Headless capture hook — exposes the rendered canvas + a resize()
-  // helper to the page context so scripts/capture-preview.mjs (driving
+  // Headless capture hook — exposes the rendered canvas + a resize() helper
+  // to the page context so scripts/capture-preview.mjs (driving
   // puppeteer-core) can grab the canvas reference and target a specific
   // release-friendly resolution before snapshotting.
   //
@@ -331,10 +499,6 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
   // `window.__CAPTURE__.resize(...)` to mess with the renderer. The
   // capture pipeline runs against the `vite dev` build, so this gate is
   // safe (dev builds are what `npm run capture:preview` drives).
-  //
-  // Persists for the lifetime of the component (NOT cleaned up on
-  // unmount) so double-mount under React.StrictMode does not race with
-  // the capture script's waitForFunction poll.
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (import.meta.env.PROD) return;
@@ -356,86 +520,29 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
       },
     };
   }, [isPlaying]);
-  useEffect(() => {
-    if (!audioEnabled || !isPlaying) {
-      if (synthIntervalRef.current) {
-        clearInterval(synthIntervalRef.current);
-        synthIntervalRef.current = null;
-      }
-      return;
-    }
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const actx = new AudioCtx() as AnyAudioCtx;
-      audioContextRef.current = actx;
 
-      const scale = [130.81, 146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
-      let step = 0;
-      synthIntervalRef.current = setInterval(() => {
-        if (!actx || actx.state === "suspended") return;
-        const time = actx.currentTime;
-        const bassNode = actx.createOscillator();
-        const bassGain = actx.createGain();
-        bassNode.type = "sawtooth";
-        const baseNote = step % 16 < 8 ? scale[1] / 2 : scale[3] / 2;
-        bassNode.frequency.setValueAtTime(baseNote, time);
-        bassGain.gain.setValueAtTime(0.12, time);
-        bassGain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
-        bassNode.connect(bassGain);
-        bassGain.connect(actx.destination);
-        bassNode.start(time);
-        bassNode.stop(time + 0.35);
+  useTrackerPlayback(musicTrackStoredName, audioEnabled, isPlaying);
 
-        if (step % 2 === 0) {
-          const arpOsc = actx.createOscillator();
-          const arpGain = actx.createGain();
-          const scaleIndex = (step * 3 + (step % 4 === 0 ? 2 : 0)) % scale.length;
-          arpOsc.type = "square";
-          arpOsc.frequency.setValueAtTime(scale[scaleIndex], time);
-          arpGain.gain.setValueAtTime(0.06, time);
-          arpGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.15);
-          arpOsc.connect(arpGain);
-          arpGain.connect(actx.destination);
-          arpOsc.start(time);
-          arpOsc.stop(time + 0.2);
-        }
-        if (step % 4 === 2) {
-          const snareOsc = actx.createOscillator();
-          const snareGain = actx.createGain();
-          snareOsc.type = "triangle";
-          snareOsc.frequency.setValueAtTime(800, time);
-          snareOsc.frequency.exponentialRampToValueAtTime(100, time + 0.08);
-          snareGain.gain.setValueAtTime(0.2, time);
-          snareGain.gain.exponentialRampToValueAtTime(0.001, time + 0.09);
-          snareOsc.connect(snareGain);
-          snareGain.connect(actx.destination);
-          snareOsc.start(time);
-          snareOsc.stop(time + 0.1);
-        }
-        step++;
-      }, 140);
-    } catch (e) {
-      console.error("Web Audio API failed: ", e);
-    }
-    return () => {
-      if (synthIntervalRef.current) {
-        clearInterval(synthIntervalRef.current);
-        synthIntervalRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-    };
-  }, [audioEnabled, isPlaying]);
-
-  const toggleAudio = () => setAudioEnabled((prev) => !prev);
   const openFullscreen = () => setIsFullscreenOpen(true);
   const closeFullscreen = useCallback(() => setIsFullscreenOpen(false), []);
 
   return (
     <>
+      {isFullscreenOpen &&
+        createPortal(
+          <FullscreenDemoView
+            effects={effects}
+            demoName={demoName}
+            groupName={groupName}
+            musicTrackStoredName={musicTrackStoredName}
+            audioEnabled={audioEnabled}
+            isPlaying={isPlaying}
+            onToggleAudio={onToggleAudio}
+            onTogglePlay={onTogglePlay}
+            onClose={closeFullscreen}
+          />,
+          document.body
+        )}
       <div
         id="retro-demoscreen"
         className="relative flex flex-col bg-[#18181b] border-2 border-[#3f3f46] shadow-[0_0_35px_rgba(34,211,238,0.15)] rounded-md p-3.5 select-none overflow-hidden"
@@ -475,6 +582,16 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
             <div className="pointer-events-none absolute inset-0 z-40 bg-[linear-gradient(rgba(18,22,34,0)_50%,rgba(0,0,0,0.3)_50%)] bg-[size:100%_4px]" />
           )}
           <div className="pointer-events-none absolute inset-0 z-30 bg-gradient-to-tr from-white/0 via-white/2 to-white/8" />
+
+          {/* Upper-left "NOW PLAYING" badge — production's musicTrackStoredName. */}
+          <div className="absolute top-2 left-2 z-30">
+            <MusicBadge
+              musicTrackStoredName={musicTrackStoredName}
+              audioEnabled={audioEnabled}
+              onToggleAudio={onToggleAudio}
+            />
+          </div>
+
           {effects.length === 0 && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-[#09090b]/95 text-center text-[#a1a1aa] font-mono">
               <span className="text-[#ef4444] animate-pulse text-sm font-bold tracking-widest mb-1.5">
@@ -492,7 +609,7 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
           <div className="flex items-center gap-1.5">
             <button
               id="btn-play-pause"
-              onClick={() => setIsPlaying(!isPlaying)}
+              onClick={onTogglePlay}
               className={`p-1.5 rounded transition active:scale-95 cursor-pointer ${
                 isPlaying
                   ? "bg-[#facc15]/10 text-[#facc15] hover:bg-[#facc15]/20 border border-[#facc15]/30"
@@ -505,16 +622,16 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
 
             <button
               id="btn-toggle-sound"
-              onClick={toggleAudio}
+              onClick={onToggleAudio}
               className={`p-1.5 rounded transition flex items-center gap-1.5 active:scale-95 cursor-pointer text-[10.5px] font-bold ${
                 audioEnabled
-                  ? "bg-[#818cf8]/15 text-[#818cf8] animate-pulse border border-[#818cf8]/40"
+                  ? "bg-[#a855f7]/15 text-[#c084fc] animate-pulse border border-[#a855f7]/40"
                   : "bg-[#27272a]/60 text-[#71717a] border border-[#3f3f46]/30"
               }`}
-              title="Toggle Tracker synthesizer output loops"
+              title={audioEnabled ? "Pause the tracker music playback" : "Resume playback of the production's music track"}
             >
               {audioEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-              <span>{audioEnabled ? "AUDIO SYNTH: LIVE" : "SYNTH OFF"}</span>
+              <span>{audioEnabled ? "TRACKER: LIVE" : "TRACKER OFF"}</span>
             </button>
 
             <button
@@ -541,17 +658,6 @@ export default function DemoScreen({ effects = [], demoName = "UNTITLED", groupN
           </div>
         </div>
       </div>
-
-      {isFullscreenOpen &&
-        createPortal(
-          <FullscreenDemoView
-            effects={effects}
-            demoName={demoName}
-            groupName={groupName}
-            onClose={closeFullscreen}
-          />,
-          document.body
-        )}
     </>
   );
 }
@@ -564,10 +670,29 @@ interface FullscreenDemoViewProps {
   effects: string[];
   demoName: string;
   groupName: string;
+  musicTrackStoredName?: string;
+  /** Lifted from App.tsx — see DemoScreenProps for rationale. */
+  audioEnabled: boolean;
+  /** Lifted from App.tsx — see DemoScreenProps for rationale. */
+  isPlaying: boolean;
+  /** Lifted from App.tsx — see DemoScreenProps for rationale. */
+  onToggleAudio: () => void;
+  /** Lifted from App.tsx — see DemoScreenProps for rationale. */
+  onTogglePlay: () => void;
   onClose: () => void;
 }
 
-function FullscreenDemoView({ effects, demoName, groupName, onClose }: FullscreenDemoViewProps) {
+function FullscreenDemoView({
+  effects,
+  demoName,
+  groupName,
+  musicTrackStoredName,
+  audioEnabled,
+  isPlaying,
+  onToggleAudio,
+  onTogglePlay,
+  onClose,
+}: FullscreenDemoViewProps) {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -578,9 +703,6 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
     firePixels: new Uint8Array(80 * 50),
   });
 
-  // Refs that always point at the LATEST version of each prop / callback so
-  // a single-mount keydown listener (see below) reads fresh values without
-  // re-binding on every render.
   const onCloseRef = useRef(onClose);
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -591,9 +713,6 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
     const el = containerRef.current;
     if (!el) return;
     if (!document.fullscreenElement) {
-      // Element.requestFullscreen() returns a Promise; we don't care about
-      // the rejection here — the 'fullscreenchange' event is the source
-      // of truth for fullscreen state.
       const p = (el as any).requestFullscreen?.();
       if (p && typeof (p as Promise<void>).catch === "function") {
         (p as Promise<void>).catch(() => undefined);
@@ -606,17 +725,13 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
     toggleBrowserFullscreenRef.current = toggleBrowserFullscreen;
   });
 
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [audioEnabled, setAudioEnabled] = useState(false);
+  // audioEnabled + isPlaying are LIFTED to App.tsx (read from props).
   const [scanlines, setScanlines] = useState(true);
   const [apiFullscreenActive, setApiFullscreenActive] = useState(false);
 
-  const audioContextRef = useRef<AnyAudioCtx | null>(null);
-  const synthIntervalRef = useRef<any>(null);
+  useTrackerPlayback(musicTrackStoredName, audioEnabled, isPlaying);
 
-  // Auto-hide cursor after 2.5s of inactivity. Drives the cursor through
-  // direct DOM mutation on the overlay <div> so we never re-render React
-  // on every mousemove.
+  // Auto-hide cursor after 2.5s of inactivity.
   useEffect(() => {
     let resetTimer: number | undefined;
     const wake = () => {
@@ -637,17 +752,11 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
     };
   }, []);
 
-  // Resize canvas to viewport. The internal canvas resolution matches the
-  // viewport pixel count so 1px in canvas == 1px on screen. The effects
-  // painter scales its elements based on canvas width/height — see
-  // paintDemoFrame for the relevant vector-cube and tunnnel-scaling
-  // branches.
+  // Resize canvas to viewport.
   useEffect(() => {
     const onResize = () => {
       const canvas = canvasRef.current;
       if (!canvas) return;
-      // Cap to 1600px width / 1200px height for performance on hi-dpi
-      // 4K monitors; CRT scanline filter still renders fine.
       const targetWidth = Math.min(1600, window.innerWidth);
       const targetHeight = Math.min(1200, window.innerHeight);
       const dpr = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
@@ -690,89 +799,12 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
     return () => cancelAnimationFrame(id);
   }, [isPlaying, effects, demoName, groupName]);
 
-  // Audio — same chip-tune pattern as the inline view.
-  useEffect(() => {
-    if (!audioEnabled || !isPlaying) {
-      if (synthIntervalRef.current) {
-        clearInterval(synthIntervalRef.current);
-        synthIntervalRef.current = null;
-      }
-      return;
-    }
-    try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const actx = new AudioCtx() as AnyAudioCtx;
-      audioContextRef.current = actx;
-      const scale = [130.81, 146.83, 164.81, 196.00, 220.00, 261.63, 293.66, 329.63, 392.00, 440.00];
-      let step = 0;
-      synthIntervalRef.current = setInterval(() => {
-        if (!actx || actx.state === "suspended") return;
-        const time = actx.currentTime;
-        const bassNode = actx.createOscillator();
-        const bassGain = actx.createGain();
-        bassNode.type = "sawtooth";
-        const baseNote = step % 16 < 8 ? scale[1] / 2 : scale[3] / 2;
-        bassNode.frequency.setValueAtTime(baseNote, time);
-        bassGain.gain.setValueAtTime(0.15, time);
-        bassGain.gain.exponentialRampToValueAtTime(0.001, time + 0.3);
-        bassNode.connect(bassGain);
-        bassGain.connect(actx.destination);
-        bassNode.start(time);
-        bassNode.stop(time + 0.35);
-
-        if (step % 2 === 0) {
-          const arpOsc = actx.createOscillator();
-          const arpGain = actx.createGain();
-          const scaleIndex = (step * 3 + (step % 4 === 0 ? 2 : 0)) % scale.length;
-          arpOsc.type = "square";
-          arpOsc.frequency.setValueAtTime(scale[scaleIndex], time);
-          arpGain.gain.setValueAtTime(0.08, time);
-          arpGain.gain.exponentialRampToValueAtTime(0.0001, time + 0.15);
-          arpOsc.connect(arpGain);
-          arpGain.connect(actx.destination);
-          arpOsc.start(time);
-          arpOsc.stop(time + 0.2);
-        }
-        if (step % 4 === 2) {
-          const snareOsc = actx.createOscillator();
-          const snareGain = actx.createGain();
-          snareOsc.type = "triangle";
-          snareOsc.frequency.setValueAtTime(800, time);
-          snareOsc.frequency.exponentialRampToValueAtTime(100, time + 0.08);
-          snareGain.gain.setValueAtTime(0.22, time);
-          snareGain.gain.exponentialRampToValueAtTime(0.001, time + 0.09);
-          snareOsc.connect(snareGain);
-          snareGain.connect(actx.destination);
-          snareOsc.start(time);
-          snareOsc.stop(time + 0.1);
-        }
-        step++;
-      }, 140);
-    } catch (e) {
-      console.error("Fullscreen audio failed: ", e);
-    }
-    return () => {
-      if (synthIntervalRef.current) {
-        clearInterval(synthIntervalRef.current);
-        synthIntervalRef.current = null;
-      }
-      if (audioContextRef.current) {
-        audioContextRef.current.close();
-        audioContextRef.current = null;
-      }
-    };
-  }, [audioEnabled, isPlaying]);
-
-  // Keyboard shortcuts (one-time mount, reads handlers through refs).
+  // Keyboard shortcuts (one-time mount; reads handlers via refs).
   //   F       : toggle browser-native fullscreen API
-  //   SPACE   : play / pause
+  //   SPACE   : play / pause (lifted → onTogglePlay)
   //   S       : toggle CRT scanlines
-  //   M       : toggle chip-tune synth
-  //   ESC     : close overlay (only preventDefault when NOT in browser-
-  //             native fullscreen — otherwise letting the browser handle
-  //             ESC triggers the native exit cleanly, while our onClose
-  //             still tears down the overlay afterwards)
+  //   M       : toggle tracker playback (lifted → onToggleAudio)
+  //   ESC     : close overlay
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -787,7 +819,7 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
       }
       if (e.key === " ") {
         e.preventDefault();
-        setIsPlaying((p) => !p);
+        onTogglePlay();
         return;
       }
       if (e.key === "s" || e.key === "S") {
@@ -797,16 +829,15 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
       }
       if (e.key === "m" || e.key === "M") {
         e.preventDefault();
-        setAudioEnabled((p) => !p);
+        onToggleAudio();
         return;
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onToggleAudio, onTogglePlay]);
 
-  // Track the Fullscreen API state so the on-screen toggle button shows
-  // the correct icon (Maximize / Minimize).
+  // Track the Fullscreen API state.
   useEffect(() => {
     const onChange = () => {
       setApiFullscreenActive(!!document.fullscreenElement);
@@ -840,10 +871,18 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
         <div className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(rgba(18,22,34,0)_50%,rgba(0,0,0,0.32)_50%)] bg-[size:100%_3px]" />
       )}
 
-      {/* Outer glass reflection */}
       <div className="pointer-events-none absolute inset-0 z-10 bg-gradient-to-tr from-white/0 via-white/2 to-white/8" />
 
-      {/* HUD text overlay: bottom-left running ticker */}
+      {/* Upper-left "NOW PLAYING" badge — same widget as the inline view. */}
+      <div className="absolute top-3 left-3 z-30">
+        <MusicBadge
+          musicTrackStoredName={musicTrackStoredName}
+          audioEnabled={audioEnabled}
+          onToggleAudio={onToggleAudio}
+        />
+      </div>
+
+      {/* HUD text overlay */}
       <div
         className="pointer-events-none absolute bottom-3 left-3 z-20 font-mono text-[10.5px] tracking-[0.18em] text-[#22d3ee]"
         style={{ textShadow: "0 0 6px rgba(34,211,238,0.65)" }}
@@ -869,14 +908,14 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
           ⌬ LIVE COMPILATION ⌬
         </div>
         <div className="text-[#71717a] text-[9px] mt-0.5">
-          [F] FULL · [SPACE] ⏯ · [S] SCAN · [M] MUTE · [ESC] EXIT
+          [F] FULL · [SPACE] ⏯ · [S] SCAN · [M] TRACKER · [ESC] EXIT
         </div>
       </div>
 
       {/* Control rail pinned to right side */}
       <div className="absolute top-1/2 right-3 -translate-y-1/2 z-30 flex flex-col gap-2 font-mono">
         <FullscreenCtrlBtn
-          onClick={() => setIsPlaying((p) => !p)}
+          onClick={onTogglePlay}
           isActive={isPlaying}
           activeColor="yellow"
           title={isPlaying ? "Pause rendering (SPACE)" : "Resume rendering (SPACE)"}
@@ -884,10 +923,10 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
           {isPlaying ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
         </FullscreenCtrlBtn>
         <FullscreenCtrlBtn
-          onClick={() => setAudioEnabled((p) => !p)}
+          onClick={onToggleAudio}
           isActive={audioEnabled}
-          activeColor="indigo"
-          title={audioEnabled ? "Mute synth (M)" : "Enable synth (M)"}
+          activeColor="violet"
+          title={audioEnabled ? "Pause tracker (M)" : "Resume tracker (M)"}
         >
           {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
         </FullscreenCtrlBtn>
@@ -934,13 +973,13 @@ function FullscreenDemoView({ effects, demoName, groupName, onClose }: Fullscree
 function FullscreenCtrlBtn(props: {
   onClick: () => void;
   isActive: boolean;
-  activeColor: "yellow" | "indigo" | "cyan" | "emerald" | "rose";
+  activeColor: "yellow" | "violet" | "cyan" | "emerald" | "rose";
   title: string;
   children: React.ReactNode;
 }) {
   const accentMap: Record<typeof props.activeColor, string> = {
     yellow: "bg-[#facc15]/15 border-[#facc15]/60 text-[#facc15] hover:bg-[#facc15]/30",
-    indigo: "bg-[#818cf8]/15 border-[#818cf8]/60 text-[#818cf8] hover:bg-[#818cf8]/30",
+    violet: "bg-[#a855f7]/15 border-[#a855f7]/60 text-[#c084fc] hover:bg-[#a855f7]/30",
     cyan: "bg-[#22d3ee]/15 border-[#22d3ee]/60 text-[#22d3ee] hover:bg-[#22d3ee]/30",
     emerald: "bg-[#4ade80]/15 border-[#4ade80]/60 text-[#4ade80] hover:bg-[#4ade80]/30",
     rose: "bg-[#f43f5e]/15 border-[#f43f5e]/60 text-[#f43f5e] hover:bg-[#f43f5e]/30",

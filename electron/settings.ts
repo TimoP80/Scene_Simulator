@@ -4,12 +4,12 @@
  *
  * Settings store. Plain JSON file at `app.getPath('userData')/settings.json`.
  *
- * We keep this intentionally simple: the entire settings surface is
- * currently one key (`geminiApiKey`). The schema is versioned so future
- * fields can land without colliding. Sync reads are fine because the
- * file is tiny; writes go through a temp-file + rename so a crash mid-
- * write cannot produce a half-truncated settings.json that bricks
- * future launches.
+ * We keep this intentionally simple: the settings surface is currently
+ * the Gemini API key plus the tracker-music library. The schema is
+ * versioned so future fields can land without colliding. Sync reads
+ * are fine because the file is tiny; writes go through a temp-file +
+ * rename so a crash mid-write cannot produce a half-truncated
+ * settings.json that bricks future launches.
  *
  * SECURITY:
  *   The settings file is written with default permissions inside the
@@ -23,16 +23,36 @@ import { app } from 'electron';
 import { existsSync, readFileSync, renameSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const SCHEMA_VERSION = 1 as const;
+const SCHEMA_VERSION = 2 as const;
+
+type MusicPlaylistEntry = {
+  /** Stable name on disk (`userData/music/<sha256>.<ext>`). */
+  storedName: string;
+  /** User-friendly title (filename minus extension). */
+  displayName: string;
+  /** Short uppercase format label: MOD / XM / IT / S3M. */
+  format: 'MOD' | 'XM' | 'IT' | 'S3M' | 'OTHER';
+  /** File size in bytes (post-import). */
+  size: number;
+};
+
+type MusicSettings = {
+  /** Lightweight metadata for every imported tracker module. */
+  playlist: MusicPlaylistEntry[];
+};
 
 type SettingsFile = {
   schemaVersion: typeof SCHEMA_VERSION;
   geminiApiKey: string | null;
+  music: MusicSettings;
 };
 
 const DEFAULTS: SettingsFile = {
   schemaVersion: SCHEMA_VERSION,
   geminiApiKey: null,
+  music: {
+    playlist: [],
+  },
 };
 
 function settingsPath(): string {
@@ -41,22 +61,71 @@ function settingsPath(): string {
 
 function readSettings(): SettingsFile {
   const file = settingsPath();
-  if (!existsSync(file)) return { ...DEFAULTS };
+  if (!existsSync(file)) return { ...DEFAULTS, music: { playlist: [] } };
   try {
     const raw = readFileSync(file, 'utf8');
-    const parsed = JSON.parse(raw) as Partial<SettingsFile>;
+    // Cast to a loose shape so TypeScript doesn't narrow schemaVersion
+    // to the literal `2` (the current SCHEMA_VERSION) and then flag
+    // the v1-migration check below as TS2367 ("types '2' and '1' have
+    // no overlap"). We re-validate every field after the cast.
+    const parsed = JSON.parse(raw) as {
+      schemaVersion?: unknown;
+      geminiApiKey?: unknown;
+      music?: unknown;
+    };
     if (parsed && typeof parsed === 'object' && parsed.schemaVersion === SCHEMA_VERSION) {
       return {
         schemaVersion: SCHEMA_VERSION,
         geminiApiKey:
           typeof parsed.geminiApiKey === 'string' ? parsed.geminiApiKey : null,
+        music: normaliseMusic(parsed.music),
+      };
+    }
+    // v1 (no music block) — migrate by initialising an empty playlist.
+    if (parsed && typeof parsed === 'object' && parsed.schemaVersion === 1) {
+      return {
+        schemaVersion: SCHEMA_VERSION,
+        geminiApiKey:
+          typeof (parsed as { geminiApiKey?: unknown }).geminiApiKey === 'string'
+            ? ((parsed as { geminiApiKey: string }).geminiApiKey)
+            : null,
+        music: { playlist: [] },
       };
     }
   } catch {
     // Corrupt / unreadable. Fall through to defaults; we'll overwrite
     // on the next write.
   }
-  return { ...DEFAULTS };
+  return { ...DEFAULTS, music: { playlist: [] } };
+}
+
+function normaliseMusic(raw: unknown): MusicSettings {
+  if (!raw || typeof raw !== 'object') return { playlist: [] };
+  const obj = raw as { playlist?: unknown };
+  if (!Array.isArray(obj.playlist)) return { playlist: [] };
+  const out: MusicPlaylistEntry[] = [];
+  for (const item of obj.playlist) {
+    if (!item || typeof item !== 'object') continue;
+    const e = item as Partial<MusicPlaylistEntry>;
+    if (typeof e.storedName !== 'string' || !e.storedName) continue;
+    if (typeof e.displayName !== 'string' || !e.displayName) continue;
+    if (
+      e.format !== 'MOD' &&
+      e.format !== 'XM' &&
+      e.format !== 'IT' &&
+      e.format !== 'S3M' &&
+      e.format !== 'OTHER'
+    ) {
+      continue;
+    }
+    out.push({
+      storedName: e.storedName,
+      displayName: e.displayName,
+      format: e.format,
+      size: typeof e.size === 'number' ? e.size : 0,
+    });
+  }
+  return { playlist: out };
 }
 
 function writeSettings(next: SettingsFile): void {
@@ -85,5 +154,12 @@ export const settingsStore = {
   clearGeminiKey(): void {
     const current = readSettings();
     writeSettings({ ...current, geminiApiKey: null });
+  },
+  getMusicPlaylist(): MusicPlaylistEntry[] {
+    return readSettings().music.playlist;
+  },
+  setMusicPlaylist(playlist: MusicPlaylistEntry[]): void {
+    const current = readSettings();
+    writeSettings({ ...current, music: { playlist } });
   },
 };

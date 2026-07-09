@@ -61,7 +61,7 @@ If a contributor violates this, the fix is to move the file into the layer it be
 | Folder       | Purpose                                                                                 |
 | ------------ | --------------------------------------------------------------------------------------- |
 | `apps/ui/`   | *(reserved — currently React lives in `src/` during the transition)*                    |
-| `apps/server/`| *(reserved — Express server for AI Studio parity)*                                     |
+| `apps/server/`| *(reserved — Express server for hosted/headless deployment parity)*                              |
 | `apps/llm/`  | *(reserved — LLM proxies; `@google/genai` is already in `package.json`)*                |
 
 Until migration finishes, the legacy `src/App.tsx` monolith dispatches **only** the events it must through `loop.dispatch(...)`; everything else remains a direct setState for the transition.

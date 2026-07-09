@@ -68,6 +68,10 @@ export default defineConfig({
         'node:fs',
         'node:fs/promises',
         'node:os',
+        // crypto is used by the music-library helpers in main.ts for
+        // sha256-based file de-duplication. Without this Rollup tries
+        // to bundle it via vite's __vite-browser-external stub and fails.
+        'node:crypto',
       ],
       onwarn(warning, defaultHandler) {
         // Silence the known "CJS / eval" warnings from @google/genai when

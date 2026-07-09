@@ -9,6 +9,20 @@
 export { HISTORICAL_PLATFORMS } from "./platforms";
 export { DEMO_EFFECTS } from "./demoEffects";
 export { TECHNOLOGY_TREE } from "./technologyTree";
+export {
+  collectDeclaredUnlocks,
+  getUnlockedEffectIds,
+  getUnregisteredEffectIds,
+} from "./effectUnlocks";
+export { ARTISTIC_DIRECTION_DEFS } from "./artisticDirections";
+export type { ArtisticDirectionDef } from "./artisticDirections";
+export { EFFECT_SYNERGIES } from "./effectSynergies";
+export type { EffectSynergy } from "./effectSynergies";
+export {
+  JUDGING_PROFILES,
+  judgingProfileForParty,
+  judgingProfileForProductionType,
+} from "./judgingProfiles";
 export { INITIAL_NPCS } from "./initialNpcs";
 export { INITIAL_GROUPS } from "./initialGroups";
 export { PARTY_CALENDAR } from "./partyCalendar";
@@ -24,3 +38,31 @@ export { SOFTWARE_CATALOG } from "./softwareCatalog";
 export type { SoftwareOffering } from "@packages/types";
 export { SPONSORSHIP_CATALOG } from "./sponsorshipCatalog";
 export type { SponsorshipOffering } from "@packages/types";
+
+// ---- BBS message variety ----
+export {
+  BBS_BOARDS,
+  BBS_SCRIBES,
+  SYSOP_REPLIES,
+  SYSOP_MODERATION_MESSAGES,
+  ERA_TOPICS,
+  SPYLINE_TEMPLATES,
+  BBS_RANDOM_EVENTS,
+  BBS_MUTATIONS,
+  VOICE_PROFILES,
+  CATEGORY_MESSAGES,
+  BBS_PERSONALITIES,
+  getSeedThreads,
+  getEra,
+  generateFollowedReply,
+  generatePersonalityMessage,
+  colorForHandle,
+} from "./bbsMessages";
+export type {
+  BBSBoard,
+  Era,
+  SpylineTemplate,
+  BBSRandomEvent,
+  BBSCategory,
+  BBSPersonality,
+} from "./bbsMessages";

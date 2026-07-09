@@ -1,0 +1,8 @@
+{
+  "id": "base",
+  "version": "1.0.0",
+  "name": "Demoscene Simulator — Base Content",
+  "description": "Default content pack shipped with the game. Contains all NPCs, BBS threads, parties, effects, research, events, groups, and music metadata.",
+  "author": "Timo Pitkänen",
+  "priority": 0
+}

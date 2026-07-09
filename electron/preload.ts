@@ -22,6 +22,17 @@
 
 import { contextBridge, ipcRenderer } from 'electron';
 
+type MusicFile = {
+  storedName: string;
+  displayName: string;
+  format: 'MOD' | 'XM' | 'IT' | 'S3M' | 'OTHER';
+  size: number;
+};
+
+// Note: the canonical MusicFile declaration lives in `src/electronApi.ts`.
+// This local mirror only exists because the preload bundle is loaded
+// outside the renderer's TS scope and needs an own type to typecheck.
+
 // Narrowly-typed surface. Any method added here MUST also be declared
 // in `src/electronApi.ts` so the renderer's TypeScript sees it.
 const api = {
@@ -33,6 +44,16 @@ const api = {
     ipcRenderer.invoke('settings:set-api-key', key),
   clearApiKey: (): Promise<boolean> =>
     ipcRenderer.invoke('settings:clear-api-key'),
+  // Music library --------------------------------------------------------
+  /** Open the OS file picker, copy files to userData/music/, return metadata. */
+  importMusicFiles: (): Promise<MusicFile[]> =>
+    ipcRenderer.invoke('music:import-files'),
+  /** Read a stored music file's bytes (Uint8Array over IPC). */
+  readMusicFile: (storedName: string): Promise<Uint8Array> =>
+    ipcRenderer.invoke('music:read-file', storedName),
+  /** Remove a file from disk and the persisted playlist. */
+  deleteMusicFile: (storedName: string): Promise<boolean> =>
+    ipcRenderer.invoke('music:delete-file', storedName),
 };
 
 contextBridge.exposeInMainWorld('electronAPI', api);

@@ -10,6 +10,7 @@ import { ProductionType } from "./demo";
 export interface PartyEvent {
   id: string;
   name: string;
+  year: number;
   month: number; // 1 - 12
   isAnnual: boolean;
   platformFocus: "all" | "amiga" | "c64" | "pc";

@@ -11,7 +11,7 @@
  * `app.getPath('userData')/settings.json` and read back on next launch,
  * so the dialog only re-appears if the user clears the key.
  *
- * OUTSIDE ELECTRON (Vite dev, AI Studio):
+ * OUTSIDE ELECTRON (Vite dev, browser preview):
  *   `window.electronAPI` is absent, so the component returns children
  *   silently. The legacy env-injection flow keeps working as before.
  */

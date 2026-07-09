@@ -1,0 +1,145 @@
+{
+  "sw_turbo_assembler_c64": {
+    "id": "sw_turbo_assembler_c64",
+    "name": "Turbo Assembler (C64)",
+    "type": "assembler",
+    "releaseYear": 1985,
+    "purchasePrice": 60,
+    "effectUnlocks": [
+      "raster_bars",
+      "sine_scroller",
+      "starfield_2d"
+    ],
+    "description": "Cycle-accurate 6502 macro assembler with copper-list syntax extensions. Indispensable for raster tricks."
+  },
+  "sw_sid_wizard": {
+    "id": "sw_sid_wizard",
+    "name": "SID-Wizard",
+    "type": "tracker",
+    "releaseYear": 1987,
+    "purchasePrice": 90,
+    "effectUnlocks": [
+      "sine_scroller"
+    ],
+    "description": "Tracker-style SID composer with envelope arpeggio macros. Loops SID thru ADSR sweeps."
+  },
+  "sw_devpac_3": {
+    "id": "sw_devpac_3",
+    "name": "DevPac 3 (ST/Amiga)",
+    "type": "assembler",
+    "releaseYear": 1990,
+    "purchasePrice": 120,
+    "effectUnlocks": [
+      "twister",
+      "animated_plasma"
+    ],
+    "description": "Motorola 68000 assembler with debug symbols and Blitter-aware optimization pragmas."
+  },
+  "sw_octamed_pro": {
+    "id": "sw_octamed_pro",
+    "name": "OctaMED Pro",
+    "type": "tracker",
+    "releaseYear": 1991,
+    "purchasePrice": 110,
+    "effectUnlocks": [
+      "animated_plasma",
+      "chunky_to_planar"
+    ],
+    "description": "Eight-channel Amiga tracker with stereo PCM recording and full VST-style buses."
+  },
+  "sw_deluxe_paint_4": {
+    "id": "sw_deluxe_paint_4",
+    "name": "Deluxe Paint IV",
+    "type": "image_editor",
+    "releaseYear": 1991,
+    "purchasePrice": 140,
+    "effectUnlocks": [
+      "vector_cube",
+      "chunky_to_planar"
+    ],
+    "description": "The Amiga pixel artist's right hand. HAM mode animations, copper gradients, anti-aliased scope."
+  },
+  "sw_fasttracker_2": {
+    "id": "sw_fasttracker_2",
+    "name": "FastTracker II",
+    "type": "tracker",
+    "releaseYear": 1994,
+    "purchasePrice": 130,
+    "effectUnlocks": [
+      "metaballs_2d",
+      "tunnel_effect"
+    ],
+    "description": "DOS tracker that pushed Gravis Ultrasound to the limit. Modular patterns, sample-accurate timing."
+  },
+  "sw_tasm_5": {
+    "id": "sw_tasm_5",
+    "name": "TASM 5.0",
+    "type": "assembler",
+    "releaseYear": 1996,
+    "purchasePrice": 180,
+    "effectUnlocks": [
+      "texture_mapper",
+      "voxel_hills"
+    ],
+    "description": "32-bit flat-mode assembler with MMX-aware macros. The wizard's choice for 4K voxel intros."
+  },
+  "sw_modplug_tracker": {
+    "id": "sw_modplug_tracker",
+    "name": "MODPlug Tracker",
+    "type": "tracker",
+    "releaseYear": 1997,
+    "purchasePrice": 90,
+    "effectUnlocks": [
+      "gouraud_shading",
+      "voxel_hills"
+    ],
+    "description": "Tracker + VST plugin host. Lets demo crews reuse pirated VSTs in their own miniature synth stubs."
+  },
+  "sw_photoshop_5": {
+    "id": "sw_photoshop_5",
+    "name": "Photoshop 5 LE",
+    "type": "image_editor",
+    "releaseYear": 1998,
+    "purchasePrice": 280,
+    "effectUnlocks": [
+      "procedural_textures",
+      "cloth_physics"
+    ],
+    "description": "Limited Photoshop release with bundled Kodak CMS. Used by intro crews to author texture sets for shaders."
+  },
+  "sw_exe_cranker": {
+    "id": "sw_exe_cranker",
+    "name": "EXE Cranker 1.6",
+    "type": "compressor",
+    "releaseYear": 1997,
+    "purchasePrice": 220,
+    "effectUnlocks": [
+      "procedural_synth"
+    ],
+    "description": "LZSS + Huffman executable packer aimed at the 4KB intro category. Pairs with apack against movfuscation."
+  },
+  "sw_msvc_6_lean": {
+    "id": "sw_msvc_6_lean",
+    "name": "Visual C++ 6.0 Lean Build",
+    "type": "ide",
+    "releaseYear": 1998,
+    "purchasePrice": 320,
+    "effectUnlocks": [
+      "raymarching_3d",
+      "cloth_physics",
+      "procedural_synth"
+    ],
+    "description": "Trims Microsoft's reference IDE down to the linker + assembler bytes for 4KB / 64KB intros."
+  },
+  "sw_cranker_cruncher": {
+    "id": "sw_cranker_cruncher",
+    "name": "APACK Cranker 3.0",
+    "type": "compressor",
+    "releaseYear": 2002,
+    "purchasePrice": 350,
+    "effectUnlocks": [
+      "raymarching_3d"
+    ],
+    "description": "Latest apack lineage — squeezes entire shaders under bytewise limits while preserving fast startup."
+  }
+}

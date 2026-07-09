@@ -10,7 +10,7 @@
 // @sim/data. /sim/projections is reserved for WorldState-derived views, NOT
 // seed lookups, so we do not pass-through these constants through a projection.
 // ============================================================================
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import {PlatformId,
   EraId,
   SkillType,
@@ -19,6 +19,13 @@ import {PlatformId,
   Character,
   Group,
   Production,
+  DemoSummary,
+  ArtisticDirection,
+  ARTISTIC_DIRECTIONS,
+  OptimizationFocus,
+  OPTIMIZATION_FOCUSES,
+  DemoDuration,
+  DEMO_DURATIONS,
   TechNode,
   SceneMagazine,
   PartyEvent,
@@ -41,14 +48,41 @@ import {
   PARTY_CALENDAR,
   RIVAL_RELEASES,
   type RivalRelease,
+  BBS_SCRIBES,
+  SYSOP_REPLIES,
+  SYSOP_MODERATION_MESSAGES,
+  SPYLINE_TEMPLATES,
+  BBS_RANDOM_EVENTS,
+  BBS_MUTATIONS,
+  VOICE_PROFILES,
+  getSeedThreads,
+  generateFollowedReply,
+  colorForHandle,
+  type BBSBoard,
+  ARTISTIC_DIRECTION_DEFS,
+  getUnlockedEffectIds,
 } from "@sim/data";
-import { rivalFocusFor } from "@sim/domain";
+import {
+  ERA_START_YEAR,
+  rivalFocusFor,
+  generateDemoSummary,
+  compatibleEffects,
+} from "@sim/domain";
 import GddViewer from "./components/GddViewer";
 import DemoScreen from "./components/DemoScreen";
 import SocialGraphTab from "./components/SocialGraphTab";
 import EconomyPanel from "./components/EconomyPanel";
 
 import MainMenu from "./components/MainMenu";
+import DemoBudgetMeter from "./components/DemoBudgetMeter";
+import DemoStudio from "./components/DemoStudio";
+import MusicPlayer from "./components/MusicPlayer";
+import PlaylistManager from "./components/PlaylistManager";
+import DemoSummaryModal from "./components/DemoSummary";
+import { useTrackerPlayer } from "./hooks/useTrackerPlayer";
+import { DevModeProvider, useDevMode } from "./devtools/DevModeContext";
+import { DevMenu } from "./devtools/DevMenu";
+import { loadBaseContent } from "./content/ContentLoader";
 import { SimulationLoop } from "@sim/engine/simulationLoop";
 import { emptyWorldState } from "@sim/engine/reducer";
 import { getCurrentTick } from "@sim/events/appendEvent";
@@ -327,25 +361,45 @@ function ensureCognitive(char: Character): Character {
 }
 
 const distortText = (text: string, rate: number): string => {
-  const mutations = [
-    text.replace(/RUMORED/g, "CONFIRMED"),
-    text.replace(/PLAGIARIZE/g, "STEAL"),
-    text.replace(/LAZY/g, "GENIUS"),
-    text.replace(/RASTER/g, "COPPER BEAM"),
-    text.replace(/done/i, "ELITE!"),
-    text.replace(/VIC-II/g, "AMIGA FAT AGNUS"),
-    text.replace(/FUTURE CREW/g, "PAST CREW"),
-    text.replace(/UNRELEASED/g, "LEAKED_FREE"),
-    text.replace(/\?/g, "!!! [ALERT]"),
-    text + " (MUTATED EXTRA)"
-  ];
   if (Math.random() * 100 < rate) {
-    return mutations[Math.floor(Math.random() * mutations.length)];
+    const mutation = BBS_MUTATIONS[Math.floor(Math.random() * BBS_MUTATIONS.length)];
+    return mutation(text);
   }
   return text;
 };
 
 export default function App() {
+  // Dev-mode toggle. Exposed so the MainMenu action list and the
+  // global Ctrl/Cmd+Shift+D hotkey can flip the flag without requiring
+  // the user to discover `?dev=1` URL params or edit localStorage by
+  // hand. The DevMenu component reads the same context and auto-opens
+  // (via its own useEffect) the moment this flips to true.
+  const { isDevMode, setDevMode } = useDevMode();
+  const handleToggleDevMode = useCallback(
+    () => setDevMode(!isDevMode),
+    [isDevMode, setDevMode]
+  );
+
+  // Global hotkey: Ctrl/Cmd+Shift+D toggles dev mode anywhere in the
+  // app (main menu, the workspace, the BBS terminal, etc.).
+  // preventDefault + stopPropagation escapes the browser's built-in
+  // bookmark-bar shortcut (same chord in Chrome).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const isToggle =
+        (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d");
+      if (!isToggle) return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      // Skip when the player is typing into an input field.
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setDevMode(!isDevMode);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isDevMode, setDevMode]);
+
   // --------- CORE SIMULATION STATE ---------
   const [currentYear, setCurrentYear] = useState<number>(1985);
   const [currentMonth, setCurrentMonth] = useState<number>(1); // January (1) to December (12)
@@ -366,6 +420,15 @@ export default function App() {
   const [mainMenuSaveInfo, setMainMenuSaveInfo] = useState<
     { timestamp: string; summary: string } | null
   >(null);
+
+  // Tracker-music library modal. Lifted to the App root so the same
+  // modal is reachable from both the main menu (via the MUSIC LIBRARY
+  // button) and the floating Now-Playing bar.
+  const [showPlaylistModal, setShowPlaylistModal] = useState<boolean>(false);
+
+  // Subscribe to the player engine so the MainMenu's track-count badge
+  // stays in sync with the playlist.
+  const playerState = useTrackerPlayer();
 
   const [activePlatform, setActivePlatform] = useState<PlatformId>(PlatformId.C64);
   const [ownedRigs, setOwnedRigs] = useState<PlatformId[]>([PlatformId.C64]);
@@ -567,6 +630,22 @@ export default function App() {
   const [effortMusic, setEffortMusic] = useState<number>(20);
   const [effortOptimization, setEffortOptimization] = useState<number>(10);
 
+  // ---- Expanded studio (demo creation system v2) ----
+  const [studioArtisticDirection, setStudioArtisticDirection] = useState<
+    ArtisticDirection
+  >("Technical Showcase");
+  const [studioOptimizationFocus, setStudioOptimizationFocus] = useState<
+    OptimizationFocus
+  >("Balanced");
+  const [studioDuration, setStudioDuration] = useState<
+    DemoDuration
+  >("Medium");
+  // Optional tracker track from the user's playlist (storedName, or "").
+  const [studioMusicTrackStoredName, setStudioMusicTrackStoredName] = useState<string>("");
+  // Post-compile summary modal state.
+  const [showDemoSummary, setShowDemoSummary] = useState<boolean>(false);
+  const [lastDemoSummary, setLastDemoSummary] = useState<DemoSummary | null>(null);
+
   // Compiling process state loader
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [compilerProgress, setCompilerProgress] = useState<number>(0);
@@ -578,8 +657,38 @@ export default function App() {
   const [crtActiveEffects, setCrtActiveEffects] = useState<string[]>(["raster_bars", "sine_scroller"]);
   const [crtDemoName, setCrtDemoName] = useState<string>("SINUS WAVES");
   const [crtGroupName, setCrtGroupName] = useState<string>("Tricycle Crews");
+  // storedName of the music track attached to the production currently
+  // shown in the WORKSPACE CRT monitor (empty when no track is picked).
+  // DemoScreen reads this prop and drives the shared trackerPlayer.
+  const [crtMusicTrack, setCrtMusicTrack] = useState<string>("");
+  // Master audio enable on top of the tracker engine. Lifted from
+  // DemoScreen so the fullscreen <FullscreenDemoView/> overlay
+  // preserves the inline toggle state across mount transitions.
+  const [crtAudioEnabled, setCrtAudioEnabled] = useState<boolean>(false);
+  // Canvas play/pause for the CRT monitor frame loop. Same lift
+  // rationale as crtAudioEnabled.
+  const [crtIsPlaying, setCrtIsPlaying] = useState<boolean>(true);
+  const toggleCrtAudio = useCallback(
+    () => setCrtAudioEnabled((v) => !v),
+    []
+  );
+  const toggleCrtPlay = useCallback(
+    () => setCrtIsPlaying((v) => !v),
+    []
+  );
 
-  // --------- PARTY CONTEST STATE Machine ---------
+  // Interval ids owned by `triggerAssembleCompiler` (compile) and
+  // `startPartyVotingProcess` (party vote). Tracked in refs (NOT
+  // local consts) so `loadSavedGame` can `clearInterval` them at
+  // the top of the snapshot-apply path. Without this, the stale
+  // interval keeps ticking after the import has reset state and
+  // the next terminal tick fires `finishCompilation()` (leaking a
+  // leftover release) or `awardPartyContestPoints()` (leaking a
+  // prize credit). The companion contract test at
+  // sim/__tests__/loadDuringImport.smoke.ts pins this invariant.
+  const compileIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const partyVoteIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const [activeParty, setActiveParty] = useState<PartyEvent | null>(null);
   const [isPartyRunning, setIsPartyRunning] = useState<boolean>(false);
   const [partyStep, setPartyStep] = useState<number>(0); // 0: signup, 1: battle, 2: scoreboard, 3: awards
@@ -590,6 +699,19 @@ export default function App() {
 
   // Auto-Save notification
   const [saveNotice, setSaveNotice] = useState<string>("");
+
+  // ---- Dev tools: load base content from /data/ on mount ----
+  useEffect(() => {
+    loadBaseContent().then((result) => {
+      if (result.source === "fallback") {
+        console.info("[devtools] Using static fallback content (no /data/ JSON). Errors:", result.errors);
+      } else if (result.errors.length > 0) {
+        console.warn("[devtools] Loaded content with warnings:", result.errors);
+      } else {
+        console.info("[devtools] Loaded base content pack from /data/.");
+      }
+    });
+  }, []);
 
   // ===== SENTINEL: SIM_LOOP_BOOTSTRAP_V1 =====
   // Sim-loop bootstrap per docs/architecture.md + docs/event-sourcing.md.
@@ -651,68 +773,7 @@ export default function App() {
   const [bbsFilterBoard, setBbsFilterBoard] = useState<string>("all");
   const [bbsSelectedThreadId, setBbsSelectedThreadId] = useState<string | null>(null);
   const [bbsTerminalLogs, setBbsTerminalLogs] = useState<string[]>([]);
-  const [bbsThreads, setBbsThreads] = useState<BBSThread[]>([
-    {
-      id: "thread_coders_1",
-      board: "CODERS_CORNER",
-      topic: "COPPER CONTEMPT ON AMIGA vs RASTER LINE HACKS",
-      year: 1985,
-      month: 1,
-      actorId: "ranger_c64",
-      messages: [
-        { sender: "Psi", text: "Some scene groups think writing COPPER lists on Amiga is real art. No! A real scener manages raster splits strictly in horizontal assembler code.", color: "text-[#4ade80]" },
-        { sender: "Ranger", text: "Yes! 6502 assembly rules! Pushing raster registers manually at cycle-perfect clock ticks is pure hardcore engineering.", color: "text-[#fb923c]" },
-        { sender: "Chaos", text: "You are romanticizing prehistoric hardware. Procedural pixel generators on modern processors will soon conquer your tiny copper loops.", color: "text-[#a855f7]" }
-      ],
-      interacted: false,
-      playerActionTaken: null,
-      dramaFinished: false,
-      choices: [
-        { text: "Support Ranger: Limit and 6502 register control is the zenith of computer science!", type: "support", effectDescription: "Ranger appreciation: +25 Friendship, +20 Motivation" },
-        { text: "Flame Ranger: Get real, 1MHz 8-bit computers can't render fluid voxel fields.", type: "flame", effectDescription: "Ranger hostility: -25 Friendship with Ranger" },
-        { text: `Recruit Ranger: ${playerGroupName} needs a low-level master. Code with us!`, type: "recruit", effectDescription: "Recruit offer: +20 friendship, Ranger salary demand decreases" }
-      ],
-      infoType: "criticism",
-      credibilityScore: 80,
-      propagationSpeed: 40,
-      distortionRate: 20,
-      influenceWeight: 60,
-      viralSpreadRank: 1,
-      isSuppressed: false,
-      originalTopic: "COPPER CONTEMPT ON AMIGA vs RASTER LINE HACKS",
-      mutationCount: 0
-    },
-    {
-      id: "thread_rumors_1",
-      board: "SCENE_RUMORS",
-      topic: "FUTURE CREW CODES RUMORED TO PLAGIARIZE REGISTER OFFSETS?",
-      year: 1985,
-      month: 1,
-      actorId: "unreal_coder",
-      messages: [
-        { sender: "Dxyre", text: "Has anyone decompiled FC's vectors? Their 3D rotation loops look too fast to be computed in real-time. Are they pre-rendering offsets?", color: "text-rose-400" },
-        { sender: "Psi", text: "Watch your words, Eric. It is called custom trigonometrical lookup tables and extreme matrix optimization. Do some research!", color: "text-[#22d3ee]" },
-        { sender: "Skaven", text: "Seriously, why flame? If you joined our swaps you would see the sources. We don't cheat, we compile.", color: "text-blue-400" }
-      ],
-      interacted: false,
-      playerActionTaken: null,
-      dramaFinished: false,
-      choices: [
-        { text: "Support FC: Math and lookup array acceleration is completely legal!", type: "support", effectDescription: "Psi appreciation: +25 Friendship, +15 Reputation" },
-        { text: "Flame FC: Dxyre is right. Pre-rendered tables are a cheap cheat.", type: "flame", effectDescription: "Psi hostility: -30 Friendship with Psi" },
-        { text: "Recruit Psi: Leave the FC flame battles behind. Build with us!", type: "recruit", effectDescription: "Recruitment discount: Psi salary demand drops, +15 Friendship" }
-      ],
-      infoType: "rumor",
-      credibilityScore: 35,
-      propagationSpeed: 75,
-      distortionRate: 65,
-      influenceWeight: 80,
-      viralSpreadRank: 1,
-      isSuppressed: false,
-      originalTopic: "FUTURE CREW CODES RUMORED TO PLAGIARIZE REGISTER OFFSETS?",
-      mutationCount: 0
-    }
-  ]);
+  const [bbsThreads, setBbsThreads] = useState<BBSThread[]>(() => getSeedThreads(playerGroupName));
 
   const [bbsCustomMessage, setBbsCustomMessage] = useState<string>("");
   const [bbsEffectNotification, setBbsEffectNotification] = useState<string | null>(null);
@@ -789,12 +850,12 @@ export default function App() {
   const [galleryShowLocked, setGalleryShowLocked] = useState<boolean>(true);
   const [gallerySearchQuery, setGallerySearchQuery] = useState<string>("");
 
-  const isEffectUnlocked = (effId: string) => {
-    return unlockedTechs.some((tId) => {
-      const node = TECHNOLOGY_TREE.find((t) => t.id === tId);
-      return node?.effectUnlocks.includes(effId);
-    }) || effId === "raster_bars" || effId === "sine_scroller";
-  };
+  const unlockedEffectIds = useMemo(
+    () => getUnlockedEffectIds(unlockedTechs),
+    [unlockedTechs]
+  );
+
+  const isEffectUnlocked = (effId: string) => unlockedEffectIds.has(effId);
 
   // Keep modal platform sync with active platform when opened
   useEffect(() => {
@@ -826,6 +887,7 @@ export default function App() {
       setMyReleases({});
       setCrtActiveEffects(["raster_bars", "sine_scroller"]);
       setCrtDemoName("SINUS WAVES");
+      setCrtMusicTrack("");
 
       // Set logs
       setNewsLog([
@@ -889,6 +951,7 @@ export default function App() {
 
       setCrtActiveEffects(["animated_plasma", "vector_cube"]);
       setCrtDemoName("AMIGA MAGIC");
+      setCrtMusicTrack("");
 
       setNewsLog([
         {
@@ -930,6 +993,7 @@ export default function App() {
       setMyReleases({});
       setCrtActiveEffects(["voxel_hills", "texture_mapper"]);
       setCrtDemoName("VOXELLOID");
+      setCrtMusicTrack("");
 
       setNewsLog([
         {
@@ -1047,12 +1111,55 @@ export default function App() {
     }));
   };
 
-  // --------- RESEARCHING TECHNOLOGY GRAPH ---------
+  // Display labels for each EraId, used by researchNode's era gate to
+// compose a readable TIME-ANOMALY alert. Adding a new EraId without
+// updating this map falls back to the raw enum value, so a tsc error
+// forces the maintainer to add the entry.
+const ERA_LABELS: Record<string, string> = {
+  [EraId.ERA_8_BIT]: "8-bit",
+  [EraId.ERA_16_BIT]: "16-bit",
+  [EraId.ERA_PC_DAWN]: "PC Dawn",
+  [EraId.ERA_3D_SHADER]: "3D Shader",
+};
+// --------- RESEARCHING TECHNOLOGY GRAPH ---------
   const researchNode = (node: TechNode) => {
     if (unlockedTechs.includes(node.id)) return;
 
     if (researchPoints < node.costPoints) {
       window.alert(`Incomplete focus points! You need ${node.costPoints} research points to crack ${node.name}. Gain research points by waiting or compiling demos.`);
+      return;
+    }
+
+    // Gate by era — refuse technology that belongs to a future era.
+    // This prevents the player from spending research points on, e.g.,
+    // `opengl_direct3d` (3D-shader era, starts 2001) while still in 1990
+    // and being unable to ever compile its effects in the demo studio.
+    const eraStart = ERA_START_YEAR[node.era] ?? 9999;
+    if (currentYear < eraStart) {
+      const eraLabel = ERA_LABELS[node.era] ?? node.era;
+      window.alert(
+        `TIME ANOMALY: "${node.name}" is from the ${eraLabel} era and won't surface until ${eraStart}. ` +
+        `Your current year is ${currentYear} — advance the calendar first.`
+      );
+      return;
+    }
+
+    // Gate by platform — refuse technology whose target rigs the player
+    // does not own. Without at least one rig in `node.platformUnlocks`
+    // the unlocked effects can never be selected in the demo studio
+    // (their `compatiblePlatforms` excludes the player's rigs), so
+    // spending the research points is a dead-end.
+    const hasRequiredRig = node.platformUnlocks.some(
+      (pId) => ownedRigs.includes(pId)
+    );
+    if (!hasRequiredRig) {
+      const rigNames = node.platformUnlocks
+        .map((pId) => HISTORICAL_PLATFORMS[pId]?.name ?? pId)
+        .join(", ");
+      window.alert(
+        `MISSING HARDWARE: "${node.name}" needs at least one of [${rigNames}]. ` +
+        `Buy the rig at the WORKBENCH shop first.`
+      );
       return;
     }
 
@@ -1148,6 +1255,53 @@ export default function App() {
   const totalCrewArtSkill = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.graphics, 35);
   const totalCrewMusicSkill = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.music, 40);
 
+  // ---- Compatible-effects gating (era + platform) ----
+  // Returns a Set of effect ids the player can legally use on the
+  // current platform at the current year. The UI uses this to
+  // *disable* (not hide) checkboxes for effects that are out of
+  // era or incompatible with the active rig.
+  const studioCompatibleEffects = (() => {
+    const { compatible } = compatibleEffects(
+      DEMO_EFFECTS,
+      activePlatform,
+      currentYear
+    );
+    return new Set(compatible.map((e) => e.id));
+  })();
+
+  // Read the tracker-music playlist so the music module dropdown can
+  // list every imported .MOD/.XM/.IT/.S3M file. The hook subscribes
+  // to the engine's useSyncExternalStore so this re-runs on import.
+  const trackerState = useTrackerPlayer();
+  const trackerPlaylist = trackerState.playlist;
+
+  // Upcoming parties the player can predict placement for. The
+  // PARTY_CALENDAR is a static list keyed by (year, month); we
+  // surface the next ~6 entries from the current game month.
+  const upcomingPartiesForScoring = (() => {
+    const out: Array<{
+      id: string;
+      name: string;
+      platformFocus: "c64" | "amiga" | "pc" | "all";
+      prestige: number;
+      attendance: number;
+      year: number;
+    }> = [];
+    for (const p of PARTY_CALENDAR) {
+      if (p.year > currentYear || (p.year === currentYear && p.month >= currentMonth)) {
+        out.push({
+          id: p.id,
+          name: p.name,
+          platformFocus: p.platformFocus as "c64" | "amiga" | "pc" | "all",
+          prestige: p.prestige,
+          attendance: p.attendance,
+          year: p.year,
+        });
+      }
+    }
+    return out.slice(0, 6);
+  })();
+
   const triggerAssembleCompiler = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -1191,10 +1345,13 @@ export default function App() {
     ];
 
     let step = 0;
-    const interval = setInterval(() => {
+    compileIntervalRef.current = setInterval(() => {
       setCompilerProgress((p) => {
         if (p >= 100) {
-          clearInterval(interval);
+          if (compileIntervalRef.current) {
+            clearInterval(compileIntervalRef.current);
+          }
+          compileIntervalRef.current = null;
           finishCompilation();
           return 100;
         }
@@ -1210,36 +1367,91 @@ export default function App() {
   };
 
   const finishCompilation = () => {
-    // Calculate final scores based on historical complexity
-    const effectModifier = studioSelectedEffects.reduce((acc, id) => {
-      const found = DEMO_EFFECTS.find((e) => e.id === id);
-      return acc + (found ? found.originality + found.audienceAppeal : 0);
-    }, 0) / (studioSelectedEffects.length || 1);
+    // ---- Expanded scoring engine (v2) ----
+    // Resolve the selected effects to their full DemoEffect metadata.
+    const resolvedEffects = studioSelectedEffects
+      .map((id) => DEMO_EFFECTS.find((e) => e.id === id))
+      .filter((e): e is NonNullable<typeof e> => e !== undefined);
 
-    // Effort balances
-    const sizeMultiplier = studioProdType === ProductionType.Intro4k ? 0.05 : studioProdType === ProductionType.Intro64k ? 0.15 : 1.0;
-    const rawSize = Math.floor(combinedRamDemand * 1024 * sizeMultiplier * (1 - effortOptimization * 0.08));
+    // Resolve the optional tracker module from the playlist. The
+    // storedName encodes the format via the file extension, which
+    // matches the chiptune3 worklet's classification.
+    const musicModule = (() => {
+      if (!studioMusicTrackStoredName) return undefined;
+      const track = trackerPlaylist.find(
+        (t) => t.storedName === studioMusicTrackStoredName
+      );
+      if (!track) return undefined;
+      const lower = track.storedName.toLowerCase();
+      let format: "MOD" | "XM" | "IT" | "S3M" | "OTHER" = "OTHER";
+      if (lower.endsWith(".mod")) format = "MOD";
+      else if (lower.endsWith(".xm")) format = "XM";
+      else if (lower.endsWith(".it")) format = "IT";
+      else if (lower.endsWith(".s3m")) format = "S3M";
+      return { format, sizeBytes: track.size };
+    })();
 
-    // Form evaluation metrics
-    const baseCode = (totalCrewCodingSkill / 2) + (effortCoding * 0.8) + (effortOptimization * 1.2);
-    const baseArt = (totalCrewArtSkill / 2) + (effortArt * 1.5);
-    const baseMusic = (totalCrewMusicSkill / 2) + (effortMusic * 1.5);
+    // Effort balances: the engine still uses the combined RAM demand
+    // to size the binary, but the actual score now comes from the
+    // multi-category breakdown.
+    const sizeMultiplier =
+      studioProdType === ProductionType.Intro4k
+        ? 0.05
+        : studioProdType === ProductionType.Intro64k
+        ? 0.15
+        : 1.0;
+    const rawSize = Math.floor(
+      combinedRamDemand * 1024 * sizeMultiplier * (1 - effortOptimization * 0.08)
+    );
 
-    // Score formulas
-    let scoreTech = Math.min(Math.floor(baseCode * 0.7 + effectModifier * 0.3), 100);
-    let scoreAesthetic = Math.min(Math.floor(baseArt * 0.7 + effectModifier * 0.25), 100);
-    let scoreAudio = Math.min(Math.floor(baseMusic * 0.7 + effectModifier * 0.2), 100);
+    // Build the engine input and run the full 10-stage pipeline.
+    const summary = generateDemoSummary({
+      creation: {
+        name: studioDemoName,
+        type: studioProdType,
+        platform: activePlatform,
+        duration: studioDuration,
+        optimizationFocus: studioOptimizationFocus,
+        artisticDirection: studioArtisticDirection,
+        effects: [...studioSelectedEffects],
+        musicTrackStoredName: studioMusicTrackStoredName,
+        effort: {
+          coding: effortCoding,
+          art: effortArt,
+          music: effortMusic,
+          optimization: effortOptimization,
+        },
+      },
+      effects: resolvedEffects,
+      crewSkills: {
+        programming: totalCrewCodingSkill,
+        graphics: totalCrewArtSkill,
+        music: totalCrewMusicSkill,
+      },
+      musicModule,
+      platform: {
+        id: activePlatform,
+        cpuLimit: activeRigConfig.cpuLimit,
+        ramLimitKb: activeRigConfig.ramLimitKb,
+      },
+      upcomingParties: upcomingPartiesForScoring,
+      currentYear,
+    });
 
-    // Apply strict penalties for size limits
+    // Apply strict size penalties for 4k/64k intros on top of the
+    // engine output, then build the Production object the rest of
+    // App.tsx (social graph, party vote, releases list) consumes.
+    let finalOverall = summary.breakdown.overall;
     if (studioProdType === ProductionType.Intro4k && rawSize > 4096) {
-      scoreTech = Math.floor(scoreTech * 0.3); // Disqualified lookalike penalty
+      finalOverall = Math.floor(finalOverall * 0.3);
     }
     if (studioProdType === ProductionType.Intro64k && rawSize > 65536) {
-      scoreTech = Math.floor(scoreTech * 0.5);
+      finalOverall = Math.floor(finalOverall * 0.5);
     }
-
-    const overallScore = Math.floor((scoreTech * 0.45) + (scoreAesthetic * 0.3) + (scoreAudio * 0.25));
-    const reputationIncrement = Math.floor(overallScore / 3);
+    const reputationIncrement = Math.floor(finalOverall / 3);
+    // Alias for downstream news-feed / research-points code that
+    // still references the old `overallScore` variable name.
+    const overallScore = finalOverall;
 
     const newProd: Production = {
       id: `prod_${Date.now()}`,
@@ -1256,13 +1468,23 @@ export default function App() {
       optimizationLevel: Math.ceil(effortOptimization / 20),
       compressionLevel: Math.ceil(effortOptimization / 20),
       sizeB: rawSize,
-      scoreTechnical: scoreTech,
-      scoreAesthetic: scoreAesthetic,
-      scoreAudio: scoreAudio,
-      scoreOriginality: Math.floor(effectModifier / 2),
-      totalScore: overallScore,
-      reputationGained: reputationIncrement
+      scoreTechnical: summary.breakdown.programming,
+      scoreAesthetic: summary.breakdown.graphics,
+      scoreAudio: summary.breakdown.music,
+      scoreOriginality: summary.breakdown.originality,
+      totalScore: finalOverall,
+      reputationGained: reputationIncrement,
+      artisticDirection: studioArtisticDirection,
+      optimizationFocus: studioOptimizationFocus,
+      duration: studioDuration,
+      musicTrackStoredName: studioMusicTrackStoredName,
     };
+
+    // Cache the full summary for the modal and prepend the resolved
+    // production so the rest of the pipeline sees the same numbers.
+    const summaryWithProd: DemoSummary = { ...summary, production: newProd };
+    setLastDemoSummary(summaryWithProd);
+    setShowDemoSummary(true);
 
     // Save release
     setMyReleases((prev) => ({
@@ -1346,6 +1568,7 @@ export default function App() {
     setCrtActiveEffects(newProd.effects);
     setCrtDemoName(newProd.name);
     setCrtGroupName(newProd.groupName);
+    setCrtMusicTrack(newProd.musicTrackStoredName ?? "");
 
     // Pay rewards / adjustments
     setPlayerReputation((prev) => Math.min(prev + reputationIncrement, 1000));
@@ -1459,7 +1682,7 @@ export default function App() {
     setPartyVoteTally(tally);
 
     let tick = 0;
-    const interval = setInterval(() => {
+    partyVoteIntervalRef.current = setInterval(() => {
       setPartyVoteTally((prev) => {
         const next = { ...prev };
         let finished = true;
@@ -1474,7 +1697,10 @@ export default function App() {
         });
 
         if (finished || tick > 15) {
-          clearInterval(interval);
+          if (partyVoteIntervalRef.current) {
+            clearInterval(partyVoteIntervalRef.current);
+          }
+          partyVoteIntervalRef.current = null;
           setPartyStep(2); // Jump to scoreboard static show
           awardPartyContestPoints(rivalsList, next);
         }
@@ -1813,16 +2039,18 @@ export default function App() {
     setGraphStoryLogs((prev) => [logEntry, ...prev].slice(0, 40));
 
     // Register scandal in scene magazines review section
+    const spyline = SPYLINE_TEMPLATES[Math.floor(Math.random() * SPYLINE_TEMPLATES.length)];
+    const spylineArticle = {
+      id: `rumor_magazine_${Date.now()}`,
+      title: "BBS TELEGRAM SPYLINE",
+      year: currentYear,
+      month: currentMonth,
+      headline: spyline.headline,
+      body: spyline.body(sourceLabel, targetLabel),
+      type: "scandal" as const
+    };
     setNewsLog((prevNews) => [
-      {
-        id: `rumor_magazine_${Date.now()}`,
-        title: "BBS TELEGRAM SPYLINE",
-        year: currentYear,
-        month: currentMonth,
-        headline: "ANONYMOUS SOURCE LEAKS CONVERSATIONS!",
-        body: `Private correspondence exchange between '${sourceLabel}' and '${targetLabel}' has leaked onto encrypted German dialup boards. Scenedesk reports claim relationships are mutating extremely quickly!`,
-        type: "scandal"
-      },
+      spylineArticle,
       ...prevNews
     ]);
   };
@@ -2044,26 +2272,8 @@ export default function App() {
     });
 
     // Spawn automated random emergent scenedesk events
-    const randomEvents = [
-      {
-        head: "LOCAL FLOOPY BOX SHIPPED",
-        body: "A container of colorful brand-new double-sided floppy disks was received. You gain some storage layout. Spend $10.",
-        action: () => setPlayerMoney((m) => Math.max(m - 10, 0))
-      },
-      {
-        head: "BBS COUPLER NOISE REDUCTION",
-        body: "Your local 1200 baud modem link experiences perfect copper clarity. Sceners download your trainer cracktros instantly. Gained +10 Reputation!",
-        action: () => setPlayerReputation((r) => Math.min(r + 10, 1000))
-      },
-      {
-        head: "HACKATHON SEMINAR BOOST",
-        body: "Reading old assembler manuals from your senior school library gives you pristine optimization ideas. Unlocked +15 research points!",
-        action: () => setResearchPoints((pts) => pts + 15)
-      }
-    ];
-
     if (Math.random() > 0.65) {
-      const ev = randomEvents[Math.floor(Math.random() * randomEvents.length)];
+      const ev = BBS_RANDOM_EVENTS[Math.floor(Math.random() * BBS_RANDOM_EVENTS.length)];
       const evLog: SceneMagazine = {
         id: `event_${Date.now()}`,
         title: "SCENE DISK DIARY",
@@ -2074,7 +2284,9 @@ export default function App() {
         type: "editorial"
       };
       setNewsLog((prev) => [evLog, ...prev]);
-      ev.action();
+      if (ev.type === "money") setPlayerMoney((m) => Math.max(m + ev.amount, 0));
+      else if (ev.type === "reputation") setPlayerReputation((r) => Math.min(Math.max(r + ev.amount, 0), 1000));
+      else if (ev.type === "research") setResearchPoints((pts) => Math.max(pts + ev.amount, 0));
     }
 
     // BBS Monthly Tick & State updates
@@ -2159,22 +2371,17 @@ export default function App() {
 
         // 2. Map followed thread updates inside advanceCalendarMonth
         if (updatedTh.followed && !updatedTh.isSuppressed) {
-          const replies = [
-            { sender: "Psi", text: "Just benched this raster routine on my standard setup. Pure digital synchronization!", color: "text-[#4ade80]" },
-            { sender: "Chaos", text: "Low level scanline split registers are where true computer wizards reside. Adaptive!", color: "text-[#a855f7]" },
-            { sender: "Skaven", text: "Loving these discussions. The tracker packer has been updated on standard Swedish mail loops.", color: "text-[#c084fc]" },
-            { sender: "Trix", text: "Modem clarity is supreme in Warsaw. Let's keep transmitting original concepts!", color: "text-[#22d3ee]" },
-            { sender: "Dxyre", text: "Stunning work! Much respect to the active original assembly composers.", color: "text-rose-400" },
-            { sender: "Ranger", text: "Interesting bench results. Real hardware PAL display tests look smooth-as-glass.", color: "text-[#fb923c]" },
-            { sender: "Hype", text: "This thread rules Node_01 right now. Informational packets are spreading internationally.", color: "text-amber-400" },
-            { sender: "CreamD", text: "Cycle-perfect alignment on scanlines. That's the only real scene religion!", color: "text-[#d8b4fe]" }
-          ];
-
-          const selectedReply = replies[(index + nextM) % replies.length];
+          // Pick an NPC to "post" the reply: prefer the thread's actor, then
+          // any known NPC. generateFollowedReply produces an era-appropriate
+          // message that respects the NPC's specialty voice profile.
+          const followedActor = characters[updatedTh.actorId];
+          const followedReply = followedActor
+            ? generateFollowedReply(followedActor, nextY, updatedTh.board as BBSBoard)
+            : { sender: "SectorSysop", text: "Forwarding to every European node I have access to.", color: "text-zinc-400" };
 
           updatedTh.messages = [
             ...updatedTh.messages,
-            { sender: selectedReply.sender, text: selectedReply.text, color: selectedReply.color }
+            followedReply
           ];
 
           // Push news feed notification
@@ -2184,7 +2391,7 @@ export default function App() {
             year: nextY,
             month: nextM,
             headline: `NEW BBS POST: ${updatedTh.topic}`,
-            body: `ALERT! Real-time activity detected on followed board thread [${updatedTh.topic}]. Scener '${selectedReply.sender}' posted: "${selectedReply.text}". Friendly local alliances have been boosted.`,
+            body: `ALERT! Real-time activity detected on followed board thread [${updatedTh.topic}]. Scener '${followedReply.sender}' posted: "${followedReply.text}". Friendly local alliances have been boosted.`,
             type: "editorial"
           });
 
@@ -2212,8 +2419,7 @@ export default function App() {
           if (mutated !== oldTopic) {
             updatedTh.topic = mutated.toUpperCase().substring(0, 75);
             // Add a rumor-muddied message to the thread
-            const rumorScribes = ["HexSwapper", "BitJunkie", "BufferBloat", "RasterDemon", "Degausser"];
-            const scribe = rumorScribes[Math.floor(Math.random() * rumorScribes.length)];
+            const scribe = BBS_SCRIBES[Math.floor(Math.random() * BBS_SCRIBES.length)];
             updatedTh.messages = [
               ...updatedTh.messages,
               {
@@ -2255,12 +2461,7 @@ export default function App() {
           // Generate automated comments on active virality
           if (updatedTh.viralSpreadRank >= 2 && Math.random() < 0.4e0) {
             const genericSg = "SectorSysop";
-            const activeReplies = [
-              "Loving this drama. Spreading floppies internationally to double check!",
-              "Is this authentic? My local BBS operator flagged this topic as highly volatile.",
-              "Total demoscene history in the making. Let's keep this connection open!",
-              "Absolute state of the swapper lounge right now. Mind-blowing."
-            ];
+            const activeReplies = SYSOP_REPLIES;
             updatedTh.messages = [
               ...updatedTh.messages,
               { sender: genericSg, text: activeReplies[Math.floor(Math.random() * activeReplies.length)], color: "text-[#c084fc]" }
@@ -2314,7 +2515,7 @@ export default function App() {
             updatedTh.viralSpreadRank = 1;
             updatedTh.messages = [
               ...updatedTh.messages,
-              { sender: "SYS_OP", text: `[BBS SYSTEM MANUAL ARCHIVE]: Thread buried by area moderator for hearsay and duplicate distribution guidelines violations.`, color: "text-zinc-600" }
+              { sender: "SYS_OP", text: SYSOP_MODERATION_MESSAGES[Math.floor(Math.random() * SYSOP_MODERATION_MESSAGES.length)].text, color: "text-zinc-600" }
             ];
 
             notificationsToInject.push({
@@ -2935,6 +3136,43 @@ export default function App() {
 
   const loadSavedGame = () => {
     try {
+      // Cancel any in-flight compile / vote interval BEFORE applying
+      // the snapshot. Without this, a stale setInterval keeps ticking
+      // past the import and the next terminal tick fires
+      // `finishCompilation()` / `awardPartyContestPoints()` against
+      // the post-import world — leaking a leftover release / prize
+      // credit into a clean save. Characterized by the companion
+      // smoke at sim/__tests__/loadDuringImport.smoke.ts.
+      if (compileIntervalRef.current !== null) {
+        clearInterval(compileIntervalRef.current);
+        compileIntervalRef.current = null;
+      }
+      if (partyVoteIntervalRef.current !== null) {
+        clearInterval(partyVoteIntervalRef.current);
+        partyVoteIntervalRef.current = null;
+      }
+      // React 18 batching: reset ephemeral compile / vote state.
+      // clearInterval does NOT cancel an in-flight callback, so any
+      // setState that ALREADY fired inside the dying tick is queued
+      // for the next render. React 18 auto-batches those queued
+      // writes with the setState cascade below. For every key the
+      // in-flight tick could have touched, we explicitly reset to
+      // the post-import value so the queued writes lose under
+      // last-write-wins. (loadSavedGame already resets money / releases
+      // / etc. from the imported JSON below, but it never reset the
+      // compile / vote ephemeral UI keys — that gap is what the
+      // reviewer caught.)
+      setIsCompiling(false);
+      setShowCompilingOverlay(false);
+      setCompilerProgress(0);
+      setCompilerLogs([]);
+      setIsPartyRunning(false);
+      setActiveParty(null);
+      setPartyStep(0);
+      setPartyRivals([]);
+      setPartyVoteTally({});
+      setPartySelectedProdId("");
+      setPartyContestLogger([]);
       const raw = localStorage.getItem("demoscene_sim_autosave");
       if (!raw) {
         console.warn("No autosaved file slot was discovered in local storage.");
@@ -3089,19 +3327,31 @@ export default function App() {
   // handleContinue, handleLoadFromFile) control showMainMenu.
   if (showMainMenu) {
     return (
-      <MainMenu
-        hasLocalSave={mainMenuSaveInfo !== null}
-        localSaveTimestamp={mainMenuSaveInfo?.timestamp ?? null}
-        localSaveSummary={mainMenuSaveInfo?.summary ?? null}
-        onNewGame={handleNewGame}
-        onContinue={handleContinue}
-        onLoadFromFile={handleLoadFromFile}
-        schemaVersion={1}
-      />
+      <>
+        <MainMenu
+          hasLocalSave={mainMenuSaveInfo !== null}
+          localSaveTimestamp={mainMenuSaveInfo?.timestamp ?? null}
+          localSaveSummary={mainMenuSaveInfo?.summary ?? null}
+          onNewGame={handleNewGame}
+          onContinue={handleContinue}
+          onLoadFromFile={handleLoadFromFile}
+          schemaVersion={1}
+          onOpenMusicLibrary={() => setShowPlaylistModal(true)}
+          musicTrackCount={playerState.playlist.length}
+          onToggleDevMode={handleToggleDevMode}
+          isDevMode={isDevMode}
+        />
+        <MusicPlayer onOpenPlaylist={() => setShowPlaylistModal(true)} />
+        <PlaylistManager
+          open={showPlaylistModal}
+          onClose={() => setShowPlaylistModal(false)}
+        />
+      </>
     );
   }
 
     return (
+    <DevModeProvider>
     <div className="min-h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col font-mono text-sm antialiased pb-12 selection:bg-[#22d3ee] selection:text-black">
       {/* Dynamic Header Bar resembling classic tracker layout */}
       <header className="bg-[#2d2d30] border-b border-[#3f3f46] px-4 py-2 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-md">
@@ -3169,6 +3419,11 @@ export default function App() {
             effects={crtActiveEffects}
             demoName={crtDemoName}
             groupName={crtGroupName}
+            musicTrackStoredName={crtMusicTrack}
+            audioEnabled={crtAudioEnabled}
+            isPlaying={crtIsPlaying}
+            onToggleAudio={toggleCrtAudio}
+            onTogglePlay={toggleCrtPlay}
           />
 
           {/* Quick crew stats card */}
@@ -3481,222 +3736,46 @@ export default function App() {
               </div>
 
               {/* Compile Demoscene Studio Form */}
-              <div id="assembly-studio-form" className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">
-                <div className="flex items-center gap-2 border-b border-[#27272a] pb-2 mb-3">
-                  <Wrench className="text-[#facc15] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs">COMPILER CREATIVE ASSEMBLY STUDIO</h3>
-                </div>
+                            {/* Demo creation surface -- extracted to src/components/DemoStudio.tsx (v2.5) */}
+              <DemoStudio
+                productionTitle={studioDemoName}
+                onTitleChange={setStudioDemoName}
+                competitionType={studioProdType}
+                onCompetitionTypeChange={setStudioProdType}
+                activePlatform={activePlatform}
+                setActivePlatform={setActivePlatform}
+                ownedRigs={ownedRigs}
+                duration={studioDuration}
+                onDurationChange={setStudioDuration}
+                optimizationFocus={studioOptimizationFocus}
+                onOptimizationFocusChange={setStudioOptimizationFocus}
+                artisticDirection={studioArtisticDirection}
+                onArtisticDirectionChange={setStudioArtisticDirection}
+                musicTrackStoredName={studioMusicTrackStoredName}
+                onMusicTrackStoredNameChange={setStudioMusicTrackStoredName}
+                selectedEffects={studioSelectedEffects}
+                onToggleSelectEffect={toggleSelectEffect}
+                currentYear={currentYear}
+                unlockedTechs={unlockedTechs}
+                combinedCpuDemand={combinedCpuDemand}
+                combinedRamDemand={combinedRamDemand}
+                platformCpuLimit={activeRigConfig.cpuLimit}
+                platformRamLimitKb={activeRigConfig.ramLimitKb}
+                effortCoding={effortCoding}
+                effortArt={effortArt}
+                effortMusic={effortMusic}
+                effortOptimization={effortOptimization}
+                setEffortCoding={setEffortCoding}
+                setEffortArt={setEffortArt}
+                setEffortMusic={setEffortMusic}
+                setEffortOptimization={setEffortOptimization}
+                onOpenPlaylist={() => setShowPlaylistModal(true)}
+                onOpenEffectGallery={() => setShowEffectGallery(true)}
+                onCompile={triggerAssembleCompiler}
+              />
 
-                <form onSubmit={triggerAssembleCompiler} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-[10px] text-[#a1a1aa] font-bold mb-1 uppercase tracking-tight">PRODUCTION TITLE</label>
-                      <input
-                        type="text"
-                        value={studioDemoName}
-                        onChange={(e) => setStudioDemoName(e.target.value)}
-                        className="w-full bg-[#09090b] border border-[#3f3f46] rounded px-2.5 py-1.5 text-white text-xs focus:outline-none focus:border-[#22d3ee] font-bold"
-                        placeholder="e.g. SINUS WAVES"
-                      />
-                    </div>
 
-                    <div>
-                      <label className="block text-[10px] text-[#a1a1aa] font-bold mb-1 uppercase tracking-tight">COMPETITION CATEGORY</label>
-                      <select
-                        value={studioProdType}
-                        onChange={(e) => setStudioProdType(e.target.value as ProductionType)}
-                        className="w-full bg-[#09090b] border border-[#3f3f46] rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#22d3ee] font-bold cursor-pointer"
-                      >
-                        {Object.values(ProductionType).map((type) => (
-                          <option key={type} value={type}>
-                            {type} {type === ProductionType.Intro4k ? "(Limit: 4096 bytes)" : type === ProductionType.Intro64k ? "(Limit: 65,536 bytes)" : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-
-                  {/* Effects selector */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <label className="block text-[10px] text-[#a1a1aa] font-bold uppercase tracking-tight">
-                        LINK ALGORITHMIC GRAPHIC TRICKS ({studioSelectedEffects.length} SELECTED)
-                      </label>
-                      <button
-                        type="button"
-                        id="btn-open-effect-gallery"
-                        onClick={() => setShowEffectGallery(true)}
-                        className="bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 text-[#22d3ee] border border-[#22d3ee]/30 hover:border-[#22d3ee] rounded px-3 py-1 text-[10px] font-mono font-bold transition-all uppercase cursor-pointer"
-                      >
-                        EFFECT GALLERY & VISUALIZER
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-                      {DEMO_EFFECTS.map((eff) => {
-                        const isUnlocked = isEffectUnlocked(eff.id);
-
-                        const isPlatformCompatible = ownedRigs.includes(eff.minPlatform);
-                        const isChecked = studioSelectedEffects.includes(eff.id);
-
-                        return (
-                          <div
-                            key={eff.id}
-                            style={{ opacity: isUnlocked && isPlatformCompatible ? 1 : 0.4 }}
-                            className={`p-2.5 rounded border text-xs flex flex-col justify-between transition-all ${
-                              isChecked
-                                ? "bg-[#facc15]/10 border-[#facc15] text-[#facc15]"
-                                : "bg-[#09090b] border-[#27272a] text-[#a1a1aa]"
-                            }`}
-                          >
-                            <div>
-                              <div className="flex items-start justify-between gap-1">
-                                <span className="font-bold block leading-snug">{eff.name}</span>
-                                {isUnlocked && isPlatformCompatible && (
-                                  <input
-                                    type="checkbox"
-                                    checked={isChecked}
-                                    onChange={() => toggleSelectEffect(eff.id)}
-                                    className="rounded bg-[#1a1b1e] border-[#3f3f46] text-[#22d3ee] focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer mt-0.5"
-                                  />
-                                )}
-                              </div>
-                              <p className="text-[10px] text-[#71717a] mt-1.5 italic leading-normal">{eff.description}</p>
-                            </div>
-
-                            <div className="mt-2.5 pt-1.5 border-t border-[#27272a] flex items-center justify-between text-[9px] text-[#71717a]">
-                              <span>CPU: {eff.cpuCost} cycles</span>
-                              <span>RAM: {eff.ramCostKb}KB</span>
-                            </div>
-
-                            {!isUnlocked && (
-                              <span className="text-[9px] text-[#ef4444] bg-[#ef4444]/15 px-1 py-0.5 rounded text-center mt-1.5 border border-[#ef4444]/20 font-bold uppercase">
-                                RESEARCH REQUIRED
-                              </span>
-                            )}
-                            {isUnlocked && !isPlatformCompatible && (
-                              <span className="text-[9px] text-[#fb923c] bg-[#fb923c]/15 px-1 py-0.5 rounded text-center mt-1.5 border border-[#fb923c]/20 font-bold uppercase">
-                                REQUIRES RIG: {eff.minPlatform}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Resource meters warning */}
-                  <div className="border border-[#27272a] bg-[#09090b] p-3 rounded text-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-                    <div>
-                      <span className="text-[#a1a1aa] font-bold block text-[10.5px]">COMBINED POWER METRIC STATS:</span>
-                      <div className="flex flex-wrap items-center gap-4 mt-1 text-[11px]">
-                        <span>CPU DEMAND: <strong className={combinedCpuDemand > activeRigConfig.cpuLimit ? "text-[#ef4444] animate-pulse" : "text-[#4ade80]"}>{combinedCpuDemand} cycles</strong> / {activeRigConfig.cpuLimit}</span>
-                        <span>RAM BLOCK DEMAND: <strong className={combinedRamDemand > activeRigConfig.ramLimitKb ? "text-[#ef4444] animate-pulse" : "text-[#4ade80]"}>{combinedRamDemand} KB</strong> / {activeRigConfig.ramLimitKb} KB</span>
-                      </div>
-                    </div>
-
-                    {(combinedCpuDemand > activeRigConfig.cpuLimit || combinedRamDemand > activeRigConfig.ramLimitKb) && (
-                      <span className="text-[10px] bg-[#ef4444]/15 text-[#ef4444] font-bold px-2 py-1 border border-[#ef4444]/30 rounded select-none animate-pulse">
-                        [ OUT OF SYSTEM SPACE / OVERLOAD ]
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Effort allocations */}
-                  <div className="bg-[#09090b]/40 p-3 rounded border border-[#27272a] space-y-3">
-                    <span className="text-[9.5px] text-[#a1a1aa] font-extrabold tracking-widest block uppercase">CREATIVE DIVISION OF LABOR DELEGATION (%)</span>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-xs font-mono">
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="flex items-center gap-1"><Code className="w-3 h-3 text-[#22d3ee]" /> ASSEMBLY CODES</span>
-                          <span className="font-bold text-[#22d3ee]">{effortCoding}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="10"
-                          max="60"
-                          value={effortCoding}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            setEffortCoding(val);
-                          }}
-                          className="w-full accent-[#22d3ee] cursor-pointer h-1.5 bg-[#09090b] rounded-lg appearance-none"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="flex items-center gap-1"><Image className="w-3 h-3 text-[#fb923c]" /> PIXELS & FONTS</span>
-                          <span className="font-bold text-[#fb923c]">{effortArt}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="10"
-                          max="60"
-                          value={effortArt}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            setEffortArt(val);
-                          }}
-                          className="w-full accent-[#fb923c] cursor-pointer h-1.5 bg-[#09090b] rounded-lg appearance-none"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="flex items-center gap-1"><Music className="w-3 h-3 text-[#4ade80]" /> COMPOSITION SOUND</span>
-                          <span className="font-bold text-[#4ade80]">{effortMusic}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="10"
-                          max="60"
-                          value={effortMusic}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            setEffortMusic(val);
-                          }}
-                          className="w-full accent-[#4ade80] cursor-pointer h-1.5 bg-[#09090b] rounded-lg appearance-none"
-                        />
-                      </div>
-
-                      <div>
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="flex items-center gap-1"><Zap className="w-3 h-3 text-[#818cf8]" /> CRUNCH COMPRESS</span>
-                          <span className="font-bold text-[#818cf8]">{effortOptimization}%</span>
-                        </div>
-                        <input
-                          type="range"
-                          min="5"
-                          max="50"
-                          value={effortOptimization}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value);
-                            setEffortOptimization(val);
-                          }}
-                          className="w-full accent-[#818cf8]"
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Submission triggers */}
-                  <div className="flex justify-end pt-2">
-                    <button
-                      id="btn-trigger-compile"
-                      type="submit"
-                      disabled={combinedCpuDemand > activeRigConfig.cpuLimit || combinedRamDemand > activeRigConfig.ramLimitKb}
-                      className={`font-black uppercase px-6 py-2.5 rounded shadow text-xs tracking-wider flex items-center gap-2 select-none transition active:scale-95 cursor-pointer ${
-                        combinedCpuDemand > activeRigConfig.cpuLimit || combinedRamDemand > activeRigConfig.ramLimitKb
-                          ? "bg-[#27272a] text-[#71717a] cursor-not-allowed border border-[#3f3f46]/30"
-                          : "bg-[#22d3ee] text-[#09090b] hover:bg-[#06b6d4] border border-white/10"
-                      }`}
-                    >
-                      <Code className="w-4 h-4 fill-current" />
-                      <span>COMPILE & ASSEMBLE EXE</span>
-                    </button>
-                  </div>
-                </form>
-              </div>
+                
 
               {/* Complete compiled releases archives list */}
               <div className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">
@@ -5439,6 +5518,7 @@ export default function App() {
                           const isSelectedSim = pId === gallerySelectedPlatformId;
 
                           return (
+
                             <button
                               key={pId}
                               onClick={() => setGallerySelectedPlatformId(pId)}
@@ -5580,6 +5660,30 @@ export default function App() {
         );
       })()}
 
+      {/* Floating music player + playlist modal — mounted at the
+          App root so the AudioContext + worklet survive navigation
+          between tabs. The modal is shared with the main menu via
+          the lifted showPlaylistModal state. */}
+      <MusicPlayer onOpenPlaylist={() => setShowPlaylistModal(true)} />
+      <PlaylistManager
+        open={showPlaylistModal}
+        onClose={() => setShowPlaylistModal(false)}
+      />
+
+      {/* Post-compile demo summary modal — shows the multi-category
+          score breakdown, triggered synergies, awards, and
+          competition predictions. Portal-rendered to document.body
+          so it sits above the floating music player. */}
+      <DemoSummaryModal
+        summary={lastDemoSummary}
+        open={showDemoSummary}
+        onClose={() => setShowDemoSummary(false)}
+      />
+
+      {/* Developer Tools — only visible when dev mode is active
+          (set via ?dev=1 URL param or localStorage devMode flag). */}
+      <DevMenu />
+
       {/* Footer credits and references */}
       <footer className="mt-12 text-center text-[10px] text-[#71717a] space-y-1.5 font-mono uppercase tracking-widest leading-loose">
         <p>Demoscene Simulator © 2026. Realized in Cloud Run Containers with Antigravity Devtools.</p>
@@ -5588,5 +5692,6 @@ export default function App() {
         </p>
       </footer>
     </div>
+    </DevModeProvider>
   );
 }

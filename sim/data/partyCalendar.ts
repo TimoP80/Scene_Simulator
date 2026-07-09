@@ -18,6 +18,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "copy_party_1989",
     name: "Copy Party",
+    year: 1989,
     month: 2,
     isAnnual: true,
     platformFocus: "c64",
@@ -32,6 +33,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "venlo_party",
     name: "Venlo Meeting",
+    year: 1987,
     month: 5,
     isAnnual: true,
     platformFocus: "c64",
@@ -49,6 +51,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "the_gathering",
     name: "The Gathering",
+    year: 1992,
     month: 4,
     isAnnual: true,
     platformFocus: "all",
@@ -65,6 +68,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "twilight_zone",
     name: "Twilight Zone",
+    year: 1992,
     month: 6,
     isAnnual: true,
     platformFocus: "amiga",
@@ -80,6 +84,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "horror_demos",
     name: "Horror Demos",
+    year: 1987,
     month: 7,
     isAnnual: true,
     platformFocus: "c64",
@@ -94,6 +99,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "assembly_summer",
     name: "Assembly Summer",
+    year: 1992,
     month: 8,
     isAnnual: true,
     platformFocus: "all",
@@ -110,6 +116,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "sun_demoparty",
     name: "Sun Demoparty",
+    year: 1992,
     month: 9,
     isAnnual: true,
     platformFocus: "all",
@@ -129,6 +136,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "mekka_symposium",
     name: "Mekka & Symposium",
+    year: 1992,
     month: 1,
     isAnnual: true,
     platformFocus: "amiga",
@@ -145,6 +153,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "fishtank_party",
     name: "Fishtank Party",
+    year: 1992,
     month: 3,
     isAnnual: false,
     platformFocus: "all",
@@ -159,6 +168,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "breakpoint",
     name: "Breakpoint",
+    year: 1992,
     month: 4,
     isAnnual: true,
     platformFocus: "amiga",
@@ -174,6 +184,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "buenzli",
     name: "Buenzli",
+    year: 1992,
     month: 8,
     isAnnual: true,
     platformFocus: "all",
@@ -189,6 +200,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "nordlicht",
     name: "Nordlicht",
+    year: 1992,
     month: 10,
     isAnnual: true,
     platformFocus: "all",
@@ -204,6 +216,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "outline",
     name: "Outline",
+    year: 1992,
     month: 11,
     isAnnual: true,
     platformFocus: "all",
@@ -220,6 +233,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "the_party",
     name: "The Party",
+    year: 1992,
     month: 12,
     isAnnual: true,
     platformFocus: "all",
@@ -239,6 +253,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "chaos_constructions",
     name: "Chaos Constructions",
+    year: 1998,
     month: 2,
     isAnnual: true,
     platformFocus: "pc",
@@ -255,6 +270,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "wired",
     name: "Wired",
+    year: 1998,
     month: 5,
     isAnnual: true,
     platformFocus: "pc",
@@ -270,6 +286,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "x_party",
     name: "X",
+    year: 1998,
     month: 6,
     isAnnual: true,
     platformFocus: "pc",
@@ -286,6 +303,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "evoke",
     name: "Evoke",
+    year: 1992,
     month: 8,
     isAnnual: true,
     platformFocus: "all",
@@ -303,6 +321,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
   {
     id: "paradize",
     name: "Paradize",
+    year: 1998,
     month: 10,
     isAnnual: true,
     platformFocus: "pc",

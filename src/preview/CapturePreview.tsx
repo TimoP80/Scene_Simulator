@@ -38,6 +38,8 @@ const HERO_EFFECTS: string[] = [
 
 const HERO_NAME = "AMBER_DOME";
 const HERO_GROUP = "GLITCH_FOUNDRY";
+// hero capture is a stateless preview; toggle callbacks are stubbed.
+const NOOP = (): void => {};
 
 export default function CapturePreview(): React.ReactElement {
   return (
@@ -60,6 +62,11 @@ export default function CapturePreview(): React.ReactElement {
           effects={HERO_EFFECTS}
           demoName={HERO_NAME}
           groupName={HERO_GROUP}
+          musicTrackStoredName=""
+          audioEnabled={false}
+          isPlaying={true}
+          onToggleAudio={NOOP}
+          onTogglePlay={NOOP}
         />
       </div>
     </div>

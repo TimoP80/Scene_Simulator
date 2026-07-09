@@ -21,3 +21,6 @@
 
 export * from "./party";
 export * from "./economy";
+
+// ---- Demo scoring engine (v2) ----
+export * from "./scoring";

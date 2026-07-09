@@ -9,14 +9,30 @@
  * so any import can use `window.electronAPI?.getApiKey()` without
  * sprinkling `as any`. The `?.` is important: this same React tree
  * runs under plain Vite (no preload) during development and inside
- * AI Studio, where `window.electronAPI` is undefined.
+ * any other host that does not expose the Electron IPC bridge, where
+ * `window.electronAPI` is undefined.
  */
+
+export type MusicFile = {
+  /** Stable name on disk (`userData/music/<sha256>.<ext>`). */
+  storedName: string;
+  /** User-friendly title (filename minus extension). */
+  displayName: string;
+  /** Short uppercase format label: MOD / XM / IT / S3M. */
+  format: 'MOD' | 'XM' | 'IT' | 'S3M' | 'OTHER';
+  /** File size in bytes (post-import). */
+  size: number;
+};
 
 export type ElectronApi = {
   hasApiKey: () => Promise<boolean>;
   getApiKey: () => Promise<string | null>;
   setApiKey: (key: string) => Promise<boolean>;
   clearApiKey: () => Promise<boolean>;
+  /** Music library ---------------------------------------------------- */
+  importMusicFiles: () => Promise<MusicFile[]>;
+  readMusicFile: (storedName: string) => Promise<Uint8Array>;
+  deleteMusicFile: (storedName: string) => Promise<boolean>;
 };
 
 declare global {

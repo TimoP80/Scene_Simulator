@@ -138,6 +138,7 @@ export const JOB_TEMPLATES: JobTemplate[] = [
     basePayment: 1200,
     reputationDelta: 20,
     durationMonths: 4,
+    requiresCrewSkill: "graphics",
     availableFromYear: 1997,
     availableToYear: 2003,
   },

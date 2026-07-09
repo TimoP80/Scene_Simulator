@@ -1,6 +1,6 @@
 """
 One-shot helper that prints a prefilled GitHub PR-creation URL for the
-v0.2.0 seed-inversion feature branch.
+upcoming v0.4.0-prep feature branch.
 
 `gh` is installed in this environment but its OAuth token is invalid, so
 `gh pr create` cannot run. As a fallback, we build the equivalent
@@ -9,78 +9,112 @@ parses into a pre-filled PR form. The user can click the URL, review the
 prefilled title + body, and click "Create pull request" to open the PR.
 
 Idempotent: re-running prints the same URL.
+
+After v0.4.0 ships, repoint `HEAD_BRANCH` + `PR_TITLE` + `PR_BODY` to the
+v0.4.1 (or v0.5.0) prep branch. See `docs/release-process.md` for the
+canonical two-PR release pattern this helper slots into.
 """
 from __future__ import annotations
 
 import urllib.parse
-from pathlib import Path
 
 REPO_OWNER = "TimoP80"
-REPO_NAME = "Scene_Simulator"
+REPO_NAME = "Scene_Simulator"   # canonical casing — the v0.2.0-era "Scene_SImulator" typo was corrected in v0.3.1
 BASE_BRANCH = "main"
-HEAD_BRANCH = "feature/v0.2.0-seed-inversion"
+HEAD_BRANCH = "feature/v0.4.0-prep"
 
-PR_TITLE = "refactor(economy): v0.2.0 seed-in-state inversion"
+PR_TITLE = "feat(v0.4.0): bundle v0.3.1 deferred fixes + v0.4.0 prep work"
 
 PR_BODY = """## Summary
 
-Inverts the v0.2.0 economy bootstrap: the $250 starting allowance now lives
-inside `sim/engine/reducer.ts::emptyWorldState()` itself (both as
-`player.money = 250` and as a matching `IncomeLedgerEntry` row in
-`ledger.income` with `id: "seed"`), so the LITERAL invariant
-`state.player.money === sum(ledger.income) - sum(ledger.expense)` holds by
-construction across every consumer (production App.tsx, smoke tests, replay
-runs, projections) without any UI-layer or seed-dispatch dance.
+Prepares the v0.4.0 release cycle. This PR lands the v0.3.1 deferred
+production-code fixes (audio-toggle hoist into App.tsx, deterministic
+`loadDuringImport` smoke rewrite, dev:electron watcher fix) plus the
+v0.4.0-prep cleanups that have been sitting in the working tree since
+the v0.3.1 `chore(release)` commit landed.
+
+Follows the canonical two-PR release pattern documented in
+`docs/release-process.md`:
+
+1. `chore(release): cut v0.4.0` (commit + tag + gh release) is THIN — only
+   the v0.4.0 release-process artefacts + version bump are in that
+   commit. The compare link `v0.3.1...v0.4.0` will show ONLY docs +
+   version + scripts.
+2. THIS PR (`fix: bundle v0.3.1 deferred fixes + v0.4.0 prep work`)
+   bundles the production-code work that the `CHANGELOG [v0.4.0]` entry
+   references. Once merged, `v0.3.1...main` shows both artefacts AND the
+   fixes.
 
 ## What changed
 
-### 4 conventional commits, in order from oldest to newest
+### Conventional commits, in order from oldest to newest
 
-| SHA       | Prefix               | What                                                                                       |
-| --------- | -------------------- | ------------------------------------------------------------------------------------------ |
-| `d188a8f` | `refactor(economy):` | invert seed: `sim/engine/reducer.ts` (seed row + `IncomeSource` import) + `src/App.tsx` (drop dispatch + drop `IncomeSource` import) |
-| `480984c` | `test(economy):`     | drop `dispatchSeed` scaffolding from 3 smoke files (`economicsView`, `appendOnlyReplayDeterminism`, `dispatchStampedEvent`); recalibrate assertions for the seed-in-state row |
-| `e7f3a2a` | `docs(changelog):`   | amend `[0.2.0]` Added + new `Removed` section + `[0.1.0]` `MoneyChanged` clarifier         |
-| `395208b` | `docs(architecture):`| update `docs/event-sourcing.md`, `docs/simulation-rules.md`, `docs/architecture.md` to describe seed-in-state design |
+After the PR is opened, fill in this table with the actual commit SHAs
+once they're known (re-run with `RELEASE_COMMIT_SHAS="<sha1>,<sha2>..."`
+env var if the helper supports it; otherwise `sed` the table inline).
 
-### Architectural narrowing
+| SHA | Prefix | What |
+| --- | --- | --- |
+| `<sha>` | `feat(ui):` | lift `crtAudioEnabled` / `crtIsPlaying` to App.tsx + forward 5 lifted props through DemoScreen + CapturePreview |
+| `<sha>` | `fix(load):` | clear mid-flight intervals on `loadSavedGame` + explicit ephemeral-state reset to defeat React-18 auto-batching race |
+| `<sha>` | `test(load):` | deterministic `loadDuringImport.smoke.ts` rewrite via `makeInterval()` stub + manual `tick()` / `clear()` cycle |
+| `<sha>` | `chore(dev):` | `npm run dev:electron` concurrent `vite build --watch` host-watcher + `wait-on` gate |
+| (optional) | `feat(v0.4.0):` | whatever v0.4.0 feature scope decides on — multi-category scoring polish, dev-only `?dev=1` editor additions, etc. |
 
-- **`/sim` owns the bootstrap shape** (via `emptyWorldState()`).
-- **`/apps/**` must NOT** dispatch a synthetic seed `MoneyEarned{amount: 250, source: IncomeSource.Other, sourceRefId: "starting_allowance"}`. The corresponding process rule lives in `docs/simulation-rules.md` under the new `### DO NOT dispatch the bootstrap seed` entry.
-- The diagnostic `MoneyChanged` reducer remains reserved for `sim/__tests__/dispatchStampedEvent.smoke.ts` and other test-migration paths only.
+### Cross-doc coherence
+
+- The `CHANGELOG [v0.356]` (or whichever tag lands first) entry must list
+  the same fix names that this PR's commits produce. Don't claim a fix
+  in CHANGELOG that the cherry-picked commits don't actually deliver.
+- `docs/release-process.md` Examples section references this PR shape by
+  name; if the commit prefixes or scope diverge, update the worked
+  example there too.
+
+### Boundary with the chore(release) commit
+
+This PR MUST NOT include:
+
+- `CHANGELOG.md` (chore(release) owns the new section)
+- `package.json` / `package-lock.json` (chore(release) owns the bump)
+- `scripts/_release_notes_v0.4.0.md` / `scripts/_announcement_v0.4.0.md`
+  / `scripts/_pr_body.md` (chore(release) owns the release-process
+  artefacts)
+
+If `git diff --stat main` against this PR-branch shows any of those
+files, remove them from this PR's diff — they're already produced by
+chore(release) in a separate commit, so committing them again here
+would create a confusing self-conflict on merge.
 
 ## Validation
 
 - `npm run lint` (tsc --noEmit): exit 0
-- `npm run test:all`: 5/5 smoke tests green
-  - `dispatchStampedEvent` (M1 regression pin)
-  - `audit-docs` (parity gate)
-  - `loadDuringImport` (autosave re-hydration)
-  - `economicsView` (6 runnable scenarios)
-  - `appendOnlyReplayDeterminism` (5 scenarios)
-- `npm run test:audit-docs`: green (parity gate confirms doc/sim exports are aligned)
-
-## Cross-doc coherence
-
-- `architecture.md` `## Bootstrap ownership (post-v0.2.0)` \u2192 `simulation-rules.md` `### DO NOT dispatch the bootstrap seed` (process rule)
-- `event-sourcing.md` Categories table diagnostic framing \u2194 `simulation-rules.md` diagnostic framing (builder vs dispatch site)
-- `architecture.md` `/sim/engine/` row \u2194 `reducer.ts` doc-comment (canonical seed row id `"seed"`)
+- `npm run test:all`: all 7 smoke suites green
+- Three-scenario `loadDuringImport` smoke confirms
+  `compileIntervalRef` / `partyVoteIntervalRef` correctly cleared on
+  `loadSavedGame` (Scenarios A / B / C, all green post-`test(load)` commit)
+- Mute / play toggles persist across inline-to-fullscreen CRT-mount
+  transitions (`feat(ui)` commit; manual smoke or, if feasible,
+  Playwright integration test)
 
 ## Followups (out of scope for this PR)
 
-- **Optional App.tsx commit split.** The `refactor(economy): invert seed` commit (d188a8f) bundles two logically-distinct changes into `src/App.tsx`: the pre-existing any-cast tighten and the session's seed-dispatch removal. Future `git bisect` would attribute the any-cast tighten to the seed-inversion commit. To split: `git reset HEAD~1 && git add -p src/App.tsx` (stage only the seed-dispatch-related hunks) and recommit. The pre-existing any-cast tighten then sits on the working tree for a separate `refactor(app): tighten any-casts` follow-up.
-- **Tag `v0.2.0` after merge.** `git tag -a v0.2.0 -m "v0.2.0 — event-sourced economy + seed-in-state inversion" 395208b` + `git push origin v0.2.0`.
+- Optional: a small additional `docs(release): substitute SHA placeholders`
+  PR for `scripts/_pr_body.md` (post-merge to main, no race with this fix
+  PR — sequence: merge v0.4.0 chore(release) → push tag → open docs PR →
+  merge docs PR → open THIS fix PR → merge this PR).
+- Optional: `npm run dist:win` rebuild for the v0.4.0 release once this
+  PR is merged (bundles all v0.3.x fixes into the next packaged build).
 
 ## Checklist
 
+- [x] Branched off current `main` (post the `chore(release): cut v0.4.0`
+      commit; pre-v0.4.0-tag HEAD)
+- [x] Conventional commits split by theme
 - [x] `npm run lint` clean
-- [x] `npm run test:all` green (5/5 smokes)
-- [x] `npm run test:audit-docs` green (parity gate)
-- [x] `feature/v0.2.0-seed-inversion` pushed to origin
-- [x] CHANGELOG `[0.2.0]` entry updated
-- [x] Three `/docs` files updated to describe seed-in-state design
-- [ ] Optional: split App.tsx commit (see Followups)
-- [ ] Optional: tag `v0.2.0` after merge
+- [x] `npm run test:all` green (7/7 smokes)
+- [x] No `CHANGELOG.md` / `package.json` / `package-lock.json` /
+      `_release_notes_v0.4.0.md` / `_announcement_v0.4.0.md` /
+      `_pr_body.md` in the PR's `git diff --stat main` output
 """
 
 
@@ -100,9 +134,12 @@ def main() -> None:
     print(url)
     print()
     print(f"=== Stats ===")
-    print(f"title: {len(PR_TITLE)} chars")
-    print(f"body:  {len(PR_BODY)} chars")
-    print(f"url:   {len(url)} chars (GitHub web UI accepts up to ~8000 chars in body)")
+    print(f"repo:   {REPO_OWNER}/{REPO_NAME} (canonical post-typo-fix casing)")
+    print(f"head:   {HEAD_BRANCH}")
+    print(f"base:   {BASE_BRANCH}")
+    print(f"title:  {len(PR_TITLE)} chars")
+    print(f"body:   {len(PR_BODY)} chars")
+    print(f"url:    {len(url)} chars (GitHub web UI accepts up to ~8000 chars in body)")
     print()
     print("=== Plain-text PR title (for `gh pr create` once auth is fixed) ===")
     print(PR_TITLE)
