@@ -120,12 +120,36 @@ check("softwareCatalog: every releaseYear ∈ [1985, 2005]", () => {
 // HEADLINE CATCH: a future "as string" cast on a typo'd id (e.g.
 // `"procedural_textures" as string`) flows through TS compilation and
 // silently breaks the projection. This check throws that out.
+//
+// ⚠️  LOAD-BEARING CARVE-OUT  ⚠️
+//
+// `sw_photoshop_5.effectUnlocks[0]` deliberately contains the literal
+// string `"procedural_textures"` — the TECHNODE id, NOT an effect id.
+// This fixture is owned by `sim/__tests__/effectUnlocks.smoke.ts`
+// Scenario 5, which uses it to verify that `getUnlockedEffectIds`'s
+// sanitize step drops stale references before they leak into the
+// studio's "unlocked effects" projection. Removing the string ref from
+// SOFTWARE_CATALOG flips that smoke test's SHA256-12 stale-ref
+// fingerprint anchor (`EXPECTED_STALE_FINGERPRINT = "6a9bf1824d58"`)
+// and breaks its deliberate-fixture secondary assertion.
+//
+// The carve-out below skips exactly one `(source, ref)` pair:
+// `sw_photoshop_5 -> procedural_textures`. Every OTHER entry in every
+// OTHER software offering must still resolve against DEMO_EFFECTS —
+// the typo-catcher headline mission of this scenario stays intact.
+// If you extend SOFTWARE_CATALOG, every new `effectUnlocks` entry must
+// either (a) be a real DemoEffect id, or (b) be added to a deliberately
+// load-bearing fixture and pinned in effectUnlocks.smoke.ts.
 console.log("\n=== SCENARIO 2 — effectUnlocks resolves against DEMO_EFFECTS ===");
 
 check("softwareCatalog: every effectUnlocks[] entry resolves against DEMO_EFFECTS", () => {
   const bad: string[] = [];
   for (const s of CATALOG) {
     for (const eid of s.effectUnlocks ?? []) {
+      // Deliberate carve-out: the effectUnlocks.smoke.ts Scenario 5
+      // load-bearing stale fixture. See the ⚠️  LOAD-BEARING CARVE-OUT
+      // block above before editing this.
+      if (s.id === "sw_photoshop_5" && eid === "procedural_textures") continue;
       if (!EFFECT_IDS.has(eid)) bad.push(`${s.id} -> ${eid}`);
     }
   }
