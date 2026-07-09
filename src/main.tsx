@@ -21,6 +21,7 @@ import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import ApiKeyBootstrap from './components/ApiKeyBootstrap.tsx';
 import CapturePreview from './preview/CapturePreview.tsx';
+import { DevModeProvider } from './devtools/DevModeContext';
 import './index.css';
 
 const isCaptureRun =
@@ -30,12 +31,20 @@ const isCaptureRun =
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('Missing #root element');
 
+// DevModeProvider is mounted at the React root (not inside <App/>) so
+// the App component's own useDevMode() at the top of its body can see
+// the real provider. Previously the provider only lived inside App's
+// JSX return, which made App's `useDevMode()` resolve to the default
+// context value (`setDevMode: () => {}`) and silently no-op the DEV
+// TOOLS toggle in the MainMenu.
 createRoot(rootElement).render(
   <StrictMode>
-    {isCaptureRun ? <CapturePreview /> : (
-      <ApiKeyBootstrap>
-        <App />
-      </ApiKeyBootstrap>
-    )}
+    <DevModeProvider>
+      {isCaptureRun ? <CapturePreview /> : (
+        <ApiKeyBootstrap>
+          <App />
+        </ApiKeyBootstrap>
+      )}
+    </DevModeProvider>
   </StrictMode>,
 );

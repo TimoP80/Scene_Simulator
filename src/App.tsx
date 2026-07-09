@@ -80,7 +80,7 @@ import MusicPlayer from "./components/MusicPlayer";
 import PlaylistManager from "./components/PlaylistManager";
 import DemoSummaryModal from "./components/DemoSummary";
 import { useTrackerPlayer } from "./hooks/useTrackerPlayer";
-import { DevModeProvider, useDevMode } from "./devtools/DevModeContext";
+import { useDevMode } from "./devtools/DevModeContext";
 import { DevMenu } from "./devtools/DevMenu";
 import { loadBaseContent } from "./content/ContentLoader";
 import { SimulationLoop } from "@sim/engine/simulationLoop";
@@ -3327,7 +3327,6 @@ const ERA_LABELS: Record<string, string> = {
   // handleContinue, handleLoadFromFile) control showMainMenu.
   if (showMainMenu) {
     return (
-      <DevModeProvider>
       <>
         <MainMenu
           hasLocalSave={mainMenuSaveInfo !== null}
@@ -3348,12 +3347,11 @@ const ERA_LABELS: Record<string, string> = {
           onClose={() => setShowPlaylistModal(false)}
         />
       </>
-      </DevModeProvider>
+
     );
   }
 
     return (
-    <DevModeProvider>
     <div className="min-h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col font-mono text-sm antialiased pb-12 selection:bg-[#22d3ee] selection:text-black">
       {/* Dynamic Header Bar resembling classic tracker layout */}
       <header className="bg-[#2d2d30] border-b border-[#3f3f46] px-4 py-2 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-md">
@@ -5694,6 +5692,5 @@ const ERA_LABELS: Record<string, string> = {
         </p>
       </footer>
     </div>
-    </DevModeProvider>
   );
 }
