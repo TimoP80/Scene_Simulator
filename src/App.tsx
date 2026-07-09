@@ -3327,6 +3327,7 @@ const ERA_LABELS: Record<string, string> = {
   // handleContinue, handleLoadFromFile) control showMainMenu.
   if (showMainMenu) {
     return (
+      <DevModeProvider>
       <>
         <MainMenu
           hasLocalSave={mainMenuSaveInfo !== null}
@@ -3347,6 +3348,7 @@ const ERA_LABELS: Record<string, string> = {
           onClose={() => setShowPlaylistModal(false)}
         />
       </>
+      </DevModeProvider>
     );
   }
 
