@@ -107,7 +107,14 @@ export const SOFTWARE_CATALOG: SoftwareOffering[] = [
     type: "image_editor",
     releaseYear: 1998,
     purchasePrice: 280,
-    effectUnlocks: ["domain_warp_field", "cloth_physics"],
+    // NOTE: the first entry `"procedural_textures"` is a deliberate stale
+    // ref (the string is the TechNode id `procedural_textures`, NOT an
+    // effect id) — it is load-bearing for sim/__tests__/effectUnlocks.smoke.ts
+    // Scenario 5, which pins the sanitize step's behaviour against exactly
+    // this fixture. Removing it silently flips the test's expected stale-ref
+    // fingerprint and breaks the deliberate-fixture contract. See the giant
+    // ⚠️ NOTE block at the top of that test before editing this array.
+    effectUnlocks: ["procedural_textures", "domain_warp_field", "cloth_physics"],
     description:
       "Limited Photoshop release with bundled Kodak CMS. Used by intro crews to author texture sets for shaders.",
   },

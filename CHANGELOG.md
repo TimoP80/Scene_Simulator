@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`sim/data/softwareCatalog.ts` `sw_photoshop_5.effectUnlocks` deliberate-fixture restoration** — the v0.3.2 commit `chore(release): cut v0.3.2` (`f91e766`) renamed the first entry from `"procedural_textures"` (the TechNode id, *not* an effect id) to `"domain_warp_field"`, which silently broke the deliberately-pinned `sim/__tests__/effectUnlocks.smoke.ts` Scenario 5 contract. The fixture is load-bearing: the ⚠️ NOTE block at the top of that smoke test explicitly documents that the stale `"procedural_textures"` ref must remain in the catalogue so the sanitize step's negative assertion (`!result.has("procedural_textures")`) and the auto-derived SHA256-12 stale-ref fingerprint anchor (`EXPECTED_STALE_FINGERPRINT = "6a9bf1824d58"`) keep shipping a green Scenario 5.0; the "first entry is `\"procedural_textures\" as string`" wording in Scenario 5 (c) is a literal description of the fixture, not commentary. Restored the array to `["procedural_textures", "domain_warp_field", "cloth_physics"]` and added an in-source comment to the array pointing at the smoke test so the next contributor who reads the catalogue without opening the test still sees the load-bearing warning. The `domain_warp_field` add remains valuable (it brought the JSON-only catalogue addition online via the v0.3.0 extension — `domain_warp_field` is a real `DemoEffect` and now reachable for any PC_PENTIUM_II+ crew after the 1998 Photoshop 5 LE purchase). The `procedural_textures` reintroduction costs the studio nothing at runtime — `getUnlockedEffectIds`'s sanitize step drops it before the result escapes. `npx tsx scripts/audit-stale-fingerprints.mjs` confirms the fingerprint reverts to `6a9bf1824d58`.
+
 ## [0.3.2] - 2026-07-09
 
 ### Added
