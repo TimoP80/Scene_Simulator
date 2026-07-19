@@ -18,3 +18,4 @@ export * from "./music";
 export * from "./shared";
 export * from "./save";
 export * from "./economy";
+export * from "./competition";

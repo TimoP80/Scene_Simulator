@@ -1,0 +1,157 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Dynamic party events — random events that fire during competitions,
+ * modifying scores and adding ceremony flavor. v0.5.0 expansion.
+ *
+ * Pure data. NO React, NO DOM, NO LLM.
+ */
+
+import type { DynamicPartyEvent } from "@packages/types";
+
+export const DYNAMIC_PARTY_EVENTS: DynamicPartyEvent[] = [
+  // Positive events
+  {
+    id: "live_coding_breakthrough",
+    name: "Amazing Live Coding!",
+    description: "A coder rushes to fix a last-minute bug live on stage. The crowd goes wild as the demo springs to life.",
+    type: "positive",
+    scoreModifier: 5,
+    phase: "judging",
+    flavorText: "The audience erupts as the coder fixes a crash live on stage!",
+    weight: 8,
+  },
+  {
+    id: "last_minute_optimization",
+    name: "Last Minute Optimization",
+    description: "A last-minute tweak boosts the demo's performance, squeezing extra frames per second.",
+    type: "positive",
+    scoreModifier: 4,
+    phase: "presentation",
+    flavorText: "That last-minute optimization paid off — the demo runs buttery smooth!",
+    weight: 10,
+  },
+  {
+    id: "audience_hype",
+    name: "Audience Hype Wave",
+    description: "The crowd is incredibly hyped today. Every demo gets a warmer reception.",
+    type: "positive",
+    scoreModifier: 3,
+    phase: "projection",
+    flavorText: "The energy in the hall is electric tonight. Every entry benefits from the crowd's enthusiasm.",
+    weight: 12,
+  },
+  {
+    id: "projector_magic",
+    name: "Crystal Clear Projection",
+    description: "The projector displays perfect colors and zero latency. The visuals look their absolute best.",
+    type: "positive",
+    scoreModifier: 2,
+    phase: "projection",
+    flavorText: "The big screen shows every pixel in perfect clarity. Visual entries shine today.",
+    weight: 6,
+  },
+  {
+    id: "judge_impressed",
+    name: "Judge Impressed Early",
+    description: "A judge is in a particularly good mood after seeing a strong early entry.",
+    type: "positive",
+    scoreModifier: 3,
+    phase: "judging",
+    flavorText: "The judges are visibly impressed. The bar has been set high early on.",
+    weight: 7,
+  },
+  // Negative events
+  {
+    id: "projector_failure",
+    name: "Projector Failure!",
+    description: "The projector glitches mid-presentation, washing out colors and introducing visible artifacts.",
+    type: "negative",
+    scoreModifier: -4,
+    phase: "presentation",
+    flavorText: "The projector flickers! Colors are washed out on the big screen. A technical setback.",
+    weight: 7,
+  },
+  {
+    id: "power_outage",
+    name: "Power Outage",
+    description: "A brief power outage resets several machines. The compo is delayed and atmosphere sours.",
+    type: "negative",
+    scoreModifier: -3,
+    phase: "judging",
+    flavorText: "Lights flicker and half the machines go dark. The buzz is broken.",
+    weight: 5,
+  },
+  {
+    id: "music_sync_failure",
+    name: "Music Sync Failure",
+    description: "An entry's music desyncs from the visuals. The audience feels the disconnect.",
+    type: "negative",
+    scoreModifier: -5,
+    phase: "presentation",
+    flavorText: "The tracker module is out of sync! The beat doesn't match the visuals. Painful.",
+    weight: 6,
+  },
+  {
+    id: "cpu_incompatibility",
+    name: "CPU Incompatibility",
+    description: "An entry compiled for a different CPU revision than the compo machine. Stuttering ensues.",
+    type: "negative",
+    scoreModifier: -6,
+    phase: "presentation",
+    flavorText: "The entry stutters on the compo machine! Wrong CPU target? This hurts the score.",
+    weight: 4,
+  },
+  {
+    id: "unexpected_bug",
+    name: "Unexpected Bug",
+    description: "A demo crashes on stage. The coder rushes to reboot while the crowd waits awkwardly.",
+    type: "negative",
+    scoreModifier: -8,
+    phase: "presentation",
+    flavorText: "CRASH! The machine locks up and the coder scrambles. Not a good look on the big screen.",
+    weight: 5,
+  },
+  // Neutral events (just flavor)
+  {
+    id: "fire_alarm",
+    name: "Fire Alarm Interruption",
+    description: "A false fire alarm interrupts the compo for 20 minutes. The break resets the atmosphere.",
+    type: "neutral",
+    scoreModifier: 0,
+    phase: "judging",
+    flavorText: "BEEP BEEP BEEP! Everyone files out, only to return 20 minutes later. The buzz is reset.",
+    weight: 3,
+  },
+  {
+    id: "mysterious_entrant",
+    name: "Mysterious Last-Minute Entrant",
+    description: "A last-minute entry arrives on a scratched floppy. Nobody knows who submitted it.",
+    type: "neutral",
+    scoreModifier: 0,
+    phase: "projection",
+    flavorText: "A mysterious disk appears! Nobody claims it, but it runs. The scene loves a mystery.",
+    weight: 5,
+  },
+  {
+    id: "legendary_heckle",
+    name: "Legendary Heckle",
+    description: "A famous scener yells a legendary heckle from the audience that becomes part of party folklore.",
+    type: "neutral",
+    scoreModifier: 0,
+    phase: "presentation",
+    flavorText: "\"Is that a copper bar or are you just happy to see me?\" The hall erupts in laughter.",
+    weight: 4,
+  },
+  {
+    id: "retro_throwback",
+    name: "Retro Throwback Surprise",
+    description: "An organizer plays a classic demo from 1985 between entries. The old-timers get emotional.",
+    type: "neutral",
+    scoreModifier: 0,
+    phase: "presentation",
+    flavorText: "They cue up 'Starstruck' by Future Crew between entries. Even the young coders applaud.",
+    weight: 6,
+  },
+];

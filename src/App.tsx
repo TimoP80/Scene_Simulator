@@ -94,6 +94,13 @@ import { SimulationLoop } from "@sim/engine/simulationLoop";
 import { emptyWorldState } from "@sim/engine/reducer";
 import { getCurrentTick } from "@sim/events/appendEvent";
 import type { SceneEvent } from "@packages/types";
+// v0.5.0 Competition expansion imports
+import PartyRankingScreen from "./components/PartyRankingScreen";
+import HallOfFamePanel from "./components/HallOfFamePanel";
+import StatsDashboard from "./components/StatsDashboard";
+import ProductionTimeline from "./components/ProductionTimeline";
+import { useCompetitionSystem } from "./hooks/useCompetitionSystem";
+import type { CompetitionCeremony, HallOfFameEntry, PlayerStatistics, ProductionHistoryRecord } from "@packages/types";
 // SVG/Lucide Icons
 import {
   Wrench,
@@ -755,6 +762,20 @@ export default function App() {
   const [partyVoteTally, setPartyVoteTally] = useState<Record<string, number>>({});
   const [partySelectedProdId, setPartySelectedProdId] = useState<string>("");
   const [partyContestLogger, setPartyContestLogger] = useState<string[]>([]);
+
+  // v0.5.0 Competition expansion state
+  const {
+    ceremony: compCeremony,
+    showCeremony: compShowCeremony,
+    hallOfFame: compHallOfFame,
+    productionHistory: compProductionHistory,
+    stats: compStats,
+    startCompetition,
+    closeCeremony: compCloseCeremony,
+    addHistoryRecord: compAddHistoryRecord,
+    reset: compReset,
+    recomputeStats: compRecomputeStats,
+  } = useCompetitionSystem();
 
   // Auto-Save notification
   const [saveNotice, setSaveNotice] = useState<string>("");
@@ -3759,6 +3780,27 @@ const ERA_LABELS: Record<string, string> = {
                               <Wallet className="w-3.5 h-3.5" />
                               <span>ECONOMY</span>
                             </button>
+                            <button
+                              onClick={() => setActiveTab("hall_of_fame")}
+                              className={"px-3 py-1.5 hover:bg-[#3f3f46] rounded flex items-center gap-1.5 cursor-pointer transition " +(activeTab === "hall_of_fame" ? "bg-[#3f3f46] text-yellow-300" : "text-zinc-400")}
+                            >
+                              <Trophy className="w-3.5 h-3.5" />
+                              <span>HALL_OF_FAME</span>
+                            </button>
+                            <button
+                              onClick={() => setActiveTab("statistics")}
+                              className={"px-3 py-1.5 hover:bg-[#3f3f46] rounded flex items-center gap-1.5 cursor-pointer transition " +(activeTab === "statistics" ? "bg-[#3f3f46] text-cyan-300" : "text-zinc-400")}
+                            >
+                              <Activity className="w-3.5 h-3.5" />
+                              <span>STATS</span>
+                            </button>
+                            <button
+                              onClick={() => setActiveTab("timeline")}
+                              className={"px-3 py-1.5 hover:bg-[#3f3f46] rounded flex items-center gap-1.5 cursor-pointer transition " +(activeTab === "timeline" ? "bg-[#3f3f46] text-green-300" : "text-zinc-400")}
+                            >
+                              <Calendar className="w-3.5 h-3.5" />
+                              <span>TIMELINE</span>
+                            </button>
           </div>
 
           {/* TAB 1: WORKSPACE / COMPILER CREATOR STUDIO */}
@@ -4545,7 +4587,41 @@ const ERA_LABELS: Record<string, string> = {
                             <div className="pt-4 flex justify-end">
                               <button
                                 id="btn-party-finish-show"
-                                onClick={() => setPartyStep(3)}
+                                onClick={() => {
+                                  // Trigger the new v0.5.0 competition ceremony
+                                  const selectedProd = myReleases[partySelectedProdId];
+                                  if (selectedProd && activeParty) {
+                                    startCompetition({
+                                      partyId: activeParty.id,
+                                      partyName: activeParty.name,
+                                      year: currentYear,
+                                      month: currentMonth,
+                                      prizePool: activeParty.prestige * 10 + 500,
+                                      playerProduction: selectedProd,
+                                      playerBreakdown: lastDemoSummary?.breakdown ?? {
+                                        programming: selectedProd.scoreTechnical,
+                                        graphics: selectedProd.scoreAesthetic,
+                                        music: selectedProd.scoreAudio,
+                                        originality: selectedProd.scoreOriginality,
+                                        optimization: 50,
+                                        audienceAppeal: 50,
+                                        technicalDifficulty: 50,
+                                        overall: selectedProd.totalScore,
+                                        factors: {
+                                          skillContributions: { programming: 0, graphics: 0, music: 0 },
+                                          effectContributions: { visualImpact: 0, complexity: 0, originality: 0 },
+                                          synergyBonus: 0, directionModifier: 0, optimizationModifier: 0,
+                                          musicModuleBonus: 0, platformFit: 0, developmentTimeFactor: 0,
+                                          productionTypeModifier: 0, sceneVarietyBonus: 0,
+                                        },
+                                        synergiesTriggered: [],
+                                      },
+                                      playerScore: selectedProd.totalScore,
+                                      rivalCount: 5,
+                                    });
+                                  }
+                                  setPartyStep(3);
+                                }}
                                 className="bg-[#facc15] hover:bg-[#eab308] text-[#09090b] font-black px-4.5 py-1.5 rounded transition cursor-pointer text-xs uppercase shadow"
                               >
                                 SHOW AWARD CEREMONY
@@ -5385,6 +5461,28 @@ const ERA_LABELS: Record<string, string> = {
               <EconomyPanel loop={simulationLoopRef.current} />
             </div>
           )}
+          {/* TAB 9: HALL OF FAME */}
+          {activeTab === "hall_of_fame" && (
+            <div className="space-y-4 animate-fadeIn">
+              <HallOfFamePanel entries={compHallOfFame} />
+            </div>
+          )}
+          {/* TAB 10: STATISTICS */}
+          {activeTab === "statistics" && (
+            <div className="space-y-4 animate-fadeIn">
+              <StatsDashboard
+                stats={compStats}
+                history={compProductionHistory}
+                hallOfFame={compHallOfFame}
+              />
+            </div>
+          )}
+          {/* TAB 11: PRODUCTION TIMELINE */}
+          {activeTab === "timeline" && (
+            <div className="space-y-4 animate-fadeIn">
+              <ProductionTimeline history={compProductionHistory} />
+            </div>
+          )}
         </div>
       </main>
 
@@ -5785,6 +5883,23 @@ const ERA_LABELS: Record<string, string> = {
         open={showDemoSummary}
         onClose={() => setShowDemoSummary(false)}
       />
+
+      {/* v0.5.0 Competition ceremony overlay — full-screen animated
+          ranking ceremony with judges, audience reactions, scene
+          awards. Triggered by startCompetition() after party voting
+          completes. */}
+      {compShowCeremony && compCeremony && (
+        <PartyRankingScreen
+          ceremony={compCeremony}
+          onClose={() => {
+            compCloseCeremony();
+            compRecomputeStats(playerReputation);
+          }}
+          onAnimationComplete={() => {
+            compRecomputeStats(playerReputation);
+          }}
+        />
+      )}
 
       {/* Developer Tools — only visible when dev mode is active
           (set via ?dev=1 URL param or localStorage devMode flag). */}
