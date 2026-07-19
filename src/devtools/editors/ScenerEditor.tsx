@@ -8,10 +8,11 @@
  * (strings, numbers, enums, nested SkillSet).
  */
 
-import React, { useMemo } from "react";
+import React from "react";
 import { EditorShell } from "../EditorShell";
 import { CharacterSchema } from "../../content/schema";
 import { getContentStore } from "../../content/ContentStore";
+import { useContentMap } from "../../content/useContentStore";
 import type { Character } from "@packages/types";
 import { PlatformId, SpecialtyType } from "@packages/types";
 
@@ -38,7 +39,7 @@ function createEmptyScener(): Character {
 
 export function ScenerEditor() {
   const store = getContentStore();
-  const items = useMemo(() => store.get("sceners"), [store]);
+  const items = useContentMap("sceners");
 
   return (
     <EditorShell<Character>

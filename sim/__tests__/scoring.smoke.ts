@@ -166,6 +166,7 @@ function runPipeline(opts: {
       musicTrackStoredName: opts.musicModule?.format
         ? `fixture.${opts.musicModule.format.toLowerCase()}`
         : "",
+      sceneCount: 1,
       effort,
     },
     effects: resolved,
@@ -239,16 +240,16 @@ console.log("\nScenario 1: C64 baseline — Technical Showcase / Balanced / Medi
 
   assertBreakdownTol("S1 baseline", summary.breakdown, {
     programming: 66,
-    graphics: 46,
+    graphics: 51,
     music: 38,
     originality: 18,
     optimization: 51,
-    audienceAppeal: 34,
-    technicalDifficulty: 40,
+    audienceAppeal: 38,
+    technicalDifficulty: 46,
   });
 
-  check("S1 overall = 42 (rounded mean of 7 categories)", () => {
-    assert.equal(summary.breakdown.overall, 42);
+  check("S1 overall = 44 (rounded mean of 7 categories)", () => {
+    assert.equal(summary.breakdown.overall, 44);
   });
 
   check("S1: raster_bars + sine_scroller is NOT a synergy pair (synergiesTriggered empty)", () => {
@@ -333,11 +334,11 @@ console.log("\nScenario 2: animated_plasma triggers syn_plasma_copper");
 
   // Compare against S1's graphics (46 ±1) — adding plasma + synergy
   // should push graphics up by roughly +7 (synergy) + rating uplift.
-  assertInTol("S2 graphics", summary.breakdown.graphics, 53, 1);
-  assertInTol("S2 audienceAppeal", summary.breakdown.audienceAppeal, 39, 1);
+  assertInTol("S2 graphics", summary.breakdown.graphics, 58, 1);
+  assertInTol("S2 audienceAppeal", summary.breakdown.audienceAppeal, 43, 1);
 
-  check("S2 overall = 44", () => {
-    assert.equal(summary.breakdown.overall, 44);
+  check("S2 overall = 46", () => {
+    assert.equal(summary.breakdown.overall, 46);
   });
 }
 
@@ -362,24 +363,24 @@ console.log("\nScenario 3: Artistic direction flips the bias");
 
   assertBreakdownTol("S3 Artistic", summary.breakdown, {
     programming: 48,
-    graphics: 79,
+    graphics: 85,
     music: 51,
     originality: 31,
     optimization: 36,
-    audienceAppeal: 61,
-    technicalDifficulty: 27,
+    audienceAppeal: 67,
+    technicalDifficulty: 31,
   });
 
-  check("S3 overall = 47", () => {
-    assert.equal(summary.breakdown.overall, 47);
+  check("S3 overall = 50", () => {
+    assert.equal(summary.breakdown.overall, 50);
   });
 
   // Cross-check: graphics + audienceAppeal should both SKYROCKET vs
   // S1 baseline because Artistic's multipliers (×1.3, ×1.25) are large.
-  check("S3: graphics jumped from ~46 (S1) to ~79 due to Artistic ×1.3", () => {
-    // Already pinned at 79 ±1 by assertBreakdownTol; this asserts the
+  check("S3: graphics jumped from ~51 (S1) to ~85 due to Artistic ×1.3", () => {
+    // Already pinned at 85 ±1 by assertBreakdownTol; this asserts the
     // STORY (Artistic lifts graphics) not just the value.
-    assertInTol("S3 graphics vs S1 lift", summary.breakdown.graphics - 46, 33, 2);
+    assertInTol("S3 graphics vs S1 lift", summary.breakdown.graphics - 51, 34, 2);
   });
 
   // dimensionModifier should differ — Artistic's modified factors are
@@ -409,11 +410,11 @@ console.log("\nScenario 4: Optimization Focus = Visual Quality");
 
   // Visual Quality nudges: graphics +8 (46→56), audienceAppeal +4 (34→38),
   // optimization −3 (51→48 due to dev time factor minor bump).
-  assertInTol("S4 graphics (Visual Quality +8)", visualQuality.breakdown.graphics, 56, 1);
+  assertInTol("S4 graphics (Visual Quality +8)", visualQuality.breakdown.graphics, 61, 1);
   assertInTol(
     "S4 audienceAppeal (Visual Quality +4)",
     visualQuality.breakdown.audienceAppeal,
-    38,
+    42,
     1,
   );
   assertInTol(
@@ -428,8 +429,8 @@ console.log("\nScenario 4: Optimization Focus = Visual Quality");
     assert.equal(visualQuality.breakdown.factors.optimizationModifier, 35);
   });
 
-  check("S4 overall = 43", () => {
-    assert.equal(visualQuality.breakdown.overall, 43);
+  check("S4 overall = 45", () => {
+    assert.equal(visualQuality.breakdown.overall, 45);
   });
 
   // Cross-check the tradeoff: Visual Quality must LIFT graphics AND
@@ -481,10 +482,10 @@ console.log("\nScenario 5: XM music module (128 KB)");
   // combined with the module bonus → music should be the highest category
   // and audienceAppeal very high.
   assertInTol("S5 music", summary.breakdown.music, 77, 1);
-  assertInTol("S5 audienceAppeal", summary.breakdown.audienceAppeal, 61, 1);
+  assertInTol("S5 audienceAppeal", summary.breakdown.audienceAppeal, 68, 1);
 
-  check("S5 overall = 47", () => {
-    assert.equal(summary.breakdown.overall, 47);
+  check("S5 overall = 49", () => {
+    assert.equal(summary.breakdown.overall, 49);
   });
 }
 
@@ -532,8 +533,8 @@ console.log("\nScenario 6: PC strain (shader effects, Experimental, Visual Quali
     assert.equal(summary.predictions.length, 4);
   });
 
-  check("S6 overall = 57", () => {
-    assert.equal(summary.breakdown.overall, 57);
+  check("S6 overall = 60", () => {
+    assert.equal(summary.breakdown.overall, 60);
   });
 }
 
@@ -567,8 +568,8 @@ console.log("\nScenario 7: Epic duration × Experimental × Visual Quality → 1
 
   // Audience appeal shouldn't get a free ride; with Experimental
   // multipliers and 15 months polish, expect middle-of-pack values.
-  check("S7 overall = 45", () => {
-    assert.equal(summary.breakdown.overall, 45);
+  check("S7 overall = 47", () => {
+    assert.equal(summary.breakdown.overall, 47);
   });
 }
 
@@ -639,6 +640,8 @@ console.log("\nScenario 9: weightedScore reference table (fixed breakdown, every
       effectContributions: { visualImpact: 70, complexity: 60, originality: 65 },
       synergyBonus: 0, directionModifier: 50, optimizationModifier: 55,
       musicModuleBonus: 0, platformFit: 80, developmentTimeFactor: 60,
+      productionTypeModifier: 50,
+      sceneVarietyBonus: 0,
     },
     synergiesTriggered: [],
   };

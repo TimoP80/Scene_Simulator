@@ -35,13 +35,16 @@
  *   - `<DemoBudgetMeter>` keeps its own progressbar + alert-region a11y.
  */
 
-import React from "react";
+import React, { useCallback } from "react";
 import {
   Wrench,
   Code,
   Image,
   Music,
   Zap,
+  SkipForward,
+  Layers,
+  Film,
 } from "lucide-react";
 import {
   DEMO_EFFECTS,
@@ -56,8 +59,12 @@ import {
   ARTISTIC_DIRECTIONS,
   OPTIMIZATION_FOCUSES,
   DEMO_DURATIONS,
+  SCENE_TRANSITIONS,
+  PRODUCTION_TYPE_CONFIGS,
   type PlatformId,
   type DemoDuration,
+  type DemoScene,
+  type SceneTransition,
   type OptimizationFocus,
   type ArtisticDirection,
 } from "@packages/types";
@@ -139,13 +146,20 @@ export interface DemoStudioProps {
   setEffortMusic: (v: number) => void;
   setEffortOptimization: (v: number) => void;
 
-  /* ─── (7) Modal callbacks ─── */
+  /* ─── (7) Scene management ─── */
+  /** Number of scenes for multi-scene productions. */
+  sceneCount: number;
+  onSceneCountChange: (v: number) => void;
+  /** Per-scene detail (id, effects, transition). */
+  demoScenes: DemoScene[];
+  onSceneChange: (sceneIndex: number, updated: DemoScene) => void;
+  /* ─── (8) Modal callbacks ─── */
   /** Open the playlist manager modal. */
   onOpenPlaylist: () => void;
   /** Open the EFFECT GALLERY & VISUALIZER modal. */
   onOpenEffectGallery: () => void;
 
-  /* ─── (8) Compile orchestration ─── */
+  /* ─── (9) Compile orchestration ─── */
   /**
    * App.tsx's `triggerAssembleCompiler(e)` — DOM-event handler. The
    * parent owns validation + budget hard-stops + the interval-driven
@@ -164,6 +178,114 @@ export interface DemoStudioProps {
 function isEffectUnlocked(effId: string, unlockedTechs: string[]): boolean {
   return getUnlockedEffectIds(unlockedTechs).has(effId);
 }
+
+// ---------------------------------------------------------------------
+// SceneEditorCard: per-scene editor for multi-scene productions
+// ---------------------------------------------------------------------
+
+interface SceneEditorCardProps {
+  scene: import("@packages/types").DemoScene;
+  index: number;
+  isFirst: boolean;
+  isLast: boolean;
+  allEffects: import("@packages/types").DemoEffect[];
+  compatibleEffects: Set<string>;
+  unlockedTechs: string[];
+  isEffectUnlocked: (id: string) => boolean;
+  onChange: (updated: import("@packages/types").DemoScene) => void;
+}
+
+const SceneEditorCard: React.FC<SceneEditorCardProps> = ({
+  scene,
+  index,
+  isFirst,
+  isLast,
+  allEffects,
+  compatibleEffects,
+  unlockedTechs,
+  isEffectUnlocked,
+  onChange,
+}) => {
+  const toggleSceneEffect = (effId: string) => {
+    const has = scene.effects.includes(effId);
+    onChange({
+      ...scene,
+      effects: has
+        ? scene.effects.filter((id) => id !== effId)
+        : [...scene.effects, effId],
+    });
+  };
+
+  const effCount = scene.effects.length;
+  return (
+    <div className="border border-[#27272a] rounded bg-[#18181b] p-2.5">
+      {/* Scene header */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="w-6 h-6 flex items-center justify-center rounded-full bg-[#22d3ee]/15 text-[#22d3ee] text-[9px] font-extrabold">
+            {index + 1}
+          </span>
+          <input
+            type="text"
+            value={scene.name}
+            onChange={(e) => onChange({ ...scene, name: e.target.value })}
+            className="bg-transparent border-b border-transparent hover:border-[#3f3f46] focus:border-[#22d3ee] text-white text-[10px] font-bold px-1 py-0.5 outline-none w-32"
+            placeholder={`Scene ${index + 1}`}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[8.5px] text-[#71717a] font-mono">
+            {effCount} eff
+          </span>
+          {/* Transition selector */}
+          {!isFirst && (
+            <div className="flex items-center gap-1">
+              <SkipForward className="w-2.5 h-2.5 text-[#71717a]" />
+              <select
+                value={scene.transition}
+                onChange={(e) =>
+                  onChange({
+                    ...scene,
+                    transition: e.target.value as SceneTransition,
+                  })
+                }
+                className="bg-[#09090b] border border-[#3f3f46] rounded px-1.5 py-0.5 text-white text-[8px] focus:outline-none focus:border-[#22d3ee] font-bold cursor-pointer"
+              >
+                {SCENE_TRANSITIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t.replace(/_/g, " ").toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Effect chips for this scene */}
+      <div className="flex flex-wrap gap-1.5">
+        {allEffects
+          .filter((eff) => scene.effects.includes(eff.id))
+          .map((eff) => (
+            <span
+              key={eff.id}
+              onClick={() => toggleSceneEffect(eff.id)}
+              className="px-1.5 py-0.5 rounded text-[8px] tracking-wider font-bold border cursor-pointer transition-all hover:bg-[#ef4444]/20 hover:border-[#ef4444]/50 hover:text-[#ef4444] bg-[#facc15]/10 border-[#facc15]/40 text-[#facc15]"
+              title="Click to remove from this scene"
+            >
+              {eff.name}
+              <span className="ml-1 opacity-60">×</span>
+            </span>
+          ))}
+        {scene.effects.length === 0 && (
+          <span className="text-[8px] text-[#71717a] italic">
+            No effects assigned — will use production defaults
+          </span>
+        )}
+      </div>
+    </div>
+  );
+};
 
 export default function DemoStudio({
   productionTitle,
@@ -197,6 +319,10 @@ export default function DemoStudio({
   setEffortArt,
   setEffortMusic,
   setEffortOptimization,
+  sceneCount,
+  onSceneCountChange,
+  demoScenes,
+  onSceneChange,
   onOpenPlaylist,
   onOpenEffectGallery,
   onCompile,
@@ -216,6 +342,20 @@ export default function DemoStudio({
     );
     return new Set(compatible.map((e) => e.id));
   })();
+
+  // Production type config for the current type
+  const typeConfig = PRODUCTION_TYPE_CONFIGS[competitionType];
+
+  // Size budget tracking
+  const sizeLimitB = typeConfig?.sizeLimitB ?? 0;
+  // Rough size estimate: sum of effect RAM costs + base overhead
+  const estimatedSizeB = typeConfig?.sizeLimitB
+    ? selectedEffects.length * 512
+    : 0;
+  const sizeBudgetPct =
+    sizeLimitB > 0
+      ? Math.min(100, Math.round((estimatedSizeB / sizeLimitB) * 100))
+      : 0;
 
   const overBudget =
     combinedCpuDemand > platformCpuLimit ||
@@ -241,6 +381,50 @@ export default function DemoStudio({
         aria-labelledby="assembly-studio-form-h3"
         className="space-y-4"
       >
+        {/* (0) Production type info banner */}
+        {typeConfig && (
+          <div className="bg-gradient-to-r from-[#22d3ee]/5 via-[#a855f7]/5 to-transparent border border-[#22d3ee]/20 rounded p-3">
+            <div className="flex items-start gap-3">
+              <Layers className="w-4 h-4 text-[#22d3ee] mt-0.5 flex-shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="text-[11px] font-extrabold tracking-[0.2em] text-[#22d3ee] uppercase">
+                  {typeConfig.label}
+                </div>
+                <p className="text-[9.5px] text-[#a1a1aa] mt-0.5 leading-relaxed">
+                  {typeConfig.description}
+                </p>
+                <div className="flex flex-wrap gap-2 mt-2 text-[8.5px]">
+                  {typeConfig.maxEffects > 0 && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#d4d4d8] font-bold">
+                      MAX EFFECTS: {typeConfig.maxEffects}
+                    </span>
+                  )}
+                  {typeConfig.sizeLimitB > 0 && (
+                    <span className={`px-1.5 py-0.5 rounded border font-bold ${
+                      sizeBudgetPct > 80
+                        ? 'bg-[#ef4444]/15 border-[#ef4444]/40 text-[#ef4444]'
+                        : sizeBudgetPct > 50
+                        ? 'bg-[#fb923c]/15 border-[#fb923c]/40 text-[#fb923c]'
+                        : 'bg-[#18181b] border-[#3f3f46] text-[#d4d4d8]'
+                    }`}>
+                      SIZE BUDGET: {(typeConfig.sizeLimitB / 1024).toFixed(0)}KB
+                      {sizeLimitB > 0 && ` (${sizeBudgetPct}%)`}
+                    </span>
+                  )}
+                  {typeConfig.supportsScenes && (
+                    <span className="px-1.5 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#d4d4d8] font-bold">
+                      MULTI-SCENE SUPPORTED
+                    </span>
+                  )}
+                  <span className="px-1.5 py-0.5 rounded bg-[#a855f7]/10 border border-[#a855f7]/30 text-[#c084fc] font-bold">
+                    SUGGESTED: {typeConfig.suggestedEffort.coding}C / {typeConfig.suggestedEffort.art}A / {typeConfig.suggestedEffort.music}M / {typeConfig.suggestedEffort.optimization}O
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* (1) Production metadata: title + competition category */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
@@ -289,7 +473,7 @@ export default function DemoStudio({
         </div>
 
         {/* (2) Target platform + (3) v2 expanded controls */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 bg-[#09090b]/40 border border-[#27272a] p-3 rounded">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 bg-[#09090b]/40 border border-[#27272a] p-3 rounded">
           <div>
             <label
               htmlFor="studio-target-platform"
@@ -379,9 +563,60 @@ export default function DemoStudio({
               ))}
             </select>
           </div>
+          {/* Scene count selector — visible for productions that support multi-scene */}
+          {typeConfig?.supportsScenes && (
+            <div>
+              <label
+                htmlFor="studio-scene-count"
+                className="block text-[10px] text-[#a1a1aa] font-bold mb-1 uppercase tracking-tight"
+              >
+                SCENE COUNT
+              </label>
+              <select
+                id="studio-scene-count"
+                value={sceneCount}
+                onChange={(e) => onSceneCountChange(parseInt(e.target.value))}
+                className="w-full bg-[#09090b] border border-[#3f3f46] rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#22d3ee] font-bold cursor-pointer"
+              >
+                {[1,2,3,4,5,6].slice(0, typeConfig?.maxEffects ?? 1).map((n) => (
+                  <option key={n} value={n}>
+                    {n} {n === 1 ? 'SCENE' : 'SCENES'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </div>
 
-        {/* (3) Music module selector — reads trackerPlayer.playlist */}
+        {/* (3a) Multi-scene editor — per-scene effects + transitions */}
+        {typeConfig?.supportsScenes && sceneCount > 1 && demoScenes.length > 0 && (
+          <div className="bg-[#09090b]/40 border border-[#27272a] p-3 rounded space-y-3">
+            <div className="flex items-center gap-2 border-b border-[#27272a] pb-1.5">
+              <Film className="w-3.5 h-3.5 text-[#22d3ee]" />
+              <span className="text-[10px] text-[#a1a1aa] font-extrabold tracking-widest uppercase">
+                SCENE SEQUENCER ({sceneCount} scenes)
+              </span>
+            </div>
+            <div className="space-y-2">
+              {demoScenes.slice(0, sceneCount).map((scene, i) => (
+                <SceneEditorCard
+                  key={scene.id}
+                  scene={scene}
+                  index={i}
+                  isFirst={i === 0}
+                  isLast={i === demoScenes.length - 1}
+                  allEffects={DEMO_EFFECTS}
+                  compatibleEffects={studioCompatibleEffects}
+                  unlockedTechs={unlockedTechs}
+                  isEffectUnlocked={(id: string) => isEffectUnlocked(id, unlockedTechs)}
+                  onChange={(updated) => onSceneChange(i, updated)}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* (3b) Music module selector — reads trackerPlayer.playlist */}
         <div className="bg-[#09090b]/40 border border-[#27272a] p-3 rounded">
           <div className="flex items-center justify-between mb-1.5">
             <label

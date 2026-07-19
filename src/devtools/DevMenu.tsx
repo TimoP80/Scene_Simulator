@@ -3,10 +3,11 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * DevMenu — the floating dev tools panel. Only renders when dev mode
- * is active. Tabs for each editor (BBS + Scener are fully working;
- * the other 6 are stubs that show a "coming soon" placeholder). The
- * footer has global actions: Reload Content, Save All, Export JSON,
- * Import JSON, Reset Changes.
+ * is active. Tabs for each of the 8 editors (Scener, BBS, Party,
+ * Effect, Research, Group, Event, Music) — all wired up to the
+ * ContentStore via their own EditorShell. The footer has global
+ * actions: Reload Content, Save All, Export JSON, Import JSON,
+ * Reset Changes.
  *
  * Uses createPortal to render at document.body so it sits above the
  * floating music player.
@@ -22,7 +23,6 @@ import {
   Upload,
   RotateCcw,
   Wrench,
-  Code2,
   MessageSquare,
   Users,
   Calendar,
@@ -37,6 +37,12 @@ import { getContentStore } from "../content/ContentStore";
 import { reloadBaseContent } from "../content/ContentLoader";
 import { ScenerEditor } from "./editors/ScenerEditor";
 import { BbsEditor } from "./editors/BbsEditor";
+import { PartyEditor } from "./editors/PartyEditor";
+import { EffectEditor } from "./editors/EffectEditor";
+import { ResearchEditor } from "./editors/ResearchEditor";
+import { GroupEditor } from "./editors/GroupEditor";
+import { EventEditor } from "./editors/EventEditor";
+import { MusicEditor } from "./editors/MusicEditor";
 
 type TabId =
   | "scener"
@@ -52,18 +58,17 @@ interface TabDef {
   id: TabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
-  implemented: boolean;
 }
 
 const TABS: TabDef[] = [
-  { id: "scener",   label: "Scener Editor",      icon: Users,        implemented: true  },
-  { id: "bbs",      label: "BBS Thread Editor",  icon: MessageSquare,implemented: true  },
-  { id: "party",    label: "Demo Party Editor",  icon: Calendar,     implemented: false },
-  { id: "effect",   label: "Effect Editor",      icon: Sparkles,     implemented: false },
-  { id: "research", label: "Research Editor",    icon: FlaskConical, implemented: false },
-  { id: "event",    label: "Event Editor",       icon: Newspaper,    implemented: false },
-  { id: "group",    label: "Group Editor",       icon: GroupIcon,    implemented: false },
-  { id: "music",    label: "Music Metadata",     icon: Music,        implemented: false },
+  { id: "scener",   label: "Scener Editor",      icon: Users         },
+  { id: "bbs",      label: "BBS Thread Editor",  icon: MessageSquare },
+  { id: "party",    label: "Demo Party Editor",  icon: Calendar      },
+  { id: "effect",   label: "Effect Editor",      icon: Sparkles      },
+  { id: "research", label: "Research Editor",    icon: FlaskConical  },
+  { id: "event",    label: "Event Editor",       icon: Newspaper     },
+  { id: "group",    label: "Group Editor",       icon: GroupIcon     },
+  { id: "music",    label: "Music Metadata",     icon: Music         },
 ];
 
 export function DevMenu() {
@@ -245,11 +250,6 @@ export function DevMenu() {
               >
                 <Icon className="w-3.5 h-3.5" />
                 {tab.label}
-                {!tab.implemented && (
-                  <span className="text-[8px] bg-[#27272a] px-1 py-0.5 rounded text-[#71717a]">
-                    SOON
-                  </span>
-                )}
               </button>
             );
           })}
@@ -259,9 +259,12 @@ export function DevMenu() {
         <div className="flex-1 overflow-hidden bg-[#0a0a12]">
           {activeTab === "scener" && <ScenerEditor />}
           {activeTab === "bbs" && <BbsEditor />}
-          {activeTab !== "scener" && activeTab !== "bbs" && (
-            <StubEditor name={TABS.find((t) => t.id === activeTab)?.label ?? "Editor"} />
-          )}
+          {activeTab === "party" && <PartyEditor />}
+          {activeTab === "effect" && <EffectEditor />}
+          {activeTab === "research" && <ResearchEditor />}
+          {activeTab === "group" && <GroupEditor />}
+          {activeTab === "event" && <EventEditor />}
+          {activeTab === "music" && <MusicEditor />}
         </div>
 
         {/* Footer */}
@@ -272,29 +275,5 @@ export function DevMenu() {
       </div>
     </div>,
     document.body
-  );
-}
-
-function StubEditor({ name }: { name: string }) {
-  return (
-    <div className="h-full flex items-center justify-center font-mono">
-      <div className="text-center max-w-md p-8">
-        <Code2 className="w-12 h-12 text-[#71717a] mx-auto mb-3" />
-        <h3 className="text-[14px] font-extrabold text-[#fb923c] tracking-widest uppercase mb-2">
-          {name}
-        </h3>
-        <p className="text-[11px] text-[#a1a1aa] leading-relaxed">
-          This editor isn't implemented yet. The foundation is in place —
-          the EditorShell, ContentStore, and Zod schemas all support this
-          content type. Add a new <code className="text-[#22d3ee]">src/devtools/editors/</code> file
-          to wire it up.
-        </p>
-        <div className="mt-4 text-[10px] text-[#71717a]">
-          Foundation: <code className="text-[#22d3ee]">src/content/ContentStore.ts</code> ·
-          <code className="text-[#22d3ee] ml-1">src/content/schema.ts</code> ·
-          <code className="text-[#22d3ee] ml-1">src/devtools/EditorShell.tsx</code>
-        </div>
-      </div>
-    </div>
   );
 }

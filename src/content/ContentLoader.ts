@@ -28,6 +28,8 @@ import {
   PartyEventSchema,
   BBSThreadSchema,
   ProductionSchema,
+  SceneEventSchema,
+  MusicTrackMetadataSchema,
 } from "./schema";
 import { z } from "zod";
 
@@ -40,6 +42,8 @@ const CONTENT_FILES = [
   { type: "parties", schema: PartyEventSchema, path: "/data/parties.json" },
   { type: "bbsThreads", schema: BBSThreadSchema, path: "/data/bbs_threads.json" },
   { type: "productions", schema: ProductionSchema, path: "/data/productions.json" },
+  { type: "events", schema: SceneEventSchema, path: "/data/events.json" },
+  { type: "musicTracks", schema: MusicTrackMetadataSchema, path: "/data/music.json" },
 ] as const;
 
 const ManifestSchema = z.object({
@@ -160,6 +164,8 @@ async function loadFallbackFromStatic(): Promise<Partial<ContentPack>> {
     parties,
     bbsThreads: {},
     productions: {},
+    events: {},
+    musicTracks: {},
   };
 }
 

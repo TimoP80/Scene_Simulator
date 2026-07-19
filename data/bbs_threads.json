@@ -1,1 +1,120 @@
-{}
+{
+  "thread_raster_war_intro": {
+    "id": "thread_raster_war_intro",
+    "board": "technical_discussions",
+    "topic": "Raster timing on NTSC vs PAL — who's right?",
+    "year": 1988,
+    "month": 2,
+    "actorId": "ranger_c64",
+    "messages": [
+      { "sender": "Ranger", "text": "Anyone else getting +2 cycle drift on PAL C64s? My raster splits are off by exactly 2 cycles on every PAL board I've tested." },
+      { "sender": "Audio Drifter", "text": "PAL = 312 lines, NTSC = 263. If you're targeting the same raster line number, the cycles per line are different. 63 vs 64." },
+      { "sender": "Ranger", "text": "Right, so a hard-coded raster delay macro is brittle. Should we ship a detection stub?" }
+    ],
+    "interacted": false,
+    "playerActionTaken": null,
+    "dramaFinished": false,
+    "choices": [
+      { "text": "Join the debate with your own measurements", "type": "respond", "effectDescription": "Gain +5 reputation with Ranger" },
+      { "text": "Defend the hard-coded approach", "type": "respond", "effectDescription": "Gain +3 reputation, -2 with Audio Drifter" },
+      { "text": "Ignore the thread", "type": "ignore", "effectDescription": "No effect" }
+    ],
+    "infoType": "technical_discovery",
+    "credibilityScore": 78,
+    "propagationSpeed": 35,
+    "distortionRate": 12,
+    "influenceWeight": 55,
+    "viralSpreadRank": 1,
+    "isSuppressed": false,
+    "originalTopic": "Raster timing on NTSC vs PAL — who's right?",
+    "mutationCount": 0
+  },
+  "thread_future_crew_recruit": {
+    "id": "thread_future_crew_recruit",
+    "board": "scene_gossip",
+    "topic": "Future Crew's next mega — who's coding the copper?",
+    "year": 1992,
+    "month": 9,
+    "actorId": "purple_motion",
+    "messages": [
+      { "sender": "Purple Motion", "text": "Pssst. Future Crew is looking for a tracker to score their next mega-demo. Someone from Tricycle Crews would be a perfect fit." },
+      { "sender": "Hype", "text": "If you can get an audience, this is a once-in-a-lifetime collab. They release gold at Assembly every year." }
+    ],
+    "interacted": false,
+    "playerActionTaken": null,
+    "dramaFinished": false,
+    "choices": [
+      { "text": "Volunteer to join Future Crew's next mega", "type": "recruit", "effectDescription": "Opens a path to the Assembly winner's circle" },
+      { "text": "Stay solo and cheer them on", "type": "respond", "effectDescription": "+5 friendship with Purple Motion" },
+      { "text": "Stay quiet", "type": "ignore", "effectDescription": "No effect" }
+    ],
+    "infoType": "rumor",
+    "credibilityScore": 65,
+    "propagationSpeed": 70,
+    "distortionRate": 25,
+    "influenceWeight": 60,
+    "viralSpreadRank": 2,
+    "isSuppressed": false,
+    "originalTopic": "Future Crew's next mega — who's coding the copper?",
+    "mutationCount": 1
+  },
+  "thread_sid_filter_leak": {
+    "id": "thread_sid_filter_leak",
+    "board": "tool_release",
+    "topic": "SID filter sweep — undocumented register trick",
+    "year": 1989,
+    "month": 11,
+    "actorId": "audio_drifter",
+    "messages": [
+      { "sender": "Drifter", "text": "Did anyone else know SID register $D418 has a resonance sweep that no one documents? I've been abusing it for slides all week." },
+      { "sender": "Trix", "text": "Wait, that register is the filter cutoff. Not sweep. You can mod the resonance? Are you sure it's not your hardware?" },
+      { "sender": "Drifter", "text": "100% reproducible. I'll post a tiny test program tonight." }
+    ],
+    "interacted": false,
+    "playerActionTaken": null,
+    "dramaFinished": false,
+    "choices": [
+      { "text": "Reproduce the trick and report back", "type": "respond", "effectDescription": "+10 reputation, unlocks SID filter research" },
+      { "text": "Demand the test program", "type": "respond", "effectDescription": "Friendly friction; -2 with Drifter" },
+      { "text": "Skip", "type": "ignore", "effectDescription": "No effect" }
+    ],
+    "infoType": "leak",
+    "credibilityScore": 70,
+    "propagationSpeed": 80,
+    "distortionRate": 18,
+    "influenceWeight": 50,
+    "viralSpreadRank": 3,
+    "isSuppressed": false,
+    "originalTopic": "SID filter sweep — undocumented register trick",
+    "mutationCount": 2
+  },
+  "thread_amiga_blitter_bench": {
+    "id": "thread_amiga_blitter_bench",
+    "board": "technical_discussions",
+    "topic": "Amiga Blitter vs CPU loop — who wins on AGA?",
+    "year": 1992,
+    "month": 7,
+    "actorId": "dxyre",
+    "messages": [
+      { "sender": "Dxyre", "text": "Just benchmarked a 320x256 chunky-to-planar on A1200. Blitter queue hits 14.5MB/s, my best 68k loop hits 9.2. Anyone beat that?" },
+      { "sender": "Chaos", "text": "For a 4-plane blit your numbers are correct. The blitter is faster on the 4-channel case but loses on 1-channel (no bus contention). What about interleaved?" }
+    ],
+    "interacted": false,
+    "playerActionTaken": null,
+    "dramaFinished": false,
+    "choices": [
+      { "text": "Propose a collaboration on a blitter bench utility", "type": "collaborate", "effectDescription": "+8 reputation, opens Amiga tooling chain" },
+      { "text": "Post your own numbers", "type": "respond", "effectDescription": "+4 reputation" },
+      { "text": "Ignore", "type": "ignore", "effectDescription": "No effect" }
+    ],
+    "infoType": "technical_discovery",
+    "credibilityScore": 85,
+    "propagationSpeed": 45,
+    "distortionRate": 8,
+    "influenceWeight": 70,
+    "viralSpreadRank": 2,
+    "isSuppressed": false,
+    "originalTopic": "Amiga Blitter vs CPU loop — who wins on AGA?",
+    "mutationCount": 0
+  }
+}

@@ -13,6 +13,8 @@ export * from "./demo";
 export * from "./social";
 export * from "./bbs";
 export * from "./party";
+export * from "./event";
+export * from "./music";
 export * from "./shared";
 export * from "./save";
 export * from "./economy";

@@ -31,6 +31,8 @@ import type {
   PartyEvent,
   BBSThread,
   Production,
+  SceneEvent,
+  MusicTrackMetadata,
 } from "@packages/types";
 
 /** All editable content types. Each maps an id (string) to the entity. */
@@ -42,6 +44,8 @@ export type ContentMap = {
   parties: Record<string, PartyEvent>;
   bbsThreads: Record<string, BBSThread>;
   productions: Record<string, Production>;
+  events: Record<string, SceneEvent>;
+  musicTracks: Record<string, MusicTrackMetadata>;
 };
 
 /** The key names of ContentMap — used as the `type` argument to
@@ -63,6 +67,8 @@ export interface ContentPack {
   parties: Record<string, PartyEvent>;
   bbsThreads: Record<string, BBSThread>;
   productions: Record<string, Production>;
+  events: Record<string, SceneEvent>;
+  musicTracks: Record<string, MusicTrackMetadata>;
 }
 
 /** Listener signature for the store's subscribe API. */
@@ -77,6 +83,8 @@ class ContentStoreImpl {
     parties: {},
     bbsThreads: {},
     productions: {},
+    events: {},
+    musicTracks: {},
   };
   private listeners = new Set<Listener>();
 
@@ -117,7 +125,15 @@ class ContentStoreImpl {
     // limitation: it can't prove that the generic  is safe to
     // assign to  without help. The Zod schema in
     // each editor validates the shape at save time.
-    (this.data[type] as any)[id] = data;
+    //
+    // IMPORTANT: produce a fresh object reference for the map so that
+    // `useSyncExternalStore` consumers (editors, social-graph bridge)
+    // see a new snapshot and re-render. Mutating in place would leave
+    // the reference unchanged and React would bail out of the update.
+    (this.data as Record<string, unknown>)[type] = {
+      ...this.data[type],
+      [id]: data,
+    };
     this.notify();
   }
 
@@ -159,6 +175,8 @@ class ContentStoreImpl {
     if (pack.parties) this.data.parties = pack.parties;
     if (pack.bbsThreads) this.data.bbsThreads = pack.bbsThreads;
     if (pack.productions) this.data.productions = pack.productions;
+    if (pack.events) this.data.events = pack.events;
+    if (pack.musicTracks) this.data.musicTracks = pack.musicTracks;
     this.notify();
   }
 
@@ -172,6 +190,8 @@ class ContentStoreImpl {
       parties: {},
       bbsThreads: {},
       productions: {},
+      events: {},
+      musicTracks: {},
     };
     this.notify();
   }
@@ -191,6 +211,8 @@ class ContentStoreImpl {
       parties: JSON.parse(JSON.stringify(this.data.parties)),
       bbsThreads: JSON.parse(JSON.stringify(this.data.bbsThreads)),
       productions: JSON.parse(JSON.stringify(this.data.productions)),
+      events: JSON.parse(JSON.stringify(this.data.events)),
+      musicTracks: JSON.parse(JSON.stringify(this.data.musicTracks)),
     };
   }
 

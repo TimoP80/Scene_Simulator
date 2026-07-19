@@ -1,0 +1,68 @@
+{
+  "track_starshine_mod": {
+    "id": "track_starshine_mod",
+    "storedName": "starshine.mod",
+    "displayName": "Starshine",
+    "format": "MOD",
+    "size": 132840,
+    "tags": ["chiptune", "dreamy", "amiga"],
+    "bpm": 125,
+    "comment": "Classic Purple Motion atmospheric MOD. Sets the standard for PC chiptune in the early 90s.",
+    "authoredYear": 1991
+  },
+  "track_unreal_xm": {
+    "id": "track_unreal_xm",
+    "storedName": "unreal.xm",
+    "displayName": "Unreal",
+    "format": "XM",
+    "size": 218432,
+    "tags": ["epic", "orchestral", "symphonic"],
+    "bpm": 140,
+    "comment": "Skaven's iconic PC demo soundtrack. Pioneered layered sample-based composition in the demoscene.",
+    "authoredYear": 1992
+  },
+  "track_second_reality_it": {
+    "id": "track_second_reality_it",
+    "storedName": "second_reality.it",
+    "displayName": "Second Reality Theme",
+    "format": "IT",
+    "size": 312114,
+    "tags": ["pioneering", "epic", "pcm"],
+    "bpm": 138,
+    "comment": "Future Crew's signature IT module. The reference for every PC demo compo since 1993.",
+    "authoredYear": 1993
+  },
+  "track_panic_s3m": {
+    "id": "track_panic_s3m",
+    "storedName": "panic.s3m",
+    "displayName": "Flat Panic Groove",
+    "format": "S3M",
+    "size": 184920,
+    "tags": ["pulse", "aggressive", "vga"],
+    "bpm": 160,
+    "comment": "Future Crew's S3M for the Panic demo. Heavy kick patterns, quick arps.",
+    "authoredYear": 1992
+  },
+  "track_state_of_art_mod": {
+    "id": "track_state_of_art_mod",
+    "storedName": "state_of_art.mod",
+    "displayName": "Vectors Greeting",
+    "format": "MOD",
+    "size": 168220,
+    "tags": ["amiga", "techno", "vector"],
+    "bpm": 132,
+    "comment": "Spaceballs' State of the Art backing track. The Amiga vector aesthetic distilled to 4 channels.",
+    "authoredYear": 1992
+  },
+  "track_werkzeug_xm": {
+    "id": "track_werkzeug_xm",
+    "storedName": "werkzeug.xm",
+    "displayName": "Werkzeug Suite",
+    "format": "XM",
+    "size": 248000,
+    "tags": ["procedural", "synth", "fr-08"],
+    "bpm": 145,
+    "comment": "Farbrausch's Werkzeug demo track. Procedural synth tones packed into a few hundred bytes of code.",
+    "authoredYear": 2000
+  }
+}

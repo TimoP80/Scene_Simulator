@@ -14,7 +14,11 @@
  */
 
 import { useSyncExternalStore } from "react";
-import { getContentStore, type ContentType } from "./ContentStore";
+import {
+  getContentStore,
+  type ContentType,
+  type ContentMap,
+} from "./ContentStore";
 
 /**
  * Subscribe to a derived view of the ContentStore. The selector
@@ -30,16 +34,16 @@ export function useContentStore<T>(selector: (s: ReturnType<typeof getContentSto
   );
 }
 
-/** Convenience hook: return the array of all entities of a type. */
-export function useContentList<K extends ContentType>(
-  type: K
-): ReturnType<typeof getContentStore>["list"] extends (t: K) => infer R ? R : never {
-  return useContentStore((s) => s.list(type) as never) as never;
-}
-
 /** Convenience hook: return the map of all entities of a type. */
 export function useContentMap<K extends ContentType>(
   type: K
-): ReturnType<typeof getContentStore>["get"] extends (t: K) => infer R ? R : never {
-  return useContentStore((s) => s.get(type) as never) as never;
+): ContentMap[K] {
+  return useContentStore((s) => s.get(type)) as ContentMap[K];
+}
+
+/** Convenience hook: return the array of all entities of a type. */
+export function useContentList<K extends ContentType>(
+  type: K
+): ContentMap[K][string][] {
+  return useContentStore((s) => s.list(type)) as ContentMap[K][string][];
 }

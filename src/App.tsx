@@ -19,6 +19,7 @@ import {PlatformId,
   Character,
   Group,
   Production,
+  DemoEffect,
   DemoSummary,
   ArtisticDirection,
   ARTISTIC_DIRECTIONS,
@@ -26,6 +27,7 @@ import {PlatformId,
   OPTIMIZATION_FOCUSES,
   DemoDuration,
   DEMO_DURATIONS,
+  MusicTrackMetadata,
   TechNode,
   SceneMagazine,
   PartyEvent,
@@ -38,6 +40,9 @@ import {PlatformId,
   BBSThread,
   BBSInfoType,
   BBSMessage,
+  PRODUCTION_TYPE_CONFIGS,
+  type DemoScene,
+  type SceneTransition,
 } from "@packages/types";
 import {
   HISTORICAL_PLATFORMS,
@@ -83,9 +88,12 @@ import { useTrackerPlayer } from "./hooks/useTrackerPlayer";
 import { useDevMode } from "./devtools/DevModeContext";
 import { DevMenu } from "./devtools/DevMenu";
 import { loadBaseContent } from "./content/ContentLoader";
+import { useContentMap } from "./content/useContentStore";
+import { useGraphProjections } from "./content/graphProjections";
 import { SimulationLoop } from "@sim/engine/simulationLoop";
 import { emptyWorldState } from "@sim/engine/reducer";
 import { getCurrentTick } from "@sim/events/appendEvent";
+import type { SceneEvent } from "@packages/types";
 // SVG/Lucide Icons
 import {
   Wrench,
@@ -368,6 +376,19 @@ const distortText = (text: string, rate: number): string => {
   return text;
 };
 
+/** Generate default scenes for multi-scene productions. */
+function generateDefaultScenes(count: number, effects: string[]): DemoScene[] {
+  const transitions: SceneTransition[] = [
+    "fade_to_black", "crossfade", "slide_left", "slide_right", "zoom_in", "dissolve"
+  ];
+  return Array.from({ length: count }, (_, i) => ({
+    id: `scene_${Date.now()}_${i}`,
+    name: `Scene ${i + 1}`,
+    effects: i === 0 ? [...effects] : [],
+    transition: i === 0 ? "cut" : transitions[i % transitions.length],
+  }));
+}
+
 export default function App() {
   // Dev-mode toggle. Exposed so the MainMenu action list and the
   // global Ctrl/Cmd+Shift+D hotkey can flip the flag without requiring
@@ -614,6 +635,38 @@ export default function App() {
     "Y1985 M1: Dynamic group splitting metrics pre-loaded for scene NPCs."
   ]);
 
+  // --------- CONTENTSTORE → SOCIAL GRAPH BRIDGE ---------
+  // All 9 editor tabs (Event, Group, Party, Effect, Research, Scener,
+  // BBS, Production, Music) write to the ContentStore. The
+  // useGraphProjections hook (src/content/graphProjections.ts) projects
+  // each store map into SocialNode/SocialEdge shape and merges with
+  // the hardcoded + simulation-mutated graph state. The SocialGraphTab
+  // receives the combined result, so edits in any editor appear in
+  // the graph in real time.
+  const sceneEvents = useContentMap("events");
+  const groupsMap = useContentMap("groups");
+  const partiesMap = useContentMap("parties");
+  const effectsMap = useContentMap("effects");
+  const researchMap = useContentMap("research");
+  const scenersMap = useContentMap("sceners");
+  const bbsThreadsMap = useContentMap("bbsThreads");
+  const productionsMap = useContentMap("productions");
+  const musicTracksMap = useContentMap("musicTracks");
+
+  const { combinedGraphNodes, combinedGraphEdges } = useGraphProjections(
+    sceneEvents as Record<string, SceneEvent>,
+    groupsMap as Record<string, Group>,
+    partiesMap as Record<string, PartyEvent>,
+    effectsMap as Record<string, DemoEffect>,
+    researchMap as Record<string, TechNode>,
+    scenersMap as Record<string, Character>,
+    bbsThreadsMap as Record<string, BBSThread>,
+    productionsMap as Record<string, Production>,
+    musicTracksMap as Record<string, MusicTrackMetadata>,
+    graphNodes,
+    graphEdges
+  );
+
   // Active view tabs
   // "workspace" | "crew" | "research" | "party" | "news" | "scenarios" | "gdd"
   const [activeTab, setActiveTab] = useState<string>("workspace");
@@ -642,6 +695,12 @@ export default function App() {
   >("Medium");
   // Optional tracker track from the user's playlist (storedName, or "").
   const [studioMusicTrackStoredName, setStudioMusicTrackStoredName] = useState<string>("");
+
+  // ---- Multi-scene state ----
+  const [studioSceneCount, setStudioSceneCount] = useState<number>(3);
+  const [studioScenes, setStudioScenes] = useState<DemoScene[]>(() =>
+    generateDefaultScenes(3, studioSelectedEffects)
+  );
   // Post-compile summary modal state.
   const [showDemoSummary, setShowDemoSummary] = useState<boolean>(false);
   const [lastDemoSummary, setLastDemoSummary] = useState<DemoSummary | null>(null);
@@ -1237,7 +1296,44 @@ const ERA_LABELS: Record<string, string> = {
         return [...prev, id];
       }
     });
+    // Also update the first scene's effects to match selection
+    setStudioScenes((prev) => {
+      if (prev.length === 0) return prev;
+      const updated = [...prev];
+      updated[0] = {
+        ...updated[0],
+        effects: prev[0].effects.includes(id)
+          ? prev[0].effects.filter((e) => e !== id)
+          : [...prev[0].effects, id],
+      };
+      return updated;
+    });
   };
+
+  // Scene management handlers
+  const handleSceneCountChange = useCallback((count: number) => {
+    setStudioSceneCount(count);
+    setStudioScenes((prev) => {
+      if (count < prev.length) return prev.slice(0, count);
+      // Generate new scenes
+      const start = prev.length;
+      return [
+        ...prev,
+        ...generateDefaultScenes(count, studioSelectedEffects).slice(start, count),
+      ];
+    });
+  }, [studioSelectedEffects]);
+
+  const handleSceneChange = useCallback(
+    (index: number, updated: DemoScene) => {
+      setStudioScenes((prev) => {
+        const scenes = [...prev];
+        scenes[index] = updated;
+        return scenes;
+      });
+    },
+    []
+  );
 
   // Calculate resources and constraints
   const activeRigConfig = HISTORICAL_PLATFORMS[activePlatform];
@@ -1421,6 +1517,10 @@ const ERA_LABELS: Record<string, string> = {
           music: effortMusic,
           optimization: effortOptimization,
         },
+        sceneCount: studioSceneCount,
+        scenes: studioScenes.filter((s) => s.effects.length > 0).length > 0
+          ? studioScenes.slice(0, studioSceneCount)
+          : undefined,
       },
       effects: resolvedEffects,
       crewSkills: {
@@ -1478,6 +1578,8 @@ const ERA_LABELS: Record<string, string> = {
       optimizationFocus: studioOptimizationFocus,
       duration: studioDuration,
       musicTrackStoredName: studioMusicTrackStoredName,
+      sceneCount: studioSceneCount,
+      scenes: studioScenes.slice(0, studioSceneCount),
     };
 
     // Cache the full summary for the modal and prepend the resolved
@@ -3769,6 +3871,10 @@ const ERA_LABELS: Record<string, string> = {
                 setEffortArt={setEffortArt}
                 setEffortMusic={setEffortMusic}
                 setEffortOptimization={setEffortOptimization}
+                sceneCount={studioSceneCount}
+                onSceneCountChange={handleSceneCountChange}
+                demoScenes={studioScenes}
+                onSceneChange={handleSceneChange}
                 onOpenPlaylist={() => setShowPlaylistModal(true)}
                 onOpenEffectGallery={() => setShowEffectGallery(true)}
                 onCompile={triggerAssembleCompiler}
@@ -5254,8 +5360,8 @@ const ERA_LABELS: Record<string, string> = {
           {activeTab === "social_graph" && (
             <div className="space-y-4 animate-fadeIn">
               <SocialGraphTab
-                nodes={graphNodes}
-                edges={graphEdges}
+                nodes={combinedGraphNodes}
+                edges={combinedGraphEdges}
                 storyLogs={graphStoryLogs}
                 characters={characters}
                 playerHandle={playerHandle}

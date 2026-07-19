@@ -232,6 +232,83 @@ export const BBSThreadSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// SceneEvent (Event Editor)
+// ---------------------------------------------------------------------------
+
+/**
+ * A historical scene event — rival demo releases, BBS controversies,
+ * key underground moments. Surfaces in the Event Editor (Newspaper
+ * icon) and feeds the social graph's "event" node type. Pure data;
+ * the app never mutates these at runtime (they're authored offline or
+ * via the editor), so the `id` is the stable identity.
+ */
+export const SceneEventTypeSchema = z.enum([
+  "rival_release",
+  "party",
+  "bbs_drama",
+  "tool_launch",
+  "magazine_issue",
+  "other",
+]);
+
+export const SceneEventSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  year: z.number().int(),
+  month: z.number().int().min(1).max(12),
+  type: SceneEventTypeSchema,
+  /** Free-form group / crew / person who triggered the event. */
+  actor: z.string(),
+  /** Short one-line tagline shown in the list view. */
+  headline: z.string(),
+  /** Long-form description (2-4 sentences). */
+  description: z.string(),
+  /** Optional link to the platform the event centered on. */
+  platform: PlatformIdSchema.optional(),
+  /** Optional prestige weight (0-100) used by the social graph to
+   *  influence weight of the corresponding event-node edge. */
+  prestige: z.number().int().min(0).max(100).optional(),
+});
+
+// ---------------------------------------------------------------------------
+// MusicTrackMetadata (Music Editor)
+// ---------------------------------------------------------------------------
+
+/** All tracker formats the player library recognises. */
+export const MusicFormatSchema = z.enum(["MOD", "XM", "IT", "S3M", "OTHER"]);
+
+/**
+ * Metadata for a tracker music track the player has imported.
+ * Backed by `electronApi.MusicFile` at the IPC boundary; the editor
+ * edits the *metadata* fields (displayName, tags, bpm, comments)
+ * without touching the underlying binary. The `storedName` is the
+ * SHA-stamped on-disk filename produced by the Electron import path.
+ */
+export const MusicTrackMetadataSchema = z.object({
+  /** Stable identifier for the store (separate from the editable
+   *  `storedName` so renaming the on-disk file doesn't orphan the
+   *  store entry). */
+  id: z.string().min(1),
+  /** On-disk filename (matches MusicFile.storedName). Editable. */
+  storedName: z.string().min(1),
+  /** User-friendly display title (filename minus extension by default). */
+  displayName: z.string().min(1),
+  /** Tracker format. */
+  format: MusicFormatSchema,
+  /** File size in bytes. */
+  size: z.number().int().min(0),
+  /** Optional authored tags (genre / mood / era). */
+  tags: z.array(z.string()),
+  /** Optional approximate BPM the player intends to set in the studio. */
+  bpm: z.number().int().min(0).max(999).optional(),
+  /** Optional free-form comment. */
+  comment: z.string().optional(),
+  /** Optional year the track was authored (for era-locked playlist
+   *  filters). Defaults to the simulation's current year on import. */
+  authoredYear: z.number().int().optional(),
+});
+
+// ---------------------------------------------------------------------------
 // Production
 // ---------------------------------------------------------------------------
 

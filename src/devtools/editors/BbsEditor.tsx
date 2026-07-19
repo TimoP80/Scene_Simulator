@@ -7,10 +7,11 @@
  * arrays with add/remove buttons.
  */
 
-import React, { useMemo } from "react";
+import React from "react";
 import { EditorShell } from "../EditorShell";
 import { BBSThreadSchema } from "../../content/schema";
 import { getContentStore } from "../../content/ContentStore";
+import { useContentMap } from "../../content/useContentStore";
 import type { BBSThread, BBSMessage, BBSInfoType } from "@packages/types";
 import { Plus, Trash2 } from "lucide-react";
 
@@ -51,7 +52,7 @@ const INFO_TYPES: BBSInfoType[] = [
 
 export function BbsEditor() {
   const store = getContentStore();
-  const items = useMemo(() => store.get("bbsThreads"), [store]);
+  const items = useContentMap("bbsThreads");
 
   return (
     <EditorShell<BBSThread>

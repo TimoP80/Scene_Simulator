@@ -31,9 +31,10 @@ import type {
   DemoSummary,
   JudgingProfile,
   PlatformId,
+  ProductionType,
   ScoreBreakdown,
 } from "@packages/types";
-import { EraId } from "@packages/types";
+import { EraId, PRODUCTION_TYPE_CONFIGS } from "@packages/types";
 import { ARTISTIC_DIRECTION_DEFS } from "../data/artisticDirections";
 import { EFFECT_SYNERGIES } from "../data/effectSynergies";
 import {
@@ -124,16 +125,101 @@ function computeEffectContributions(
   if (effects.length === 0) {
     return { visualImpact: 0, complexity: 0, originality: 0 };
   }
+  // Average is weighted: more effects means broader appeal but also
+  // dilutes each individual effect's impact slightly.
+  const count = effects.length;
   const visualImpact = clamp(
-    effects.reduce((s, e) => s + e.visualImpact, 0) / effects.length
+    effects.reduce((s, e) => s + e.visualImpact, 0) / count
   );
   const complexity = clamp(
-    effects.reduce((s, e) => s + e.complexity, 0) / effects.length
+    effects.reduce((s, e) => s + e.complexity, 0) / count
   );
   const originality = clamp(
-    effects.reduce((s, e) => s + e.originality, 0) / effects.length
+    effects.reduce((s, e) => s + e.originality, 0) / count
   );
   return { visualImpact, complexity, originality };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3a: production type modifiers — each type biases scoring categories
+// ---------------------------------------------------------------------------
+
+function applyProductionTypeModifiers(
+  score: ScoreBreakdown,
+  type: ProductionType
+): { score: ScoreBreakdown; typeModifier: number } {
+  const cfg = PRODUCTION_TYPE_CONFIGS[type];
+  if (!cfg) return { score, typeModifier: 50 };
+
+  const b = cfg.scoreBonuses;
+  return {
+    score: {
+      ...score,
+      programming: clamp(score.programming + b.programming),
+      graphics: clamp(score.graphics + b.graphics),
+      music: clamp(score.music + b.music),
+      originality: clamp(score.originality + b.originality),
+      optimization: clamp(score.optimization + b.optimization),
+      audienceAppeal: clamp(score.audienceAppeal + b.audienceAppeal),
+      technicalDifficulty: clamp(score.technicalDifficulty + b.technicalDifficulty),
+    },
+    // Type modifier: average of bonuses gives a 0-100 magnitude
+    typeModifier: clamp(
+      50 + Math.round(
+        (b.programming + b.graphics + b.music + b.originality +
+         b.optimization + b.audienceAppeal + b.technicalDifficulty) / 3
+      )
+    ),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 3b: scene variety bonus — multi-scene productions get a bonus for
+// each unique scene transition and per-scene effect variety.
+// ---------------------------------------------------------------------------
+
+function applySceneVarietyBonus(
+  score: ScoreBreakdown,
+  creation: DemoCreationInput
+): { score: ScoreBreakdown; sceneVarietyBonus: number } {
+  const sceneCount = creation.sceneCount ?? 1;
+  const scenes = creation.scenes ?? [];
+
+  if (sceneCount <= 1 || scenes.length < 2) {
+    return { score, sceneVarietyBonus: 0 };
+  }
+
+  // Bonus for number of scenes: more scenes = more structure, but
+  // the returns diminish after 4 scenes.
+  const sceneCountBonus = clamp(Math.round(Math.min(sceneCount, 6) * 3));
+
+  // Bonus for variety in transitions: unique transitions = creative
+  // direction. Max bonus when using 4+ unique transitions.
+  const uniqueTransitions = new Set(scenes.map((s) => s.transition));
+  const transitionVariety = clamp(
+    Math.round((uniqueTransitions.size / 7) * 10)
+  );
+
+  // Bonus for distributing effects across scenes (not cramming them all into one)
+  const scenesWithEffects = scenes.filter(
+    (s) => s.effects.length > 0
+  ).length;
+  const distributionBonus =
+    scenes.length > 0
+      ? clamp(Math.round((scenesWithEffects / scenes.length) * 8))
+      : 0;
+
+  const total = sceneCountBonus + transitionVariety + distributionBonus;
+
+  return {
+    score: {
+      ...score,
+      audienceAppeal: clamp(score.audienceAppeal + Math.round(total / 2)),
+      graphics: clamp(score.graphics + Math.round(total / 3)),
+      originality: clamp(score.originality + Math.round(total / 3)),
+    },
+    sceneVarietyBonus: total,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -388,6 +474,8 @@ function sumCategories(partial: Partial<ScoreBreakdown>): ScoreBreakdown {
       musicModuleBonus: 0,
       platformFit: 0,
       developmentTimeFactor: 0,
+      productionTypeModifier: 0,
+      sceneVarietyBonus: 0,
     },
     synergiesTriggered: s.synergiesTriggered ?? [],
   };
@@ -626,6 +714,8 @@ export function generateDemoSummary(args: {
       musicModuleBonus: 0,
       platformFit: 0,
       developmentTimeFactor: 0,
+      productionTypeModifier: 0,
+      sceneVarietyBonus: 0,
     },
     synergiesTriggered: [],
   };
@@ -642,6 +732,16 @@ export function generateDemoSummary(args: {
   if (syn.bonus.programming) working.programming = clamp(working.programming + syn.bonus.programming);
   working.synergiesTriggered = syn.triggered;
   working.factors.synergyBonus = (Object.values(syn.bonus) as number[]).reduce<number>((s, v) => s + (typeof v === "number" ? v : 0), 0);
+
+  // 3a: production type modifiers
+  const typeMod = applyProductionTypeModifiers(working, creation.type);
+  working = typeMod.score;
+  working.factors.productionTypeModifier = typeMod.typeModifier;
+
+  // 3b: scene variety bonus
+  const sceneVar = applySceneVarietyBonus(working, creation);
+  working = sceneVar.score;
+  working.factors.sceneVarietyBonus = sceneVar.sceneVarietyBonus;
 
   // 4: artistic direction
   const dir = applyArtisticDirection(working, creation.artisticDirection, effects);

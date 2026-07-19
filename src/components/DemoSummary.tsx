@@ -34,12 +34,16 @@ import {
   Wrench,
   Layers,
   Star,
+  Film,
+  SkipForward,
+  Zap,
 } from "lucide-react";
 import type {
   DemoSummary as DemoSummaryData,
   ScoreBreakdown,
   ArtisticDirection,
 } from "@packages/types";
+import { PRODUCTION_TYPE_CONFIGS } from "@packages/types";
 import { ARTISTIC_DIRECTION_DEFS } from "@sim/data/artisticDirections";
 import { EFFECT_SYNERGIES } from "@sim/data/effectSynergies";
 
@@ -70,6 +74,8 @@ export default function DemoSummaryModal({
   const triggeredSynergies = EFFECT_SYNERGIES.filter((s) =>
     breakdown.synergiesTriggered.includes(s.id)
   );
+  const typeCfg = PRODUCTION_TYPE_CONFIGS[production.type];
+  const hasScenes = (production.scenes?.length ?? 0) > 1;
 
   return createPortal(
     <div
@@ -170,6 +176,10 @@ export default function DemoSummaryModal({
               <FactorTile label="Music Mod. Bonus" value={breakdown.factors.musicModuleBonus} detail={production.musicTrackStoredName ? "library track" : "no track"} />
               <FactorTile label="Platform Fit"     value={breakdown.factors.platformFit} detail={production.platform} />
               <FactorTile label="Dev-Time Factor"  value={breakdown.factors.developmentTimeFactor} detail={`${developmentTimeMonths}mo`} />
+              {hasScenes && (
+                <FactorTile label="Scene Variety"   value={breakdown.factors.sceneVarietyBonus} detail={`${production.scenes!.length} scenes`} />
+              )}
+              <FactorTile label="Type Modifier"   value={breakdown.factors.productionTypeModifier} detail={typeCfg?.label ?? "standard"} />
             </div>
           </Section>
 
@@ -193,6 +203,33 @@ export default function DemoSummaryModal({
                     </div>
                   </div>
                 ))}
+              </div>
+            </Section>
+          )}
+
+          {/* Scene timeline (only for multi-scene productions) */}
+          <SceneTimeline production={production} />
+
+          {/* Type config info */}
+          {typeCfg && (
+            <Section icon={Zap} title={`Production Type: ${typeCfg.label}`}>
+              <div className="p-2 rounded border border-[#27272a] bg-[#09090b]">
+                <p className="text-[10px] text-[#a1a1aa] leading-relaxed">
+                  {typeCfg.description}
+                </p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider border bg-[#18181b] border-[#3f3f46] text-[#d4d4d8]">
+                    MAX EFFECTS: {typeCfg.maxEffects}
+                  </span>
+                  {typeCfg.sizeLimitB > 0 && (
+                    <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider border bg-[#18181b] border-[#3f3f46] text-[#d4d4d8]">
+                      SIZE LIMIT: {(typeCfg.sizeLimitB / 1024).toFixed(0)}KB
+                    </span>
+                  )}
+                  <span className="px-1.5 py-0.5 rounded text-[8px] font-bold tracking-wider border bg-[#18181b] border-[#3f3f46] text-[#d4d4d8]">
+                    SCENES: {production.sceneCount ?? 1}
+                  </span>
+                </div>
               </div>
             </Section>
           )}
@@ -334,8 +371,7 @@ function Section(props: {
 }) {
   const Icon = props.icon;
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-[#27272a]">
+    <div>          <div className="flex items-center gap-2 mb-2 pb-1.5 border-b border-[#27272a]">
         <Icon className="w-3.5 h-3.5 text-[#22d3ee]" />
         <h3 className="text-[11px] font-extrabold tracking-[0.25em] text-[#22d3ee] uppercase">
           {props.title}
@@ -343,6 +379,67 @@ function Section(props: {
       </div>
       {props.children}
     </div>
+  );
+}
+
+function SceneTimeline({ production }: { production: import("@packages/types").Production }) {
+  const scenes = production.scenes ?? [];
+  const typeCfg = PRODUCTION_TYPE_CONFIGS[production.type];
+
+  if (scenes.length < 2) return null;
+
+  // Determine total estimated runtime from scene count + production duration
+  const runtimeHint =
+    production.duration === "Short"
+      ? "~1-2 min"
+      : production.duration === "Medium"
+      ? "~2-4 min"
+      : production.duration === "Long"
+      ? "~4-8 min"
+      : "~8-15 min";
+
+  return (
+    <Section icon={Film} title={`Scene Timeline (${scenes.length} scenes · ${runtimeHint})`}>
+      <div className="space-y-1.5">
+        {scenes.map((scene, i) => {
+          // Direction arrow between scenes
+          const arrow =
+            i > 0 ? (
+              <div className="flex items-center gap-1 text-[9px] text-[#71717a] ml-4 mb-0.5">
+                <SkipForward className="w-2.5 h-2.5" />
+                <span className="tracking-widest uppercase">
+                  {scene.transition.replace(/_/g, " ")}
+                </span>
+              </div>
+            ) : null;
+          return (
+            <div key={scene.id}>
+              {arrow}
+              <div className="flex items-center gap-2 p-1.5 rounded border border-[#27272a] bg-[#09090b]">
+                <div className="w-5 h-5 flex items-center justify-center rounded-full bg-[#22d3ee]/15 text-[#22d3ee] text-[8px] font-extrabold flex-shrink-0">
+                  {i + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-bold text-[#d4d4d8] truncate">
+                    {scene.name || `Scene ${i + 1}`}
+                  </div>
+                  <div className="text-[8px] text-[#71717a] flex flex-wrap gap-1">
+                    {scene.effects.map((eid) => (
+                      <span key={eid} className="text-[#c084fc]">
+                        {eid.replace(/_/g, " ")}
+                      </span>
+                    ))}
+                    {scene.effects.length === 0 && (
+                      <span className="italic">Inherits production effects</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Section>
   );
 }
 

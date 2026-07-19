@@ -52,5 +52,58 @@
     "releaseIds": [],
     "hqLocation": "Germany",
     "motto": "Procedural beauty packed in few kilobytes."
+  },
+  "crest": {
+    "id": "crest",
+    "name": "Crest",
+    "isPlayerGroup": false,
+    "fanbase": 780,
+    "reputation": 820,
+    "memberIds": [
+      "gibson_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "France",
+    "motto": "Pushing the 1MHz barrier since 1987."
+  },
+  "spaceballs": {
+    "id": "spaceballs",
+    "name": "Spaceballs",
+    "isPlayerGroup": false,
+    "fanbase": 980,
+    "reputation": 900,
+    "memberIds": [
+      "zardax_coder",
+      "prowizard_scener"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Sweden",
+    "motto": "9 Fingers of pure Amiga style."
+  },
+  "triton": {
+    "id": "triton",
+    "name": "Triton",
+    "isPlayerGroup": false,
+    "fanbase": 850,
+    "reputation": 840,
+    "memberIds": [
+      "crypton_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Germany",
+    "motto": "Real-time 3D from the acid lab."
+  },
+  "complex": {
+    "id": "complex",
+    "name": "Complex",
+    "isPlayerGroup": false,
+    "fanbase": 720,
+    "reputation": 780,
+    "memberIds": [
+      "membrane_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "We render what others dream."
   }
 }
