@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0] - 2026-07-19
+## [0.5.1] - 2026-07-19
+
+### Added
+- **Slide show image generation (`SlideShowRenderer.tsx`)** — 10 procedural canvas-based slide painters (pixel_sunset, synthwave_retro, geometric_mandala, vector_portrait, algorithmic_noise, pixel_skull, glitch_tunnel, hex_grid_pattern, voxel_mountains, retro_space_scene). Deterministic seeded PRNG (mulberry32) ensures the same production name + slide index always produces the same gallery. Crossfade transitions use pre-allocated offscreen canvases (no GC pressure). Slides render on both the inline CRT and the fullscreen portal overlay.
+- **Random ArtSlide generator** — One-click RANDOM ART SLIDE button in the DemoStudio (visible when Slide Show is selected) generates a complete slideshow: random title from 25 demoscene-style names (PIXEL PARADISE, NEON DREAMS, GLITCH CATHEDRAL, etc.), 2–6 random scenes with themed names (SUNSET OVERDRIVE, CRYSTAL CAVERN, etc.), slideshow-appropriate transitions (crossfade, dissolve, slide_left, etc.), weighted random artistic direction (biased: Artistic=5, Oldschool=4, Experimental=3, Technical=2, Music-Driven=1), and random duration. Effort sliders auto-set to ArtSlide defaults (15C/60A/10M/15O).
+- **Splash screen with boot sequence** — Full-screen loading overlay shown on app startup with phased boot messages (14 phases: kernel init, data manifest, scene characters, demogroups, demo effects, technology tree, party calendar, BBS threads, production catalog, scene events, music metadata, social graph, simulation loop, system ready). Staggered timing (120–500ms per phase) makes the boot feel alive even with fast local JSON loading. Progress bar fills with a cyan→indigo→green gradient. Auto-transitions to MainMenu when loading completes. Customizable background image (`public/splash.png`).
+- **Year range expansion: 1985–2005 → 1985–2026** — Added `ERA_HD_SHADER` (2006–2026) to `EraId` with start year 2006 in `ERA_START_YEAR`. Added `PC_PENTIUM_4` (2004, cpuLimit 2000) and `PC_CORE_DUO` (2006, cpuLimit 4000) platform configs. Added 15 modern parties (Revision, Solskogen 2002, Function 2007, Syntax Party 2008, Datastorm, Evoke 2015, Demobit, Love Byte, Inércia 2025, Flashback 2026) with full JSON mirrors. Added 27 hardware items (5 CPUs, 6 GPUs, 4 RAM kits, 3 storage, 2 audio, 3 monitors) spanning Pentium 4 HT through Core i9-13900K and GeForce FX 5950 through RX 7900 XTX. Era label display now shows 5 eras: "8-bit → 16-bit → PC Dawn → 3D Shader → HD Shader". Year boundary check updated from `nextY > 2005` to `nextY > 2026`.
+
+### Changed
+- **`package.json`** — bumped `0.5.0` → `0.5.1`.
+- **`src/components/DemoScreen.tsx`** — new `productionType` and `slideCount` props. When `productionType === ArtSlide`, the CRT displays slideshow mode with auto-cycling slides (3s display + 0.5s crossfade) instead of hardware demo effects. HUD overlay shows slide number, title, and style. Slide metadata cached via `useMemo`. Both inline and fullscreen views support slideshow mode.
+- **`src/components/DemoStudio.tsx`** — new `onRandomSlideShow` prop with a styled purple-pink gradient button (Shuffle icon, visible only when ArtSlide type is selected). Icon rotates 180° on hover.
+- **`src/components/DemoSummary.tsx`** — added Image icon import and SLIDES row in MetaRow showing the scene/slide count.
+- **`src/App.tsx`** — splash screen boot sequence with phased loading messages and `loadBaseContent()` call. New `handleRandomSlideShow` callback wiring. DemoScreen receives `productionType` and `slideCount` props. ERA_LABELS includes ERA_HD_SHADER. Year boundary alert text updated.
+- **`sim/data/platforms.ts`** — exhaustive `Record<PlatformId, PlatformConfig>` now includes PC_PENTIUM_4 and PC_CORE_DUO.
+- **`sim/domain/party.ts`** — RIVAL_PLATFORM_FOCUS exhaustive for both new platforms.
+- **`sim/domain/scoring.ts`** — ERA_START_YEAR now includes ERA_HD_SHADER: 2006.
+- **`sim/data/partyCalendar.ts`** — header comment updated to 1985–2026. Solskogen 2002 correctly placed under the 2000–2005 section.
+- **`sim/data/hardwareCatalog.ts`** — 27 modern hardware entries spanning 2003–2020.
+- **`data/hardware.json`** and **`data/parties.json`** — full JSON mirrors of all new hardware and parties.
 
 ### Added
 - **Advanced party competition engine** — multi-judge scoring system with 6 personality types (Oldschool, Technical, Artistic, Experimental, Music-focused, Graphics-focused) that weight scores across 7 categories (Code, Graphics, Music, Design, Originality, Technical Difficulty, Overall Impression). Each judge has experience-based variance and personality multipliers. `sim/domain/competition.ts::generateJudgingPanel` creates 3–5 judges per competition; `judgeScore` applies personality-weighted scoring with variance; `runCompetition` orchestrates the full pipeline.

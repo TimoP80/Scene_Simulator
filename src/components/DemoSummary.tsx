@@ -37,6 +37,7 @@ import {
   Film,
   SkipForward,
   Zap,
+  Image,
 } from "lucide-react";
 import type {
   DemoSummary as DemoSummaryData,
@@ -118,6 +119,7 @@ export default function DemoSummaryModal({
             sizeB={production.sizeB}
             effectCount={production.effects.length}
             devTimeMonths={developmentTimeMonths}
+            slideCount={production.sceneCount ?? 1}
           />
 
           {/* Overall score hero */}
@@ -341,6 +343,7 @@ function MetaRow(props: {
   sizeB: number;
   effectCount: number;
   devTimeMonths: number;
+  slideCount?: number;
 }) {
   const items: Array<{ icon: React.ReactNode; label: string; value: string }> = [
     { icon: <Cpu className="w-3 h-3 text-[#22d3ee]" />, label: "PLATFORM", value: props.platform },
@@ -348,6 +351,7 @@ function MetaRow(props: {
     { icon: <Gauge className="w-3 h-3 text-[#4ade80]" />, label: "SIZE", value: formatBytes(props.sizeB) },
     { icon: <Sparkles className="w-3 h-3 text-[#fb923c]" />, label: "EFFECTS", value: `${props.effectCount}` },
     { icon: <Clock className="w-3 h-3 text-[#c084fc]" />, label: "DEV TIME", value: `${props.devTimeMonths}mo` },
+    { icon: <Image className="w-3 h-3 text-[#f472b6]" />, label: "SLIDES", value: `${props.slideCount ?? 1}` },
   ];
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 px-3 py-2 rounded border border-[#27272a] bg-[#09090b]">

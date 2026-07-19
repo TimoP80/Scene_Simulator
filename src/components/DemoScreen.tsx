@@ -34,7 +34,7 @@
  *   two DemoScreen surfaces share state.
  */
 
-import React, { useRef, useEffect, useState, useCallback } from "react";
+import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
 import {
   Play,
@@ -51,10 +51,24 @@ import {
 import { trackerPlayer } from "../audio/trackerPlayer";
 import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 
+import { ProductionType } from "@packages/types";
+import { paintSlide, paintSlideTransition, generateSlideMetadata } from "./SlideShowRenderer";
+
 interface DemoScreenProps {
   effects: string[]; // List of effect IDs to enable
   demoName?: string;
   groupName?: string;
+  /**
+   * Production type — when set to ArtSlide (Slide Show), the CRT
+   * renders procedural pixel-art slides instead of runtime demo
+   * effects. Each slide is a deterministic generated image.
+   */
+  productionType?: ProductionType;
+  /**
+   * Number of slides for ArtSlide productions. Defaults to 4.
+   * Must match the scene count set in the DemoStudio.
+   */
+  slideCount?: number;
   /**
    * storedName of the tracker track attached to the production currently
    * rendered in the CRT monitor. When set, DemoScreen auto-plays the
@@ -446,11 +460,13 @@ export default function DemoScreen({
   effects = [],
   demoName = "UNTITLED",
   groupName = "CREW",
+  productionType,
   musicTrackStoredName,
   audioEnabled,
   isPlaying,
   onToggleAudio,
   onTogglePlay,
+  slideCount = 4,
 }: DemoScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // audioEnabled + isPlaying are LIFTED to App.tsx so the fullscreen
@@ -466,6 +482,15 @@ export default function DemoScreen({
     _text: undefined as string | undefined,
     firePixels: new Uint8Array(80 * 50),
   });
+  // Slideshow state
+  const isSlideShow = productionType === ProductionType.ArtSlide;
+  const slideFramesPerSlide = 180; // ~3 seconds at 60fps
+  const slideTransitionFrames = 30; // 0.5s transition
+  // Cache slide metadata (computed once per demoName+slideCount)
+  const slideMetadata = useMemo(
+    () => generateSlideMetadata(demoName, slideCount),
+    [demoName, slideCount]
+  );
 
   // Frame painter loop.
   useEffect(() => {
@@ -480,13 +505,42 @@ export default function DemoScreen({
         id = requestAnimationFrame(run);
         return;
       }
-      frameRef.current++;
-      paintDemoFrame(ctx, canvas, effects, demoName, groupName, frameRef.current, scratchRef.current);
+      const f = frameRef.current++;
+
+      if (isSlideShow) {
+        const sc = slideCount;
+        const frameInCycle = f % (sc * (slideFramesPerSlide + slideTransitionFrames));
+        const slideIdx = Math.floor(frameInCycle / (slideFramesPerSlide + slideTransitionFrames));
+        const frameInSlide = frameInCycle % (slideFramesPerSlide + slideTransitionFrames);
+
+        if (frameInSlide < slideFramesPerSlide) {
+          // Stationary slide
+          paintSlide(ctx, canvas.width, canvas.height, demoName, slideIdx, f);
+
+          // Draw slide overlay info
+          const info = slideMetadata[slideIdx] ?? slideMetadata[0];
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
+          ctx.fillStyle = "#22d3ee";
+          ctx.font = "bold 10px 'JetBrains Mono', monospace";
+          ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 8);
+          ctx.fillStyle = "rgba(0,255,100,0.6)";
+          ctx.font = "8px 'JetBrains Mono', monospace";
+          ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 8);
+        } else {
+          // Transition to next slide
+          const transitionProgress = (frameInSlide - slideFramesPerSlide) / slideTransitionFrames;
+          const nextSlide = (slideIdx + 1) % sc;
+          paintSlideTransition(ctx, canvas.width, canvas.height, demoName, slideIdx, nextSlide, Math.min(1, transitionProgress), f);
+        }
+      } else {
+        paintDemoFrame(ctx, canvas, effects, demoName, groupName, f, scratchRef.current);
+      }
       id = requestAnimationFrame(run);
     };
     id = requestAnimationFrame(run);
     return () => cancelAnimationFrame(id);
-  }, [isPlaying, effects, demoName, groupName]);
+  }, [isPlaying, effects, demoName, groupName, isSlideShow]);
 
   // Headless capture hook — exposes the rendered canvas + a resize() helper
   // to the page context so scripts/capture-preview.mjs (driving
@@ -540,6 +594,8 @@ export default function DemoScreen({
             onToggleAudio={onToggleAudio}
             onTogglePlay={onTogglePlay}
             onClose={closeFullscreen}
+            productionType={productionType}
+            slideCount={slideCount}
           />,
           document.body
         )}
@@ -592,13 +648,23 @@ export default function DemoScreen({
             />
           </div>
 
-          {effects.length === 0 && (
+          {effects.length === 0 && !isSlideShow && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-[#09090b]/95 text-center text-[#a1a1aa] font-mono">
               <span className="text-[#ef4444] animate-pulse text-sm font-bold tracking-widest mb-1.5">
                 [ NO CODE WAVEFORMS DETECTED ]
               </span>
               <p className="text-[11px] max-w-[270px] leading-relaxed">
                 Add code effects below (e.g. Copper Bars, Starfields, Custom Fire, Vector Rotating Cube) to compile visual outputs.
+              </p>
+            </div>
+          )}
+          {isSlideShow && effects.length === 0 && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-[#09090b]/95 text-center text-[#a1a1aa] font-mono">
+              <span className="text-[#4ade80] animate-pulse text-sm font-bold tracking-widest mb-1.5">
+                [ SLIDE SHOW MODE ]
+              </span>
+              <p className="text-[11px] max-w-[270px] leading-relaxed">
+                Generating procedural pixel-art slides for this ArtSlide production. Each slide is a unique algorithmic composition.
               </p>
             </div>
           )}
@@ -670,6 +736,8 @@ interface FullscreenDemoViewProps {
   effects: string[];
   demoName: string;
   groupName: string;
+  productionType?: ProductionType;
+  slideCount?: number;
   musicTrackStoredName?: string;
   /** Lifted from App.tsx — see DemoScreenProps for rationale. */
   audioEnabled: boolean;
@@ -686,6 +754,8 @@ function FullscreenDemoView({
   effects,
   demoName,
   groupName,
+  productionType,
+  slideCount = 4,
   musicTrackStoredName,
   audioEnabled,
   isPlaying,
@@ -772,6 +842,15 @@ function FullscreenDemoView({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Fullscreen slideshow metadata cache
+  const isSlideShow = productionType === ProductionType.ArtSlide;
+  const slideFramesPerSlide = 180;
+  const slideTransitionFrames = 30;
+  const fullscreenSlideMetadata = useMemo(
+    () => generateSlideMetadata(demoName, slideCount),
+    [demoName, slideCount]
+  );
+
   // Animation loop
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -782,22 +861,46 @@ function FullscreenDemoView({
     let id: number;
     const run = () => {
       if (isPlaying) {
-        frameRef.current++;
-        paintDemoFrame(
-          ctx,
-          canvas,
-          effects,
-          demoName,
-          groupName,
-          frameRef.current,
-          scratchRef.current
-        );
+        const f = frameRef.current++;
+        if (isSlideShow) {
+          const sc = slideCount;
+          const frameInCycle = f % (sc * (slideFramesPerSlide + slideTransitionFrames));
+          const slideIdx = Math.floor(frameInCycle / (slideFramesPerSlide + slideTransitionFrames));
+          const frameInSlide = frameInCycle % (slideFramesPerSlide + slideTransitionFrames);
+
+          if (frameInSlide < slideFramesPerSlide) {
+            paintSlide(ctx, canvas.width, canvas.height, demoName, slideIdx, f);
+            const info = fullscreenSlideMetadata[slideIdx] ?? fullscreenSlideMetadata[0];
+            ctx.fillStyle = "rgba(0,0,0,0.6)";
+            ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
+            ctx.fillStyle = "#22d3ee";
+            ctx.font = "bold 10px 'JetBrains Mono', monospace";
+            ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 8);
+            ctx.fillStyle = "rgba(0,255,100,0.6)";
+            ctx.font = "8px 'JetBrains Mono', monospace";
+            ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 8);
+          } else {
+            const transitionProgress = (frameInSlide - slideFramesPerSlide) / slideTransitionFrames;
+            const nextSlide = (slideIdx + 1) % sc;
+            paintSlideTransition(ctx, canvas.width, canvas.height, demoName, slideIdx, nextSlide, Math.min(1, transitionProgress), f);
+          }
+        } else {
+          paintDemoFrame(
+            ctx,
+            canvas,
+            effects,
+            demoName,
+            groupName,
+            f,
+            scratchRef.current
+          );
+        }
       }
       id = requestAnimationFrame(run);
     };
     id = requestAnimationFrame(run);
     return () => cancelAnimationFrame(id);
-  }, [isPlaying, effects, demoName, groupName]);
+  }, [isPlaying, effects, demoName, groupName, isSlideShow, slideCount]);
 
   // Keyboard shortcuts (one-time mount; reads handlers via refs).
   //   F       : toggle browser-native fullscreen API
@@ -956,13 +1059,23 @@ function FullscreenDemoView({
         </FullscreenCtrlBtn>
       </div>
 
-      {effects.length === 0 && (
+      {effects.length === 0 && !isSlideShow && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-[#a1a1aa] font-mono">
           <span className="text-[#ef4444] animate-pulse text-base font-black tracking-widest mb-1.5">
             [ NO CODE WAVEFORMS DETECTED ]
           </span>
           <p className="text-[12px] max-w-[420px] leading-relaxed">
             Pick a few code effects in the studio (e.g. Raster Bars, Starfields, 3D Vectors) then re-open fullscreen to view the compiled demo at CRT resolution.
+          </p>
+        </div>
+      )}
+      {isSlideShow && effects.length === 0 && (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-[#a1a1aa] font-mono">
+          <span className="text-[#4ade80] animate-pulse text-base font-black tracking-widest mb-1.5">
+            [ SLIDE SHOW MODE ]
+          </span>
+          <p className="text-[12px] max-w-[420px] leading-relaxed">
+            ArtSlide production with {slideCount} procedural slides. Each slide is a unique algorithmic composition.
           </p>
         </div>
       )}

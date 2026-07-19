@@ -138,5 +138,31 @@ export const HISTORICAL_PLATFORMS: Record<PlatformId, PlatformConfig> = {
     audioTech: "DirectSound3D acceleration, software digital DSP filters",
     graphicsTech: "NVIDIA GeForce (Hardware transform & lighting, custom vertex shaders)",
     description: "The peak of the historical demoscene. Graphics cards handle lights, normals, vertex coordinates, and early procedural generation loops."
+  },
+  [PlatformId.PC_PENTIUM_4]: {
+    id: PlatformId.PC_PENTIUM_4,
+    name: "Pentium 4 HT + Radeon X800",
+    year: 2004,
+    cost: 1400,
+    cpuLimit: 2000,
+    ramLimitKb: 1048576,
+    graphicsMaxColors: 16777216,
+    audioChannels: 64,
+    audioTech: "Intel High Definition Audio / Creative X-Fi",
+    graphicsTech: "AGP 8x with programmable pixel shaders (DirectX 9.0b)",
+    description: "The dawn of programmable shaders. Pixel shader 2.0 enables real-time procedural textures, per-pixel lighting, and GPU-accelerated effects."
+  },
+  [PlatformId.PC_CORE_DUO]: {
+    id: PlatformId.PC_CORE_DUO,
+    name: "Intel Core 2 Duo + GeForce 8800",
+    year: 2006,
+    cost: 1800,
+    cpuLimit: 4000,
+    ramLimitKb: 4194304,
+    graphicsMaxColors: 16777216,
+    audioChannels: 128,
+    audioTech: "Realtek HD Audio / USB DAC (24-bit/192kHz)",
+    graphicsTech: "PCI Express 16x with unified shader architecture (DirectX 10)",
+    description: "The modern HD demoscene machine. Dual-core CPU + unified shader GPU runs raymarched 4K intros at silky framerates."
   }
 };

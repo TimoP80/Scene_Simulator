@@ -37,6 +37,8 @@ const RIVAL_PLATFORM_FOCUS: Record<PlatformId, RivalPlatformFocus> = {
   [PlatformId.PC_PENTIUM]: "pc",
   [PlatformId.PC_PENTIUM_II]: "pc",
   [PlatformId.PC_PENTIUM_III]: "pc",
+  [PlatformId.PC_PENTIUM_4]: "pc",
+  [PlatformId.PC_CORE_DUO]: "pc",
 };
 
 /**

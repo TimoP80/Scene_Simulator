@@ -75,6 +75,7 @@ import {
 } from "@sim/domain";
 import GddViewer from "./components/GddViewer";
 import DemoScreen from "./components/DemoScreen";
+import { generateRandomSlideShowConfig } from "./components/SlideShowRenderer";
 import SocialGraphTab from "./components/SocialGraphTab";
 import EconomyPanel from "./components/EconomyPanel";
 
@@ -94,6 +95,7 @@ import { SimulationLoop } from "@sim/engine/simulationLoop";
 import { emptyWorldState } from "@sim/engine/reducer";
 import { getCurrentTick } from "@sim/events/appendEvent";
 import type { SceneEvent } from "@packages/types";
+import SplashScreen, { type SplashMessage } from "./components/SplashScreen";
 // v0.5.0 Competition expansion imports
 import PartyRankingScreen from "./components/PartyRankingScreen";
 import HallOfFamePanel from "./components/HallOfFamePanel";
@@ -780,18 +782,107 @@ export default function App() {
   // Auto-Save notification
   const [saveNotice, setSaveNotice] = useState<string>("");
 
-  // ---- Dev tools: load base content from /data/ on mount ----
+  // --------- SPLASH / LOADING STATE ---------
+  // Show the splash screen while the app boots (loads content data,
+  // initializes systems). Once done, transitions to MainMenu.
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [loadMessages, setLoadMessages] = useState<SplashMessage[]>([]);
+  const [loadProgress, setLoadProgress] = useState<number>(0);
+
+  // ---- Boot sequence: splash → content loading → MainMenu ----
   useEffect(() => {
-    loadBaseContent().then((result) => {
-      if (result.source === "fallback") {
-        console.info("[devtools] Using static fallback content (no /data/ JSON). Errors:", result.errors);
-      } else if (result.errors.length > 0) {
-        console.warn("[devtools] Loaded content with warnings:", result.errors);
-      } else {
-        console.info("[devtools] Loaded base content pack from /data/.");
+    let cancelled = false;
+    const phases = [
+      { msg: "Initializing system kernel...", weight: 3 },
+      { msg: "Loading data manifest...", weight: 3 },
+      { msg: "Loading scene characters...", weight: 10 },
+      { msg: "Loading demogroups...", weight: 10 },
+      { msg: "Loading demo effects...", weight: 10 },
+      { msg: "Loading technology tree...", weight: 10 },
+      { msg: "Loading party calendar...", weight: 10 },
+      { msg: "Loading BBS threads...", weight: 10 },
+      { msg: "Loading production catalog...", weight: 5 },
+      { msg: "Loading scene events...", weight: 5 },
+      { msg: "Loading music metadata...", weight: 5 },
+      { msg: "Building social graph...", weight: 5 },
+      { msg: "Starting simulation loop...", weight: 6 },
+      { msg: "System ready. Booting menu...", weight: 8 },
+    ];
+    const totalWeight = phases.reduce((s, p) => s + p.weight, 0);
+
+    async function boot() {
+      // Phase 1: push initial messages with staggered timing so the
+      // splash feels alive even though the actual fetch is fast.
+      for (let i = 0; i < phases.length; i++) {
+        if (cancelled) return;
+        const phase = phases[i];
+        // Mark all previous as done, add the new one as pending
+        setLoadMessages((prev) => [
+          ...prev.map((m) => ({ ...m, done: true })),
+          { text: phase.msg, done: false },
+        ]);
+        const progressPct = Math.round(
+          (phases.slice(0, i + 1).reduce((s, p) => s + p.weight, 0) /
+            totalWeight) *
+            100
+        );
+        setLoadProgress(Math.min(progressPct, 95));
+
+        // Stagger: earlier messages go faster, later ones slower to build suspense
+        const delay =
+          i < 2 ? 120 : i < 5 ? 180 : i < phases.length - 1 ? 250 : 500;
+        await new Promise((r) => setTimeout(r, delay));
       }
-    });
+
+      // Phase 2: run the actual content loader (may hit network for /data/)
+      try {
+        const result = await loadBaseContent();
+        if (!cancelled) {
+          if (result.source === "fallback") {
+            setLoadMessages((prev) => [
+              ...prev.map((m) => ({ ...m, done: true })),
+              { text: "[WARN] Using static fallback data pack", done: true },
+            ]);
+          } else if (result.errors.length > 0) {
+            setLoadMessages((prev) => [
+              ...prev.map((m) => ({ ...m, done: true })),
+              { text: `[INFO] Loaded with ${result.errors.length} warning(s)`, done: true },
+            ]);
+          } else {
+            setLoadMessages((prev) => [
+              ...prev.map((m) => ({ ...m, done: true })),
+              { text: "Content data loaded successfully", done: true },
+            ]);
+          }
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadMessages((prev) => [
+            ...prev.map((m) => ({ ...m, done: true })),
+            { text: `[ERROR] Data load failed: ${String(e)}`, done: true },
+          ]);
+        }
+      }
+
+      // Final: set progress to 100 and let SplashScreen fade out
+      if (!cancelled) {
+        setLoadMessages((prev) => [
+          ...prev.map((m) => ({ ...m, done: true })),
+          { text: "▸ PRESS ANY KEY OR CLICK TO CONTINUE", done: true },
+        ]);
+        setLoadProgress(100);
+      }
+    }
+
+    boot();
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // ---- Dev tools: load base content from /data/ on mount ----
+  // (Handled by the boot sequence above — the splash screen effect
+  //  calls loadBaseContent() mid-way through its phased loading.)
 
   // ===== SENTINEL: SIM_LOOP_BOOTSTRAP_V1 =====
   // Sim-loop bootstrap per docs/architecture.md + docs/event-sourcing.md.
@@ -1200,6 +1291,7 @@ const ERA_LABELS: Record<string, string> = {
   [EraId.ERA_16_BIT]: "16-bit",
   [EraId.ERA_PC_DAWN]: "PC Dawn",
   [EraId.ERA_3D_SHADER]: "3D Shader",
+  [EraId.ERA_HD_SHADER]: "HD Shader",
 };
 // --------- RESEARCHING TECHNOLOGY GRAPH ---------
   const researchNode = (node: TechNode) => {
@@ -1330,6 +1422,22 @@ const ERA_LABELS: Record<string, string> = {
       return updated;
     });
   };
+
+  // Random slideshow generator — one-click ArtSlide configurator
+  const handleRandomSlideShow = useCallback(() => {
+    const config = generateRandomSlideShowConfig(Date.now().toString());
+    setStudioDemoName(config.title);
+    setStudioProdType(ProductionType.ArtSlide);
+    setStudioArtisticDirection(config.artisticDirection);
+    setStudioDuration(config.duration);
+    setStudioSceneCount(config.sceneCount);
+    setStudioScenes(config.scenes);
+    setStudioSelectedEffects([]);
+    setEffortCoding(15);
+    setEffortArt(60);
+    setEffortMusic(10);
+    setEffortOptimization(15);
+  }, []);
 
   // Scene management handlers
   const handleSceneCountChange = useCallback((count: number) => {
@@ -2276,8 +2384,8 @@ const ERA_LABELS: Record<string, string> = {
       nextY = currentYear + 1;
     }
 
-    if (nextY > 2005) {
-      window.alert("Game Timeline complete! Under historical guidelines of 1985-2005, you have finished your career. Feel free to stay in sandbox mode and continue writing code!");
+    if (nextY > 2026) {
+      window.alert("Game Timeline complete! Under historical guidelines of 1985-2026, you have finished your career. Feel free to stay in sandbox mode and continue writing code!");
     }
 
     setCurrentMonth(nextM);
@@ -3445,7 +3553,21 @@ const ERA_LABELS: Record<string, string> = {
     }
   }, []);
 
-  // Short-circuit: if the splash overlay is active, render only
+  // Short-circuit: if the splash is active, render the splash screen.
+  // Once splash transitions out (showSplash → false), the MainMenu
+  // appears. The handlers (handleNewGame, handleContinue,
+  // handleLoadFromFile) control showMainMenu.
+  if (showSplash) {
+    return (
+      <SplashScreen
+        messages={loadMessages}
+        progress={loadProgress}
+        onReady={() => setShowSplash(false)}
+      />
+    );
+  }
+
+  // Short-circuit: if the main menu is active, render only
   // the MainMenu and exit early. The handlers above (handleNewGame,
   // handleContinue, handleLoadFromFile) control showMainMenu.
   if (showMainMenu) {
@@ -3542,11 +3664,13 @@ const ERA_LABELS: Record<string, string> = {
             effects={crtActiveEffects}
             demoName={crtDemoName}
             groupName={crtGroupName}
+            productionType={studioProdType}
             musicTrackStoredName={crtMusicTrack}
             audioEnabled={crtAudioEnabled}
             isPlaying={crtIsPlaying}
             onToggleAudio={toggleCrtAudio}
             onTogglePlay={toggleCrtPlay}
+            slideCount={studioSceneCount}
           />
 
           {/* Quick crew stats card */}
@@ -3917,6 +4041,7 @@ const ERA_LABELS: Record<string, string> = {
                 onSceneCountChange={handleSceneCountChange}
                 demoScenes={studioScenes}
                 onSceneChange={handleSceneChange}
+                onRandomSlideShow={handleRandomSlideShow}
                 onOpenPlaylist={() => setShowPlaylistModal(true)}
                 onOpenEffectGallery={() => setShowEffectGallery(true)}
                 onCompile={triggerAssembleCompiler}
@@ -4338,7 +4463,10 @@ const ERA_LABELS: Record<string, string> = {
                             ? "2. THE 16-BIT GOLDEN CONSOLE (1990-1995)"
                             : eraId === EraId.ERA_PC_DAWN
                             ? "3. THE DOS MODE-13H PC RECONSTRUCTION (1996-2000)"
-                            : "4. THE MODERN SHADER RAYMARCHING AGE (2001-2005)"}
+                            : eraId === EraId.ERA_3D_SHADER
+                            ? "4. THE MODERN SHADER RAYMARCHING AGE (2001-2005)"
+                            : "5. THE HD SHADER PROCESSION (2006-2026)"}
+
                         </span>
                       </div>
 

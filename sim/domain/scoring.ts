@@ -618,6 +618,7 @@ export const ERA_START_YEAR: Record<EraId, number> = {
   [EraId.ERA_16_BIT]: 1990,
   [EraId.ERA_PC_DAWN]: 1996,
   [EraId.ERA_3D_SHADER]: 2001,
+  [EraId.ERA_HD_SHADER]: 2006,
 };
 
 // ---------------------------------------------------------------------------

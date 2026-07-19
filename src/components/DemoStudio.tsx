@@ -45,6 +45,7 @@ import {
   SkipForward,
   Layers,
   Film,
+  Shuffle,
 } from "lucide-react";
 import {
   DEMO_EFFECTS,
@@ -153,13 +154,17 @@ export interface DemoStudioProps {
   /** Per-scene detail (id, effects, transition). */
   demoScenes: DemoScene[];
   onSceneChange: (sceneIndex: number, updated: DemoScene) => void;
-  /* ─── (8) Modal callbacks ─── */
+  /* ─── (8) Random slideshow generator ─── */
+  /** One-click random slide show configurator. Auto-sets title, scene count, and scene data. */
+  onRandomSlideShow: () => void;
+
+  /* ─── (9) Modal callbacks ─── */
   /** Open the playlist manager modal. */
   onOpenPlaylist: () => void;
   /** Open the EFFECT GALLERY & VISUALIZER modal. */
   onOpenEffectGallery: () => void;
 
-  /* ─── (9) Compile orchestration ─── */
+  /* ─── (10) Compile orchestration ─── */
   /**
    * App.tsx's `triggerAssembleCompiler(e)` — DOM-event handler. The
    * parent owns validation + budget hard-stops + the interval-driven
@@ -323,6 +328,7 @@ export default function DemoStudio({
   onSceneCountChange,
   demoScenes,
   onSceneChange,
+  onRandomSlideShow,
   onOpenPlaylist,
   onOpenEffectGallery,
   onCompile,
@@ -423,6 +429,19 @@ export default function DemoStudio({
               </div>
             </div>
           </div>
+        )}
+
+        {/* Random ArtSlide button — one-click slideshow generator */}
+        {competitionType === ProductionType.ArtSlide && (
+          <button
+            type="button"
+            onClick={onRandomSlideShow}
+            className="w-full bg-gradient-to-r from-[#a855f7]/15 via-[#ec4899]/15 to-[#facc15]/15 border border-[#a855f7]/30 hover:border-[#a855f7]/60 rounded p-2.5 flex items-center justify-center gap-2 text-[11px] font-extrabold tracking-wider text-[#c084fc] hover:text-[#e0aaff] transition-all cursor-pointer group"
+          >
+            <Shuffle className="w-4 h-4 text-[#ec4899] group-hover:rotate-180 transition-transform duration-700" />
+            <span>RANDOM ART SLIDE</span>
+            <span className="text-[8px] text-[#71717a] ml-1">GENERATE RANDOM SLIDE SHOW</span>
+          </button>
         )}
 
         {/* (1) Production metadata: title + competition category */}

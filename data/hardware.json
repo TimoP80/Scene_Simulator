@@ -71,6 +71,66 @@
     "powerConsumption": 230,
     "description": "SSE intrinsics at last. Drives per-vertex transform/lighting demos."
   },
+  "cpu_pentium_4_3ghz": {
+    "id": "cpu_pentium_4_3ghz",
+    "name": "Intel Pentium 4 3.0 GHz (HT)",
+    "category": "CPU",
+    "releaseYear": 2004,
+    "performanceScore": 96,
+    "purchasePrice": 700,
+    "resaleValueFraction": 0.45,
+    "reliability": 78,
+    "powerConsumption": 280,
+    "description": "NetBurst architecture with Hyper-Threading. Runs shader-heavy 64K intros smoothly at 60 fps."
+  },
+  "cpu_core2_duo": {
+    "id": "cpu_core2_duo",
+    "name": "Intel Core 2 Duo E6600",
+    "category": "CPU",
+    "releaseYear": 2006,
+    "performanceScore": 120,
+    "purchasePrice": 650,
+    "resaleValueFraction": 0.48,
+    "reliability": 90,
+    "powerConsumption": 105,
+    "description": "Dual-core efficiency revolution. The CPU that made real-time raymarching in 4K intros viable."
+  },
+  "cpu_core_i7_920": {
+    "id": "cpu_core_i7_920",
+    "name": "Intel Core i7-920",
+    "category": "CPU",
+    "releaseYear": 2008,
+    "performanceScore": 155,
+    "purchasePrice": 800,
+    "resaleValueFraction": 0.5,
+    "reliability": 88,
+    "powerConsumption": 130,
+    "description": "Nehalem quad-core with hyper-threading. Drives multi-threaded GPU compute demo pipelines."
+  },
+  "cpu_ryzen_1700": {
+    "id": "cpu_ryzen_1700",
+    "name": "AMD Ryzen 7 1700",
+    "category": "CPU",
+    "releaseYear": 2017,
+    "performanceScore": 200,
+    "purchasePrice": 550,
+    "resaleValueFraction": 0.55,
+    "reliability": 85,
+    "powerConsumption": 150,
+    "description": "8-core/16-thread powerhouse. Perfect for complex procedural generation and physics-heavy effects."
+  },
+  "cpu_core_i9_13900k": {
+    "id": "cpu_core_i9_13900k",
+    "name": "Intel Core i9-13900K",
+    "category": "CPU",
+    "releaseYear": 2022,
+    "performanceScore": 280,
+    "purchasePrice": 950,
+    "resaleValueFraction": 0.6,
+    "reliability": 82,
+    "powerConsumption": 200,
+    "description": "24-core hybrid architecture. Crushes real-time raymarching, fluid sims, and HD texture streaming."
+  },
   "gpu_voodoo_1": {
     "id": "gpu_voodoo_1",
     "name": "3dfx Voodoo Graphics",
@@ -131,6 +191,78 @@
     "powerConsumption": 70,
     "description": "Dual-channel DDR memory. Sturdier under 32-bit color rendering loads."
   },
+  "gpu_geforce_fx_5950": {
+    "id": "gpu_geforce_fx_5950",
+    "name": "NVIDIA GeForce FX 5950 Ultra",
+    "category": "GPU",
+    "releaseYear": 2004,
+    "performanceScore": 92,
+    "purchasePrice": 500,
+    "resaleValueFraction": 0.35,
+    "reliability": 70,
+    "powerConsumption": 85,
+    "description": "DirectX 9.0b monster with 256 MiB DDR. First card to run pixel-shader 4K intros properly."
+  },
+  "gpu_radeon_x800": {
+    "id": "gpu_radeon_x800",
+    "name": "ATI Radeon X800 XT",
+    "category": "GPU",
+    "releaseYear": 2004,
+    "performanceScore": 94,
+    "purchasePrice": 480,
+    "resaleValueFraction": 0.36,
+    "reliability": 72,
+    "powerConsumption": 80,
+    "description": "ATI's shader flagship. 16 pixel pipelines deliver silky-smooth procedural textures."
+  },
+  "gpu_geforce_8800_gtx": {
+    "id": "gpu_geforce_8800_gtx",
+    "name": "NVIDIA GeForce 8800 GTX",
+    "category": "GPU",
+    "releaseYear": 2006,
+    "performanceScore": 130,
+    "purchasePrice": 800,
+    "resaleValueFraction": 0.38,
+    "reliability": 75,
+    "powerConsumption": 100,
+    "description": "Unified shader architecture revolution. The GPU that defined the modern demo render pipeline."
+  },
+  "gpu_radeon_hd_4870": {
+    "id": "gpu_radeon_hd_4870",
+    "name": "ATI Radeon HD 4870",
+    "category": "GPU",
+    "releaseYear": 2008,
+    "performanceScore": 145,
+    "purchasePrice": 600,
+    "resaleValueFraction": 0.4,
+    "reliability": 78,
+    "powerConsumption": 95,
+    "description": "GDDR5 memory and 800 stream processors. Pushes complex raymarched distance fields."
+  },
+  "gpu_geforce_rtx_2080": {
+    "id": "gpu_geforce_rtx_2080",
+    "name": "NVIDIA GeForce RTX 2080 Ti",
+    "category": "GPU",
+    "releaseYear": 2018,
+    "performanceScore": 220,
+    "purchasePrice": 1500,
+    "resaleValueFraction": 0.5,
+    "reliability": 80,
+    "powerConsumption": 150,
+    "description": "Real-time ray tracing hardware. Enables cinematic lighting in 64K intros."
+  },
+  "gpu_radeon_rx_7900_xtx": {
+    "id": "gpu_radeon_rx_7900_xtx",
+    "name": "AMD Radeon RX 7900 XTX",
+    "category": "GPU",
+    "releaseYear": 2022,
+    "performanceScore": 260,
+    "purchasePrice": 1400,
+    "resaleValueFraction": 0.55,
+    "reliability": 82,
+    "powerConsumption": 140,
+    "description": "24 GiB GDDR6 — insane texture cache for procedural megatextures."
+  },
   "ram_8mb_72pin": {
     "id": "ram_8mb_72pin",
     "name": "8 MiB 72-pin SIMM",
@@ -179,6 +311,54 @@
     "powerConsumption": 14,
     "description": "Heavy enough for raymarched distance fields and 64 MB texture caches."
   },
+  "ram_1gb_ddr2": {
+    "id": "ram_1gb_ddr2",
+    "name": "1 GiB DDR2 DIMM",
+    "category": "Memory",
+    "releaseYear": 2004,
+    "performanceScore": 50,
+    "purchasePrice": 120,
+    "resaleValueFraction": 0.2,
+    "reliability": 94,
+    "powerConsumption": 8,
+    "description": "DDR2 533 MHz. The bare minimum for running GPU shader intros without swapping."
+  },
+  "ram_4gb_ddr3": {
+    "id": "ram_4gb_ddr3",
+    "name": "4 GiB DDR3 DIMM",
+    "category": "Memory",
+    "releaseYear": 2008,
+    "performanceScore": 68,
+    "purchasePrice": 160,
+    "resaleValueFraction": 0.28,
+    "reliability": 95,
+    "powerConsumption": 10,
+    "description": "DDR3-1066. Comfortable for raymarched scenes with multi-layered textures."
+  },
+  "ram_16gb_ddr4": {
+    "id": "ram_16gb_ddr4",
+    "name": "16 GiB DDR4 DIMM",
+    "category": "Memory",
+    "releaseYear": 2014,
+    "performanceScore": 84,
+    "purchasePrice": 200,
+    "resaleValueFraction": 0.35,
+    "reliability": 96,
+    "powerConsumption": 10,
+    "description": "DDR4-3200. The standard for HD demo productions with procedural megatextures."
+  },
+  "ram_64gb_ddr5": {
+    "id": "ram_64gb_ddr5",
+    "name": "64 GiB DDR5 DIMM",
+    "category": "Memory",
+    "releaseYear": 2022,
+    "performanceScore": 110,
+    "purchasePrice": 320,
+    "resaleValueFraction": 0.5,
+    "reliability": 96,
+    "powerConsumption": 12,
+    "description": "DDR5-6000. Overkill for demos, but enables real-time AI-driven texture synthesis."
+  },
   "hdd_540mb": {
     "id": "hdd_540mb",
     "name": "540 MiB IDE HDD",
@@ -214,6 +394,42 @@
     "reliability": 92,
     "powerConsumption": 9,
     "description": "Replaces spinning rust — no seek chirps during demo recordings, ever."
+  },
+  "hdd_500gb_sata": {
+    "id": "hdd_500gb_sata",
+    "name": "500 GiB SATA HDD",
+    "category": "Storage",
+    "releaseYear": 2004,
+    "performanceScore": 60,
+    "purchasePrice": 150,
+    "resaleValueFraction": 0.18,
+    "reliability": 80,
+    "powerConsumption": 20,
+    "description": "7,200 RPM SATA drive. Holds hundreds of demo projects and toolchains."
+  },
+  "ssd_256gb": {
+    "id": "ssd_256gb",
+    "name": "256 GiB SATA SSD",
+    "category": "Storage",
+    "releaseYear": 2012,
+    "performanceScore": 120,
+    "purchasePrice": 200,
+    "resaleValueFraction": 0.4,
+    "reliability": 95,
+    "powerConsumption": 6,
+    "description": "No moving parts — instant load times for 4K textures and module samples."
+  },
+  "ssd_nvme_1tb": {
+    "id": "ssd_nvme_1tb",
+    "name": "1 TiB NVMe SSD",
+    "category": "Storage",
+    "releaseYear": 2018,
+    "performanceScore": 180,
+    "purchasePrice": 250,
+    "resaleValueFraction": 0.55,
+    "reliability": 96,
+    "powerConsumption": 8,
+    "description": "NVMe 3.5 GiB/s reads. Streams procedural textures at full resolution."
   },
   "audio_sb16": {
     "id": "audio_sb16",
@@ -263,6 +479,30 @@
     "powerConsumption": 9,
     "description": "EMU8000 wavetable synth; brilliant for 64KB intros' in-house music engines."
   },
+  "audio_xfi": {
+    "id": "audio_xfi",
+    "name": "Creative SoundBlaster X-Fi",
+    "category": "Audio",
+    "releaseYear": 2005,
+    "performanceScore": 88,
+    "purchasePrice": 180,
+    "resaleValueFraction": 0.35,
+    "reliability": 85,
+    "powerConsumption": 10,
+    "description": "X-Fi CMSS-3D upmixing. Crystal-clear tracker playback with hardware acceleration."
+  },
+  "audio_usb_dac": {
+    "id": "audio_usb_dac",
+    "name": "USB Audio DAC (Hi-Res)",
+    "category": "Audio",
+    "releaseYear": 2015,
+    "performanceScore": 95,
+    "purchasePrice": 150,
+    "resaleValueFraction": 0.45,
+    "reliability": 92,
+    "powerConsumption": 3,
+    "description": "24-bit/192 kHz USB DAC. Flawless reproduction of tracker modules and chiptunes."
+  },
   "monitor_14_crt": {
     "id": "monitor_14_crt",
     "name": "14\" CRT (VGA 640x480)",
@@ -298,5 +538,41 @@
     "reliability": 92,
     "powerConsumption": 55,
     "description": "Pixel-perfect preview; the era's \"production monitor\" of choice for 4K intros."
+  },
+  "monitor_24_lcd": {
+    "id": "monitor_24_lcd",
+    "name": "24\" 1080p LCD",
+    "category": "Monitor",
+    "releaseYear": 2006,
+    "performanceScore": 72,
+    "purchasePrice": 400,
+    "resaleValueFraction": 0.28,
+    "reliability": 88,
+    "powerConsumption": 60,
+    "description": "1920x1080 widescreen. Finally enough pixels for side-by-side code and demo preview."
+  },
+  "monitor_27_1440p": {
+    "id": "monitor_27_1440p",
+    "name": "27\" 1440p IPS",
+    "category": "Monitor",
+    "releaseYear": 2014,
+    "performanceScore": 88,
+    "purchasePrice": 600,
+    "resaleValueFraction": 0.45,
+    "reliability": 92,
+    "powerConsumption": 50,
+    "description": "2560x1440 IPS panel. Colour-critical demo grading and pixel-perfect effect preview."
+  },
+  "monitor_32_4k": {
+    "id": "monitor_32_4k",
+    "name": "32\" 4K HDR Monitor",
+    "category": "Monitor",
+    "releaseYear": 2020,
+    "performanceScore": 96,
+    "purchasePrice": 900,
+    "resaleValueFraction": 0.55,
+    "reliability": 90,
+    "powerConsumption": 65,
+    "description": "3840x2160 HDR400. The ultimate canvas for 4K procedural intros and demos."
   }
 }

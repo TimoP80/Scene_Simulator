@@ -4,10 +4,10 @@
  *
  * PARTY_CALENDAR — moved verbatim from src/data.ts.
  * Pure static schedule of historic demo parties. Expanded in 2026 to
- * cover the full 1985–2005 demoscene timeline: from the cracktros /
+ * cover the full 1985–2026 demoscene timeline: from the cracktros /
  * "horror demos" era (where C64 parties dominated) through the
- * Amiga/PC 16-bit golden age and concluding with the early-2000s
- * shader / 64k-intro scene.
+ * Amiga/PC 16-bit golden age, the early-2000s shader / 64k-intro scene,
+ * and into the HD/online era (2006–2026) with livestreamed compos.
  */
 
 import { PartyEvent, ProductionType } from "@packages/types";
@@ -250,6 +250,7 @@ export const PARTY_CALENDAR: PartyEvent[] = [
 
   // ---------------------------- 2000 – 2005 -------------------------------
   // The 3D shader revolution. Parties get smaller, more intense.
+
   {
     id: "chaos_constructions",
     name: "Chaos Constructions",
@@ -333,5 +334,253 @@ export const PARTY_CALENDAR: PartyEvent[] = [
     ],
     headlineNews: "Cuddly French intro-only party. Tiny attendance, huge love for cranked-up tiny executables. Crepes and baguette on standby.",
     location: "Paris, France"
+  },
+  {
+    id: "solskogen",
+    name: "Solskogen",
+    year: 2002,
+    month: 7,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 500,
+    prestige: 68,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 600, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 300, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 200, entrants: [] }
+    ],
+    headlineNews: "Norway's cosy summer-gathering under the midnight sun. Retro 8-bit meets shader-driven 4K intros in a single cabin village.",
+    location: "Fredrikstad, Norway"
+  },
+
+  // ---------------------------- 2006 – 2012 -------------------------------
+  // The HD online era. Parties livestream, multi-monitor setups arrive.
+  {
+    id: "revision",
+    name: "Revision",
+    year: 2006,
+    month: 4,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 1400,
+    prestige: 90,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 3000, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 1500, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 800, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 400, entrants: [] }
+    ],
+    headlineNews: "Revision rises as the spiritual successor to Breakpoint. The Easter demoparty returns to Germany with HD projectors and real-time streaming to the world.",
+    location: "Saarbrücken, Germany"
+  },
+  {
+    id: "function_2007",
+    name: "Function",
+    year: 2007,
+    month: 11,
+    isAnnual: true,
+    platformFocus: "pc",
+    attendance: 300,
+    prestige: 62,
+    competitions: [
+      { type: ProductionType.Intro4k, prizePool: 350, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 500, entrants: [] }
+    ],
+    headlineNews: "Hungarian modern-demoparty. Tight-knit coder circles compete on real-time raymarching and GPU compute shader prototypes.",
+    location: "Budapest, Hungary"
+  },
+  {
+    id: "syntax_party_2008",
+    name: "Syntax Party",
+    year: 2008,
+    month: 12,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 350,
+    prestige: 58,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 500, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 250, entrants: [] }
+    ],
+    headlineNews: "Netherlands' modern answer to The Party. Projection-mapped walls and multi-screen demos are the new frontier.",
+    location: "Utrecht, Netherlands"
+  },
+
+  // ---------------------------- 2013 – 2019 -------------------------------
+  // The GPU compute & live-coding era. Real-time raymarching dominates.
+  {
+    id: "revision_2013",
+    name: "Revision (Spring Edition)",
+    year: 2013,
+    month: 4,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 1800,
+    prestige: 93,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 3500, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 1800, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 1000, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 500, entrants: [] }
+    ],
+    headlineNews: "Revision becomes the world's largest demoparty. 4K projectors, pixel-perfect live-streams, and GPU-compute entries push the scene to new heights.",
+    location: "Saarbrücken, Germany"
+  },
+  {
+    id: "datastorm_2013",
+    name: "Datastorm",
+    year: 2013,
+    month: 3,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 600,
+    prestige: 72,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 800, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 400, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 250, entrants: [] }
+    ],
+    headlineNews: "Swedish spring party bridging the old-school Amiga scene with modern GPU-accelerated intros. Known for its friendly workshop vibe.",
+    location: "Gothenburg, Sweden"
+  },
+  {
+    id: "evoke_2015",
+    name: "Evoke",
+    year: 2015,
+    month: 8,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 1200,
+    prestige: 82,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 2000, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 900, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 500, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 300, entrants: [] }
+    ],
+    headlineNews: "Cologne's late-summer demo-classic returns with modern vigour. Raymarched 4K intros share the screen with nostalgic Amiga copper demos.",
+    location: "Cologne, Germany"
+  },
+  {
+    id: "demobit_2016",
+    name: "Demobit",
+    year: 2016,
+    month: 6,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 350,
+    prestige: 60,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 500, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 300, entrants: [] }
+    ],
+    headlineNews: "Slovakia's intimate demoparty. Famous for its relaxed hacker-camp atmosphere, all-night coding sessions, and legendary BBQ.",
+    location: "Bratislava, Slovakia"
+  },
+
+  // ---------------------------- 2020 – 2026 -------------------------------
+  // The online/hybrid era. Global streaming, remote compos, scene thrives.
+  {
+    id: "revision_online_2020",
+    name: "Revision Online",
+    year: 2020,
+    month: 4,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 3000,
+    prestige: 88,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 2500, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 1200, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 700, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 400, entrants: [] }
+    ],
+    headlineNews: "Pandemic pivots Revision to a fully online event. Record-breaking attendance from 50+ countries proves the demoscene thrives in any format.",
+    location: "Global (Online)"
+  },
+  {
+    id: "love_byte_2021",
+    name: "Love Byte",
+    year: 2021,
+    month: 8,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 400,
+    prestige: 55,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 400, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 250, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 150, entrants: [] }
+    ],
+    headlineNews: "A brand-new Finnish online-meets-local party. Combines Discord-streamed compos with small regional meetups for a hybrid experience.",
+    location: "Helsinki, Finland (Hybrid)"
+  },
+  {
+    id: "solskogen_2023",
+    name: "Solskogen",
+    year: 2023,
+    month: 7,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 650,
+    prestige: 75,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 1200, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 600, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 350, entrants: [] }
+    ],
+    headlineNews: "Solskogen returns stronger than ever. The legendary Norway gathering sells out for the first time, with GPU demos projected on outdoor screens.",
+    location: "Fredrikstad, Norway"
+  },
+  {
+    id: "revision_2024",
+    name: "Revision",
+    year: 2024,
+    month: 4,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 2500,
+    prestige: 95,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 4000, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 2000, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 1200, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 600, entrants: [] }
+    ],
+    headlineNews: "Revision 2024 shatters attendance records. The demoscene's biggest weekend features 4K 120Hz projection and a dedicated retro corner for C64/Amiga.",
+    location: "Saarbrücken, Germany"
+  },
+  {
+    id: "inercia_2025",
+    name: "Inércia Demoparty",
+    year: 2025,
+    month: 9,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 250,
+    prestige: 50,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 300, entrants: [] },
+      { type: ProductionType.Intro4k, prizePool: 200, entrants: [] }
+    ],
+    headlineNews: "Portugal's first-ever demoparty. A small but passionate gathering proving the scene continues to inspire new generations across Europe.",
+    location: "Lisbon, Portugal"
+  },
+  {
+    id: "flashback_2026",
+    name: "Flashback",
+    year: 2026,
+    month: 6,
+    isAnnual: true,
+    platformFocus: "all",
+    attendance: 350,
+    prestige: 52,
+    competitions: [
+      { type: ProductionType.Demo, prizePool: 400, entrants: [] },
+      { type: ProductionType.Intro64k, prizePool: 200, entrants: [] },
+      { type: ProductionType.MusicDisk, prizePool: 100, entrants: [] }
+    ],
+    headlineNews: "A new Australian demoparty rises. The Southern Hemisphere finally enters the scene map with a packed weekend of demos, chiptunes, and LAN parties.",
+    location: "Sydney, Australia"
   }
 ];

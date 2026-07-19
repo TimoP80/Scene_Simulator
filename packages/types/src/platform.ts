@@ -16,14 +16,17 @@ export enum PlatformId {
   PC_486 = "PC_486",
   PC_PENTIUM = "PC_PENTIUM",
   PC_PENTIUM_II = "PC_PENTIUM_II",
-  PC_PENTIUM_III = "PC_PENTIUM_III"
+  PC_PENTIUM_III = "PC_PENTIUM_III",
+  PC_PENTIUM_4 = "PC_PENTIUM_4",
+  PC_CORE_DUO = "PC_CORE_DUO"
 }
 
 export enum EraId {
   ERA_8_BIT = "ERA_8_BIT",       // 1985-1889
   ERA_16_BIT = "ERA_16_BIT",     // 1990-1995
   ERA_PC_DAWN = "ERA_PC_DAWN",   // 1996-2000
-  ERA_3D_SHADER = "ERA_3D_SHADER"// 2001-2005
+  ERA_3D_SHADER = "ERA_3D_SHADER", // 2001-2005
+  ERA_HD_SHADER = "ERA_HD_SHADER"    // 2006-2026
 }
 
 export interface PlatformConfig {
