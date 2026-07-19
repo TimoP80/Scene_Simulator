@@ -8,7 +8,9 @@
     "memberIds": [
       "purple_motion",
       "skaven",
-      "unreal_coder"
+      "unreal_coder",
+      "wildfire_coder",
+      "pixel_artist"
     ],
     "releaseIds": [],
     "hqLocation": "Finland",
@@ -87,7 +89,11 @@
     "fanbase": 850,
     "reputation": 840,
     "memberIds": [
-      "crypton_coder"
+      "crypton_coder",
+      "sir_coder",
+      "flame_coder",
+      "dune_coder",
+      "groo_coder"
     ],
     "releaseIds": [],
     "hqLocation": "Germany",
@@ -100,10 +106,289 @@
     "fanbase": 720,
     "reputation": 780,
     "memberIds": [
-      "membrane_coder"
+      "membrane_coder",
+      "jugi_coder",
+      "rez_coder",
+      "ziphoid_coder",
+      "tempest_coder"
     ],
     "releaseIds": [],
     "hqLocation": "Finland",
     "motto": "We render what others dream."
+  },
+  "tbl": {
+    "id": "tbl",
+    "name": "The Black Lotus",
+    "isPlayerGroup": false,
+    "fanbase": 1150,
+    "reputation": 940,
+    "memberIds": [
+      "spot_coder",
+      "sunspire_coder",
+      "dex_coder",
+      "britelite_artist",
+      "marvel_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Sweden",
+    "motto": "Cinematic perfection through pixel discipline."
+  },
+  "cncd": {
+    "id": "cncd",
+    "name": "CNCD",
+    "isPlayerGroup": false,
+    "fanbase": 880,
+    "reputation": 860,
+    "memberIds": [
+      "tractor_coder",
+      "melwyn_coder",
+      "dr_yes_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Pushing pixels past the polygon frontier."
+  },
+  "orange": {
+    "id": "orange",
+    "name": "Orange",
+    "isPlayerGroup": false,
+    "fanbase": 830,
+    "reputation": 810,
+    "memberIds": [
+      "mop_coder",
+      "pirx_coder",
+      "nalle_artist",
+      "uncle_x_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Orange is not a color, it's a state of mind."
+  },
+  "byterapers": {
+    "id": "byterapers",
+    "name": "Byterapers",
+    "isPlayerGroup": false,
+    "fanbase": 900,
+    "reputation": 850,
+    "memberIds": [
+      "marq_coder",
+      "tomcat_coder",
+      "moby_musician"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Biting bytes since 1986."
+  },
+  "extend": {
+    "id": "extend",
+    "name": "Extend",
+    "isPlayerGroup": false,
+    "fanbase": 760,
+    "reputation": 740,
+    "memberIds": [
+      "mfx_coder",
+      "rapture_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Extending the possible."
+  },
+  "haujobb": {
+    "id": "haujobb",
+    "name": "Haujobb",
+    "isPlayerGroup": false,
+    "fanbase": 870,
+    "reputation": 890,
+    "memberIds": [
+      "farfar_coder",
+      "alien_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Germany",
+    "motto": "Advanced visual engineering."
+  },
+  "conspiracy": {
+    "id": "conspiracy",
+    "name": "Conspiracy",
+    "isPlayerGroup": false,
+    "fanbase": 820,
+    "reputation": 870,
+    "memberIds": [
+      "boyc_coder",
+      "gargaj_coder",
+      "visy_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Hungary",
+    "motto": "Size matters. 4K is plenty."
+  },
+  "asd": {
+    "id": "asd",
+    "name": "ASD (Andromeda Software Development)",
+    "isPlayerGroup": false,
+    "fanbase": 790,
+    "reputation": 830,
+    "memberIds": [
+      "truck_coder",
+      "thedeadliner_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Germany",
+    "motto": "Procedural from the ground up."
+  },
+  "cocoon": {
+    "id": "cocoon",
+    "name": "Cocoon",
+    "isPlayerGroup": false,
+    "fanbase": 740,
+    "reputation": 770,
+    "memberIds": [
+      "virgill_coder",
+      "h2o_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Germany",
+    "motto": "Self-contained. Self-sufficient. Stunning."
+  },
+  "rebels": {
+    "id": "rebels",
+    "name": "Rebels",
+    "isPlayerGroup": false,
+    "fanbase": 860,
+    "reputation": 840,
+    "memberIds": [
+      "bitbreaker_coder",
+      "hoffman_coder",
+      "deetsay_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Worldwide",
+    "motto": "Rebels with a cause: perfect demos."
+  },
+  "scoopex": {
+    "id": "scoopex",
+    "name": "Scoopex",
+    "isPlayerGroup": false,
+    "fanbase": 810,
+    "reputation": 820,
+    "memberIds": [
+      "jazzcat_coder",
+      "tsm_coder",
+      "facet_artist"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Europe",
+    "motto": "Scooping the compo since 1988."
+  },
+  "kefrens": {
+    "id": "kefrens",
+    "name": "Kefrens",
+    "isPlayerGroup": false,
+    "fanbase": 930,
+    "reputation": 910,
+    "memberIds": [
+      "dane_coder",
+      "red_devil_coder",
+      "zodiak_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Denmark",
+    "motto": "Danish demo royalty."
+  },
+  "sanity": {
+    "id": "sanity",
+    "name": "Sanity",
+    "isPlayerGroup": false,
+    "fanbase": 770,
+    "reputation": 790,
+    "memberIds": [
+      "photon_coder",
+      "optic_artist"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Norway",
+    "motto": "Keeping our sanity, losing yours."
+  },
+  "melon_dezign": {
+    "id": "melon_dezign",
+    "name": "Melon Dezign",
+    "isPlayerGroup": false,
+    "fanbase": 840,
+    "reputation": 830,
+    "memberIds": [
+      "sulevi_coder",
+      "mellow_d_musician"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Juicy visuals, tight code."
+  },
+  "bomb": {
+    "id": "bomb",
+    "name": "Bomb",
+    "isPlayerGroup": false,
+    "fanbase": 780,
+    "reputation": 760,
+    "memberIds": [
+      "lizardking_musician"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Explosive demos since 1989."
+  },
+  "silents": {
+    "id": "silents",
+    "name": "Silents",
+    "isPlayerGroup": false,
+    "fanbase": 890,
+    "reputation": 880,
+    "memberIds": [
+      "silent_shadow_coder",
+      "nocturne_artist"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Finland",
+    "motto": "Loud statements, silent code."
+  },
+  "trsi": {
+    "id": "trsi",
+    "name": "TRSI (Tristar & Red Sector Inc.)",
+    "isPlayerGroup": false,
+    "fanbase": 850,
+    "reputation": 860,
+    "memberIds": [
+      "count_zero_coder",
+      "krashan_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Europe",
+    "motto": "Two legends, one legacy."
+  },
+  "dreamdealers": {
+    "id": "dreamdealers",
+    "name": "Dreamdealers",
+    "isPlayerGroup": false,
+    "fanbase": 730,
+    "reputation": 750,
+    "memberIds": [
+      "zodiac_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Sweden",
+    "motto": "Where Amiga dreams become reality."
+  },
+  "alcatraz": {
+    "id": "alcatraz",
+    "name": "Alcatraz",
+    "isPlayerGroup": false,
+    "fanbase": 790,
+    "reputation": 800,
+    "memberIds": [
+      "diff_coder",
+      "triace_coder"
+    ],
+    "releaseIds": [],
+    "hqLocation": "Sweden",
+    "motto": "Breaking out of the ordinary."
   }
 }
