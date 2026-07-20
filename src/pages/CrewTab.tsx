@@ -23,6 +23,7 @@ export interface CrewTabProps {
   fireMember: (id: string) => void;
   handleMeltBurnout: (id: string) => void;
   ensureCognitive: (char: Character) => Character;
+  onOpenLogoGenerator?: () => void;
 }
 
 export default function CrewTab({
@@ -36,6 +37,7 @@ export default function CrewTab({
   fireMember,
   handleMeltBurnout,
   ensureCognitive,
+  onOpenLogoGenerator,
 }: CrewTabProps) {
   const charList = Object.values(characters) as Character[];
 
@@ -48,9 +50,22 @@ export default function CrewTab({
             Underground Freelancers Exchange
           </h3>
         </div>
-        <p className="text-[10px] text-[#a1a1aa]">
-          Assemble a balanced combination of assembly coders, pixel stylists, and soundtracker composers.
-        </p>
+        <div className="flex items-center gap-2">
+          {onOpenLogoGenerator && (
+            <button
+              type="button"
+              id="btn-crew-logo-gen"
+              onClick={onOpenLogoGenerator}
+              className="px-2.5 py-1.5 rounded border border-[#a855f7]/40 bg-[#a855f7]/10 hover:bg-[#a855f7]/25 active:scale-[0.98] transition text-[#c084fc] text-[10px] tracking-widest font-bold flex items-center gap-1.5"
+            >
+              <span>◆</span>
+              <span>GENERATE LOGO</span>
+            </button>
+          )}
+          <p className="text-[10px] text-[#a1a1aa]">
+            Assemble a balanced combination of assembly coders, pixel stylists, and soundtracker composers.
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

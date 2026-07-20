@@ -85,6 +85,8 @@ import { generateAiSlideImages } from "./ai/imageGenerator";
 import type { AiSlideResult } from "./ai/imageGenerator";
 
 import MainMenu from "./components/MainMenu";
+import SettingsModal from "./components/SettingsModal";
+import LogoGeneratorModal from "./components/LogoGeneratorModal";
 import DemoBudgetMeter from "./components/DemoBudgetMeter";
 import DemoStudio from "./components/DemoStudio";
 import MusicPlayer from "./components/MusicPlayer";
@@ -96,13 +98,13 @@ import { DevMenu } from "./devtools/DevMenu";
 import { loadBaseContent } from "./content/ContentLoader";
 import { useContentMap } from "./content/useContentStore";
 import { useGraphProjections } from "./content/graphProjections";
-import { SimulationLoop } from "@sim/engine/simulationLoop";
-import { emptyWorldState } from "@sim/engine/reducer";
-import { getCurrentTick } from "@sim/events/appendEvent";
+
 import type { SceneEvent } from "@packages/types";
 import SplashScreen, { type SplashMessage } from "./components/SplashScreen";
-import { SimulationLoopProvider } from "./hooks/SimulationLoopContext";
 import { useSimulationSelector } from "./hooks/useSimulationSelector";
+import { useModal } from "./hooks/useModal";
+import { useSimulationLoop } from "./hooks/SimulationLoopContext";
+import { getCurrentTick } from "@sim/events/appendEvent";
 // Lazy-loaded tab panels — loaded on first tab switch, not at boot
 import { useCompetitionSystem } from "./hooks/useCompetitionSystem";
 import type { CompetitionCeremony, HallOfFameEntry, PlayerStatistics, ProductionHistoryRecord } from "@packages/types";
@@ -155,6 +157,7 @@ import {
   Brain,
   Share2,
   Wallet,
+  Settings,
 } from "lucide-react";
 
 function getInitialCognitiveModel(charId: string): CognitiveModel {
@@ -481,7 +484,7 @@ export default function App() {
   // Tracker-music library modal. Lifted to the App root so the same
   // modal is reachable from both the main menu (via the MUSIC LIBRARY
   // button) and the floating Now-Playing bar.
-  const [showPlaylistModal, setShowPlaylistModal] = useState<boolean>(false);
+  const modal = useModal();
 
   // Subscribe to the player engine so the MainMenu's track-count badge
   // stays in sync with the playlist.
@@ -745,7 +748,7 @@ export default function App() {
     generateDefaultScenes(3, studioSelectedEffects)
   );
   // Post-compile summary modal state.
-  const [showDemoSummary, setShowDemoSummary] = useState<boolean>(false);
+  // (uses `modal` hook declared above)
   const [lastDemoSummary, setLastDemoSummary] = useState<DemoSummary | null>(null);
   // Per-production full summary archive — lets the user view detailed
   // score reports for any past release from the portfolio list.
@@ -755,7 +758,7 @@ export default function App() {
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [compilerProgress, setCompilerProgress] = useState<number>(0);
   const [compilerLogs, setCompilerLogs] = useState<string[]>([]);
-  const [showCompilingOverlay, setShowCompilingOverlay] = useState<boolean>(false);
+  // (uses `modal` hook declared above)
   const [lastCompiledRelease, setLastCompiledRelease] = useState<Production | null>(null);
 
   // Disk virus infection state
@@ -933,51 +936,7 @@ export default function App() {
   // handlers should reach through. The onTick callback is a no-op -
   // the existing src/App.tsx autosave effect already serializes
   // useState values to localStorage; a second writer here would race.
-  const simulationLoopRef = useRef<SimulationLoop | null>(null);
-  useEffect(() => {
-    if (simulationLoopRef.current !== null) return;
-    const loop = new SimulationLoop({
-      initial: emptyWorldState(),
-      intervalMs: 1000,
-      onTick: () => {
-        /* heartbeat only - App's existing autosave writes 'demoscene_sim_autosave' */
-      },
-    });
-    simulationLoopRef.current = loop;
 
-    // Synthetic seed deposit (v0.2.0 invariant reconciliation, picked
-    // via UAT): every NEW GAME credits the player's starting allowance as
-    // an  MoneyEarned entry. With 
-    // shipping , this synthetic dispatch is the only
-    // thing that credits the bootstrap cash. The literal invariant
-    //   
-    // now holds end-to-end; see sim/engine/reducer.ts's economy slice
-    // doc comment. StrictMode's double-mount fires this twice (matching
-    // the existing ScenarioLoaded double-fire bug already TODO'd here) —
-    // a future IdempotentBootstrap helper would gate both via event.id
-    // dedup. The MoneyEarned reducer's dedup is on event.id only, so two
-    // live dispatches produce two ledger rows (see docs/event-sourcing.md
-    // "never loop.dispatch(emit.*(...))"). Tests that rely on a stable
-    // Seed event-log with a ScenarioLoaded marker (DRAFT form per
-    // docs/event-sourcing.md "Pattern A"). Without this the loop's
-    // appendEvent log would be forever empty: no UI handler dispatches.
-    loop.dispatch({
-      type: "ScenarioLoaded",
-      ts: getCurrentTick(),
-      scenario: "1985_8bit",
-    });
-
-    loop.start();
-    return () => {
-      // Cleanup fires under React 18 StrictMode unmount/remount too.
-      // The next mount's useRef-cached `null` re-creates the loop,
-      // which re-appends a second ScenarioLoaded. Acceptable for now -
-      // a future patch will guard the seed dispatch via an idempotency
-      // key on appendEvent. See docs/event-sourcing.md.
-      loop.stop();
-      simulationLoopRef.current = null;
-    };
-  }, []);
 
   // --------- BBS TERMINAL PORTAL STATE ---------
   const [bbsDialed, setBbsDialed] = useState<boolean>(false);
@@ -1058,7 +1017,7 @@ export default function App() {
   // --------- CUSTOM SHADER STATE ---------
   const [customShaders, setCustomShaders] = useState<Record<string, CustomShader>>({});
   const [selectedCustomShaderIds, setSelectedCustomShaderIds] = useState<string[]>([]);
-  const [showShaderEditor, setShowShaderEditor] = useState<boolean>(false);
+  // (uses `modal` hook declared above)
 
   const handleSaveShader = useCallback((shader: CustomShader) => {
     setCustomShaders((prev) => ({ ...prev, [shader.id]: shader }));
@@ -1088,7 +1047,7 @@ export default function App() {
   );
 
   // --------- EFFECT GALLERY MODAL STATE ---------
-  const [showEffectGallery, setShowEffectGallery] = useState<boolean>(false);
+  // (uses `modal` hook declared above)
   const [gallerySelectedEffectId, setGallerySelectedEffectId] = useState<string>("raster_bars");
   const [gallerySelectedPlatformId, setGallerySelectedPlatformId] = useState<PlatformId>(PlatformId.C64);
   const [galleryCategoryFilter, setGalleryCategoryFilter] = useState<string>("all");
@@ -1104,10 +1063,10 @@ export default function App() {
 
   // Keep modal platform sync with active platform when opened
   useEffect(() => {
-    if (showEffectGallery) {
+    if (modal.isOpen("effectGallery")) {
       setGallerySelectedPlatformId(activePlatform);
     }
-  }, [showEffectGallery, activePlatform]);
+  }, [modal.activeModal, activePlatform]);
 
   // --------- SCENARIO EMULATOR LOADS ---------
   const loadScenario = (preset: "1985_8bit" | "1991_16bit" | "1998_pc3d") => {
@@ -1539,7 +1498,7 @@ const ERA_LABELS: Record<string, string> = {
 
     if (!hasKey) {
       setAiImagesError(
-        "No Gemini API key found. Go to Settings and set your Gemini API key first."
+        "No Gemini API key found. Open Settings from the main menu to enter your Gemini API key."
       );
       return;
     }
@@ -1692,7 +1651,9 @@ const ERA_LABELS: Record<string, string> = {
 
     // Lock UI and play gorgeous compiling sequence
     setIsCompiling(true);
-    setShowCompilingOverlay(true);
+    // Close any other open modal first, then open compiling overlay
+    modal.close();
+    modal.openCompilingOverlay();
     setCompilerProgress(0);
     setCompilerLogs([]);
 
@@ -1925,7 +1886,7 @@ const ERA_LABELS: Record<string, string> = {
     setLastDemoSummary(summaryWithProd);
     // Archive the full summary so the user can view it later from the portfolio
     setProductionSummaries((prev) => ({ ...prev, [newProd.id]: summaryWithProd }));
-    setShowDemoSummary(true);
+    modal.openDemoSummary();
 
     // Save release
     setMyReleases((prev) => ({
@@ -3621,7 +3582,7 @@ const ERA_LABELS: Record<string, string> = {
       // compile / vote ephemeral UI keys — that gap is what the
       // reviewer caught.)
       setIsCompiling(false);
-      setShowCompilingOverlay(false);
+      modal.close();
       setCompilerProgress(0);
       setCompilerLogs([]);
       setIsPartyRunning(false);
@@ -3708,6 +3669,8 @@ const ERA_LABELS: Record<string, string> = {
   // and overwrites defaults with the saved localStorage data, so we
   // must reset everything here — otherwise the user sees old saved
   // state (money, year, techs, crew, etc.) after clicking New Game.
+  const simLoopDispatch = useSimulationLoop();
+
   const handleNewGame = (handle: string, groupName: string) => {
     // Event-sourced hydrate (v0.2.0): stamp the player's identity into the
     // append-only event log AND into WorldState.player.* via the reducer
@@ -3716,13 +3679,9 @@ const ERA_LABELS: Record<string, string> = {
     // BBS never re-derives projections. App.tsx's local useState mirror
     // below stays for pre-migration consumers (bbsThreads / graphNodes
     // rebind effects); the SOURCE OF TRUTH is now `loop.snapshot().player`.
-    //
-    // We tolerate a null `simulationLoopRef.current` by using optional
-    // chaining — StrictMode's double-mount tear-down can briefly null
-    // the ref between effects. The bootstrap useEffect re-creates the
-    // loop on remount, so a transient-null dispatch is functionally a
-    // pure useState update, with the loop catching up on the next mount.
-    simulationLoopRef.current?.dispatch({
+    // The SimulationLoop is now provided by context (AppBootstrapper wraps
+    // App in SimulationLoopProvider), so dispatching is always safe.
+    simLoopDispatch.dispatch({
       type: "PlayerIdentitySet",
       ts: getCurrentTick(),
       handle,
@@ -3970,16 +3929,16 @@ const ERA_LABELS: Record<string, string> = {
           onContinue={handleContinue}
           onLoadFromFile={handleLoadFromFile}
           schemaVersion={1}
-          onOpenMusicLibrary={() => setShowPlaylistModal(true)}
+          onOpenMusicLibrary={modal.openPlaylist}
           musicTrackCount={playerState.playlist.length}
+          onOpenSettings={modal.openSettings}
           onToggleDevMode={handleToggleDevMode}
           isDevMode={isDevMode}
         />
-        <MusicPlayer onOpenPlaylist={() => setShowPlaylistModal(true)} />
-        <PlaylistManager
-          open={showPlaylistModal}
-          onClose={() => setShowPlaylistModal(false)}
-        />
+        <MusicPlayer onOpenPlaylist={modal.openPlaylist} />
+        {modal.isOpen("playlist") && <PlaylistManager onClose={modal.close} />}
+        {modal.isOpen("settings") && <SettingsModal onClose={modal.close} />}
+        {modal.isOpen("logoGen") && <LogoGeneratorModal onClose={modal.close} />}
       </>
 
     );
@@ -4032,19 +3991,19 @@ const ERA_LABELS: Record<string, string> = {
             aiImagesError={aiImagesError}
             aiImagesProgress={aiImagesProgress}
             triggerAssembleCompiler={triggerAssembleCompiler}
-            setShowPlaylistModal={setShowPlaylistModal}
-            setShowEffectGallery={setShowEffectGallery}
+            setShowPlaylistModal={modal.openPlaylist}
+            setShowEffectGallery={modal.openEffectGallery}
             customShaders={customShaders}
             selectedShaderIds={selectedCustomShaderIds}
             onToggleShader={handleToggleShader}
-            onOpenShaderEditor={() => setShowShaderEditor(true)}
+            onOpenShaderEditor={modal.openShader}
             myReleases={myReleases}
             productionSummaries={productionSummaries}
             setCrtActiveEffects={setCrtActiveEffects}
             setCrtDemoName={setCrtDemoName}
             setCrtGroupName={setCrtGroupName}
             setLastDemoSummary={setLastDemoSummary}
-            setShowDemoSummary={setShowDemoSummary}
+            setShowDemoSummary={modal.openDemoSummary}
           />
         );
       case "crew":
@@ -4060,6 +4019,7 @@ const ERA_LABELS: Record<string, string> = {
             fireMember={fireMember}
             handleMeltBurnout={handleMeltBurnout}
             ensureCognitive={ensureCognitive}
+            onOpenLogoGenerator={modal.openLogoGen}
           />
         );
       case "research":
@@ -4172,7 +4132,7 @@ const ERA_LABELS: Record<string, string> = {
       case "economy":
         return (
           <div className="space-y-4 animate-fadeIn">
-            <EconomyPanel loop={simulationLoopRef.current} />
+            <EconomyPanel loop={simLoopDispatch} />
           </div>
         );
       case "hall_of_fame":
@@ -4203,7 +4163,7 @@ const ERA_LABELS: Record<string, string> = {
   }
 
     return (
-    <SimulationLoopProvider loop={simulationLoopRef.current!}>
+
     <div className="min-h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col font-mono text-sm antialiased pb-12 selection:bg-[#22d3ee] selection:text-black">
       {/* Dynamic Header Bar resembling classic tracker layout */}
       <header className="bg-[#2d2d30] border-b border-[#3f3f46] px-4 py-2 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-md">
@@ -4538,6 +4498,26 @@ const ERA_LABELS: Record<string, string> = {
                               <Calendar className="w-3.5 h-3.5" />
                               <span>TIMELINE</span>
                             </button>
+
+          {/* Spacer + toolbar buttons — visible during gameplay */}
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              id="btn-logo-gen"
+              onClick={modal.openLogoGen}
+              className="px-2 py-2 rounded text-[#71717a] hover:text-[#a855f7] hover:bg-[#27272a] transition text-[9px] tracking-widest font-bold"
+              title="Open Logo Generator"
+            >
+              ◆ LOGO
+            </button>
+            <button
+              id="btn-settings-gear"
+              onClick={modal.openSettings}
+              className="px-2 py-2 rounded text-[#71717a] hover:text-[#22d3ee] hover:bg-[#27272a] transition"
+              title="Settings"
+            >
+              <Settings className="w-4 h-4" />
+            </button>
+          </div>
           </div>
 
           <React.Suspense fallback={<div className="p-8 text-center text-zinc-500 font-mono text-xs animate-pulse">LOADING...</div>}>
@@ -4547,7 +4527,7 @@ const ERA_LABELS: Record<string, string> = {
       </main>
 
       {/* Compiler Dialog Loader Overlay */}
-      {showCompilingOverlay && (
+      {modal.isOpen("compilingOverlay") && (
         <div id="compiler-overlay" className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90 font-mono select-none">
           <div className="bg-[#18181b] border-2 border-[#facc15] shadow-[0_0_30px_rgba(250,204,21,0.15)] rounded p-5 max-w-md w-full text-left space-y-3.5">
             <div className="flex items-center justify-between border-b border-[#27272a] pb-2 text-xs text-[#facc15] font-mono font-bold">
@@ -4596,7 +4576,7 @@ const ERA_LABELS: Record<string, string> = {
             <div className="flex justify-end gap-2 pt-1 text-xs">
               <button
                 id="btn-close-compiler"
-                onClick={() => setShowCompilingOverlay(false)}
+                onClick={modal.close}
                 className={`py-2 px-4 rounded font-bold cursor-pointer transition uppercase text-[10.5px] ${
                   compilerProgress >= 100
                     ? "bg-[#4ade80] text-[#09090b] hover:bg-[#22c55e]"
@@ -4612,7 +4592,7 @@ const ERA_LABELS: Record<string, string> = {
       )}
 
       {/* EFFECT GALLERY & VISUALIZER MODAL */}
-      {showEffectGallery && (() => {
+      {modal.isOpen("effectGallery") && (() => {
         const selectedEffect = DEMO_EFFECTS.find(e => e.id === gallerySelectedEffectId) || DEMO_EFFECTS[0];
         const selectedPlatform = HISTORICAL_PLATFORMS[gallerySelectedPlatformId];
         
@@ -4647,10 +4627,9 @@ const ERA_LABELS: Record<string, string> = {
                     <p className="text-[10px] text-[#71717a] mt-0.5">Explore classic graphic assembly tricks and mock computational requirements on historical chips.</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => setShowEffectGallery(false)}
-                  className="p-1 px-2.5 text-xs rounded bg-[#27272a] hover:bg-[#3f3f46] text-[#a1a1aa] hover:text-white transition cursor-pointer"
-                >
+                <button                  onClick={modal.close}
+                            className="p-1 px-2.5 text-xs rounded bg-[#27272a] hover:bg-[#3f3f46] text-[#a1a1aa] hover:text-white transition cursor-pointer"
+                          >
                   <X className="w-4 h-4" />
                 </button>
               </div>
@@ -4928,9 +4907,8 @@ const ERA_LABELS: Record<string, string> = {
                       )}
                       
                       <button
-                        type="button"
-                        onClick={() => setShowEffectGallery(false)}
-                        className="bg-[#27272a] hover:bg-[#3f3f46] text-white border border-[#3f3f46] py-2 px-4 rounded text-xs font-bold transition uppercase cursor-pointer"
+                        type="button"                    onClick={modal.close}
+                            className="bg-[#27272a] hover:bg-[#3f3f46] text-white border border-[#3f3f46] py-2 px-4 rounded text-xs font-bold transition uppercase cursor-pointer"
                       >
                         Dismiss Overlay
                       </button>
@@ -4948,11 +4926,8 @@ const ERA_LABELS: Record<string, string> = {
           App root so the AudioContext + worklet survive navigation
           between tabs. The modal is shared with the main menu via
           the lifted showPlaylistModal state. */}
-      <MusicPlayer onOpenPlaylist={() => setShowPlaylistModal(true)} />
-      <PlaylistManager
-        open={showPlaylistModal}
-        onClose={() => setShowPlaylistModal(false)}
-      />
+      <MusicPlayer onOpenPlaylist={modal.openPlaylist} />
+      {modal.isOpen("playlist") && <PlaylistManager onClose={modal.close} />}
 
       {/* Post-compile demo summary modal — shows the multi-category
           score breakdown, triggered synergies, awards, and
@@ -4960,9 +4935,12 @@ const ERA_LABELS: Record<string, string> = {
           so it sits above the floating music player. */}
       <DemoSummaryModal
         summary={lastDemoSummary}
-        open={showDemoSummary}
-        onClose={() => setShowDemoSummary(false)}
+        onClose={modal.close}
       />
+
+      {modal.isOpen("settings") && <SettingsModal onClose={modal.close} />}
+
+      {modal.isOpen("logoGen") && <LogoGeneratorModal onClose={modal.close} />}
 
       {/* v0.5.0 Competition ceremony overlay — full-screen animated
           ranking ceremony with judges, audience reactions, scene
@@ -4995,6 +4973,6 @@ const ERA_LABELS: Record<string, string> = {
         </p>
       </footer>
     </div>
-    </SimulationLoopProvider>
+
   );
 }

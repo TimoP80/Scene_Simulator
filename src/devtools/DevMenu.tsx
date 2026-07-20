@@ -43,6 +43,7 @@ import { ResearchEditor } from "./editors/ResearchEditor";
 import { GroupEditor } from "./editors/GroupEditor";
 import { EventEditor } from "./editors/EventEditor";
 import { MusicEditor } from "./editors/MusicEditor";
+import EventInspectorPanel from "./EventInspectorPanel";
 
 type TabId =
   | "scener"
@@ -52,7 +53,8 @@ type TabId =
   | "research"
   | "event"
   | "group"
-  | "music";
+  | "music"
+  | "events";
 
 interface TabDef {
   id: TabId;
@@ -69,6 +71,7 @@ const TABS: TabDef[] = [
   { id: "event",    label: "Event Editor",       icon: Newspaper     },
   { id: "group",    label: "Group Editor",       icon: GroupIcon     },
   { id: "music",    label: "Music Metadata",     icon: Music         },
+  { id: "events",   label: "Event Log",          icon: History       },
 ];
 
 export function DevMenu() {
@@ -265,6 +268,7 @@ export function DevMenu() {
           {activeTab === "group" && <GroupEditor />}
           {activeTab === "event" && <EventEditor />}
           {activeTab === "music" && <MusicEditor />}
+          {activeTab === "events" && <EventInspectorPanel />}
         </div>
 
         {/* Footer */}

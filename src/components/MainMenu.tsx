@@ -24,6 +24,7 @@ import {
   ArrowRight,
   Music2,
   Wrench,
+  Settings,
 } from "lucide-react";
 
 interface MainMenuProps {
@@ -55,6 +56,8 @@ interface MainMenuProps {
    * an "ON / OFF" affordance (orange pulse vs muted outline).
    */
   isDevMode?: boolean;
+  /** Called when the player wants to open the Gemini API key settings. */
+  onOpenSettings?: () => void;
 }
 
 /**
@@ -82,6 +85,7 @@ export default function MainMenu({
   musicTrackCount = 0,
   onToggleDevMode,
   isDevMode = false,
+  onOpenSettings,
 }: MainMenuProps) {
   const [showAbout, setShowAbout] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -197,6 +201,7 @@ export default function MainMenu({
       else if (k === "c" && hasLocalSave) onContinue();
       else if (k === "l") handleLoadClick();
       else if (k === "m" && onOpenMusicLibrary) onOpenMusicLibrary();
+      else if (k === "s" && onOpenSettings) onOpenSettings();
       // "d" / Ctrl-Cmd-Shift-D hotkey is handled globally in App.tsx so
       // we don't capture it here — see App.tsx keydown effect. Removing
       // this branch avoids double-toggling when the main-menu action
@@ -207,7 +212,7 @@ export default function MainMenu({
     // handleLoadClick closes over refs, so we keep this stable by depending
     // on the boolean flags only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAbout, showIdentityForm, hasLocalSave, onOpenMusicLibrary]);
+  }, [showAbout, showIdentityForm, hasLocalSave, onOpenMusicLibrary, onOpenSettings]);
 
   // Dedicated ESC handler for the Identity form so it remains reachable
   // even though the global shortcuts useEffect early-returns when
@@ -533,6 +538,22 @@ export default function MainMenu({
           onChange={handleFileChange}
           className="hidden"
         />
+
+        {onOpenSettings && (
+          <button
+            id="btn-settings"
+            onClick={onOpenSettings}
+            className="group flex items-center justify-between gap-3 px-5 py-3 rounded border border-[#3f3f46] bg-[#18181b]/60 hover:bg-[#27272a]/80 active:scale-[0.98] transition"
+          >
+            <span className="flex items-center gap-3">
+              <Settings className="w-4 h-4 text-[#a1a1aa]" />
+              <span className="font-bold text-[12px] tracking-[0.2em] text-[#d4d4d8]">
+                SETTINGS
+              </span>
+            </span>
+            <span className="text-[10px] tracking-widest text-[#71717a]">[ S ]</span>
+          </button>
+        )}
 
         {onToggleDevMode && (
           <button

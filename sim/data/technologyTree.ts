@@ -444,7 +444,7 @@ export const TECHNOLOGY_TREE: TechNode[] = [
     costPoints: 35,
     preRequisiteIds: ["raster_sync"],
     era: EraId.ERA_16_BIT,
-    platformUnlocks: [],
+    platformUnlocks: [PlatformId.C64, PlatformId.ZX_SPECTRUM, PlatformId.AMIGA_500, PlatformId.AMIGA_1200, PlatformId.ATARI_ST],
     effectUnlocks: [],
     bonusAttribute: { type: "optimization", value: 5 },
     researched: false
@@ -456,7 +456,7 @@ export const TECHNOLOGY_TREE: TechNode[] = [
     costPoints: 25,
     preRequisiteIds: ["antivirus_scanning"],
     era: EraId.ERA_16_BIT,
-    platformUnlocks: [],
+    platformUnlocks: [PlatformId.C64, PlatformId.ZX_SPECTRUM, PlatformId.AMIGA_500, PlatformId.AMIGA_1200, PlatformId.ATARI_ST],
     effectUnlocks: [],
     bonusAttribute: { type: "optimization", value: 10 },
     researched: false

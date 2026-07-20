@@ -19,6 +19,7 @@
 import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
+import AppBootstrapper from './components/AppBootstrapper.tsx';
 import ApiKeyBootstrap from './components/ApiKeyBootstrap.tsx';
 import CapturePreview from './preview/CapturePreview.tsx';
 import { DevModeProvider } from './devtools/DevModeContext';
@@ -37,12 +38,16 @@ if (!rootElement) throw new Error('Missing #root element');
 // JSX return, which made App's `useDevMode()` resolve to the default
 // context value (`setDevMode: () => {}`) and silently no-op the DEV
 // TOOLS toggle in the MainMenu.
+//
+// SimulationLoopProvider is also mounted outside <App /> (via
+// AppBootstrapper) so useSimulationLoop() calls at the top of App's
+// function body resolve correctly.
 createRoot(rootElement).render(
   <StrictMode>
     <DevModeProvider>
       {isCaptureRun ? <CapturePreview /> : (
         <ApiKeyBootstrap>
-          <App />
+          <AppBootstrapper />
         </ApiKeyBootstrap>
       )}
     </DevModeProvider>

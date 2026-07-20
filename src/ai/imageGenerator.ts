@@ -4,10 +4,18 @@
  *
  * AI image generator for ArtSlide (Slide Show) productions.
  *
- * Uses the @google/genai SDK (v2.x) to call Gemini 2.0 Flash with
- * native image output. Each slide gets a carefully crafted prompt
- * based on its style, title, and the production name, producing
- * a demoscene-appropriate digital artwork.
+ * Uses the @google/genai SDK to call a Gemini model with native image
+ * output via `responseModalities: ["Text", "Image"]`. Each slide gets
+ * a carefully crafted prompt based on its style, title, and the
+ * production name, producing a demoscene-appropriate digital artwork.
+ *
+ * MODEL HISTORY:
+ *   - 2025 Q1–Q2:  gemini-2.0-flash-exp (experimental, shut down Jun 2026)
+ *   - 2025 Q3–Q4:  gemini-2.5-flash-image  (shut down Oct 2026)
+ *   - 2026+:       gemini-3.1-flash-image   (current GA — set below)
+ *
+ * Set `IMAGE_GEN_MODEL` to whichever model is active. Check
+ * https://ai.google.dev/gemini-api/docs/models for the current list.
  *
  * ARCHITECTURE:
  *   - `generateAiSlideImages()` is the public entry point — it takes
@@ -26,9 +34,9 @@
  * FALLBACK BEHAVIOUR:
  *   - If no API key is available, the function throws a descriptive
  *     error so the UI can show a "Set your Gemini API key" prompt.
- *   - If the API call fails (network, rate-limit, content-blocked),
- *     the error propagates up and the UI falls back to procedural
- *     slide rendering.
+ *   - If the API call fails (network, rate-limit, content-blocked,
+ *     deprecated model), the error propagates up and the UI falls
+ *     back to procedural slide rendering.
  *
  * SECURITY:
  *   The API key is never logged or exposed outside the Electron bridge.
@@ -122,7 +130,7 @@ async function generateSingleSlideImage(
   const genAI = new GoogleGenAI({ apiKey });
 
   const response = await genAI.models.generateContent({
-    model: "gemini-2.0-flash",
+    model: IMAGE_GEN_MODEL,
     contents: prompt,
     config: {
       responseModalities: ["Text", "Image"],
@@ -156,6 +164,23 @@ async function generateSingleSlideImage(
         : "The model returned neither image nor text data."),
   );
 }
+
+/**
+ * Gemini model name for image generation.
+ *
+ * CURRENT (Jul 2026):  gemini-3.1-flash-image  — GA model, supports
+ *                      native image output via responseModalities.
+ *
+ * DEPRECATED:          gemini-2.0-flash-exp    — shut down Jun 2026
+ *                      gemini-2.5-flash-image  — shut down Oct 2026
+ *
+ * ALTERNATIVES:        gemini-3-pro-image      — higher fidelity
+ *                      gemini-3.1-flash-lite-image — lower latency
+ *
+ * Change this constant if model availability changes. See:
+ * https://ai.google.dev/gemini-api/docs/models
+ */
+const IMAGE_GEN_MODEL = "gemini-3.1-flash-image";
 
 // ---------------------------------------------------------------------------
 // Public API

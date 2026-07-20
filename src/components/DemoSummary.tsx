@@ -50,25 +50,22 @@ import { EFFECT_SYNERGIES } from "@sim/data/effectSynergies";
 
 interface DemoSummaryModalProps {
   summary: DemoSummaryData | null;
-  open: boolean;
   onClose: () => void;
 }
 
 export default function DemoSummaryModal({
   summary,
-  open,
   onClose,
 }: DemoSummaryModalProps) {
   useEffect(() => {
-    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [onClose]);
 
-  if (!open || !summary) return null;
+  if (!summary) return null;
 
   const { production, breakdown, predictions, awards, judgeComments, developmentTimeMonths } = summary;
   const direction = ARTISTIC_DIRECTION_DEFS[production.artisticDirection as ArtisticDirection];

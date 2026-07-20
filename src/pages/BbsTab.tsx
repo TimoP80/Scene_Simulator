@@ -1,5 +1,6 @@
-import React from 'react';
-import { Terminal, Phone, PhoneCall, UserCheck, MessageSquare, AlertTriangle, ThumbsUp, ThumbsDown, Frown, Zap, Activity, Shield, AlertCircle, Bell } from 'lucide-react';
+import React, { useCallback, useEffect } from 'react';
+import { Terminal, Phone, PhoneCall, UserCheck, MessageSquare, AlertTriangle, ThumbsUp, ThumbsDown, Frown, Zap, Activity, Shield, AlertCircle, Bell, Sparkles, Wand2 } from 'lucide-react';
+import { useTextGenerator } from '../hooks/useTextGenerator';
 import type { Group, Character, BBSThread } from '@packages/types';
 import { colorForHandle, generateFollowedReply, getSeedThreads } from '@sim/data/bbsMessages';
 
@@ -36,6 +37,36 @@ interface BbsTabProps {
 export default function BbsTab(props: BbsTabProps) {
   const { bbsDialed, bbsDialing, bbsFilterBoard, bbsSelectedThreadId, bbsThreads, bbsCustomMessage, bbsEffectNotification, bbsTerminalLogs, playerHandle, playerGroupName, playerReputation, researchPoints, groups, characters, hiredCrewIds, setBbsDialed, setBbsDialing, setBbsFilterBoard, setBbsSelectedThreadId, setBbsThreads, setBbsCustomMessage, setBbsEffectNotification, setBbsTerminalLogs, setPlayerReputation, toggleFollowBbsThread, setCharacters, setResearchPoints } = props;
 
+
+  //  // ---- AI text generation hook ----
+  const aiGen = useTextGenerator();
+
+  const handleAiGenerateReply = useCallback((thread: any) => {
+    const era = thread.year < 1990 ? "early" : thread.year < 1996 ? "mid" : "late";
+    const board = thread.board || "CODERS_CORNER";
+    const prevMessages = thread.messages.slice(-3).map((m: any) => `${m.sender}: ${m.text}`).join("\n") || "";
+
+    aiGen.generate({
+      type: "bbs_reply",
+      context: {
+        board,
+        topic: thread.topic || "demoscene",
+        senderHandle: playerHandle,
+        senderSpecialty: "demoscene coder",
+        era,
+        previousMessages: prevMessages,
+        playerHandle,
+      },
+      maxTokens: 150,
+    });
+  }, [playerHandle, aiGen]);
+
+  // When AI generation completes, fill the message box
+  useEffect(() => {
+    if (aiGen.result && !aiGen.generating) {
+      setBbsCustomMessage(aiGen.result.substring(0, 200));
+    }
+  }, [aiGen.result, aiGen.generating, setBbsCustomMessage]);
 
   // ---- Forum interaction handlers ----
   const handlePostCustomBbsMessage = (threadId: string, message: string) => {
@@ -634,8 +665,32 @@ export default function BbsTab(props: BbsTabProps) {
                                 />
 
                                 <div className="flex items-center justify-between mt-2">
-                                  <div className="text-[9px] text-zinc-500 italic">
-                                    Currently logged in as: <strong className="text-[#22d3ee]">{playerHandle}</strong>
+                                  <div className="flex items-center gap-2">
+                                    <div className="text-[9px] text-zinc-500 italic">
+                                      Currently logged in as: <strong className="text-[#22d3ee]">{playerHandle}</strong>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        const thread = bbsThreads.find(t => t.id === bbsSelectedThreadId);
+                                        if (thread) handleAiGenerateReply(thread);
+                                      }}
+                                      disabled={aiGen.generating}
+                                      className={`flex items-center gap-1 px-2 py-1 rounded text-[9px] font-mono font-bold uppercase transition cursor-pointer border ${
+                                        aiGen.generating
+                                          ? "bg-[#27272a] text-[#71717a] border-[#3f3f46] cursor-wait"
+                                          : aiGen.error
+                                          ? "bg-[#ef4444]/10 text-[#fca5a5] border-[#ef4444]/30 hover:bg-[#ef4444]/20"
+                                          : "bg-[#22d3ee]/10 text-[#22d3ee] border-[#22d3ee]/30 hover:bg-[#22d3ee]/20"
+                                      }`}
+                                      title={aiGen.error || "Ask Gemini AI to generate a scene-appropriate reply"}
+                                    >
+                                      {aiGen.generating ? (
+                                        <><span className="w-1.5 h-1.5 rounded-full bg-[#22d3ee] animate-ping" /> GENERATING...</>
+                                      ) : (
+                                        <><Wand2 className="w-3 h-3" /> ASK AI</>
+                                      )}
+                                    </button>
                                   </div>
                                   <button
                                     id="btn-submit-bbs-custom"
@@ -651,6 +706,12 @@ export default function BbsTab(props: BbsTabProps) {
                                     TRANSMIT PACKET
                                   </button>
                                 </div>
+                                {aiGen.error && !aiGen.generating && (
+                                  <div className="mt-2 px-2 py-1 rounded bg-[#ef4444]/10 border border-[#ef4444]/30 text-[9px] text-[#fca5a5] font-mono flex items-center gap-1">
+                                    <AlertTriangle className="w-3 h-3 shrink-0" />
+                                    <span>{aiGen.error}</span>
+                                  </div>
+                                )}
                               </form>
                             </div>
 

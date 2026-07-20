@@ -16,8 +16,8 @@ export default defineConfig(() => {
     // the filesystem root instead of next to index.html).
     base: './',
     plugins: [
-      react(),
       tailwindcss(),
+      react(),
       {
         name: 'inject-modulepreload',
         generateBundle(_, bundle) {

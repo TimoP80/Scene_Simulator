@@ -37,7 +37,6 @@ import {
 import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 
 interface PlaylistManagerProps {
-  open: boolean;
   onClose: () => void;
 }
 
@@ -59,14 +58,13 @@ const REPEAT_LABELS: Record<RepeatMode, { label: string; icon: React.ReactNode; 
   },
 };
 
-export default function PlaylistManager({ open, onClose }: PlaylistManagerProps) {
+export default function PlaylistManager({ onClose }: PlaylistManagerProps) {
   const state = useTrackerPlayer();
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
 
   // ESC to close.
   useEffect(() => {
-    if (!open) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
@@ -75,9 +73,7 @@ export default function PlaylistManager({ open, onClose }: PlaylistManagerProps)
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, [onClose]);
 
   const handleAdd = async () => {
     setImporting(true);

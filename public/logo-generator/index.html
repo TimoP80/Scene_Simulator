@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SCENEGEN // Demoscene Group Logo Generator</title>
+  <link rel="stylesheet" href="styles.css" />
+  <!-- Three.js (vendored, r160) is loaded as an ES module via the
+       importmap below. We migrated away from the deprecated non-module
+       global-script build (which three.js r150+ logged a deprecation
+       warning for and removed in r170); the legacy build is no longer
+       shipped. scene-engine.js / sequencer.js / app.js are all loaded as
+       ES modules; sequencer.js polls window.APP via whenReady() so its
+       popover waits for app.js module evaluation before building. -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./three.module.min.js"
+    }
+  }
+  </script>
+  <script type="module" src="./dist/scene-engine.js"></script>
+  <!-- sequencer.js is loaded as a module AFTER scene-engine.js so
+       window.SCENES is guaranteed to be defined when it runs. window.APP
+       (set by app.js below) is polled for in sequencer.js, so its
+       initialization order is not order-critical. -->
+  <script type="module" src="./dist/sequencer.js"></script>
+  <!-- app.js is type="module" (not classic defer) because tsc emits a
+       trailing `export {};` in module-files with only `import type`
+       declarations, which classic scripts forbid (throws SyntaxError).
+       Modules are implicitly deferred and run in document order with
+       the two module scripts above, so sequencer.js's whenReady()
+       wait for window.APP keeps working unchanged. -->
+  <script type="module" src="./dist/app.js"></script>
+</head>
+<body>
+  <div class="scanlines" aria-hidden="true"></div>
+  <div class="crt-glow" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">◆</span>
+      <div>
+        <h1>SCENEGEN</h1>
+        <p class="tagline">DEMOSCENE GROUP LOGO GENERATOR · v1.0</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button type="button" id="btn-random" class="btn ghost" title="Randomize everything">RANDOM</button>
+      <button type="button" id="btn-export" class="btn ghost" title="Export still PNG of the active scene">EXPORT PNG</button>
+      <button type="button" id="btn-export-video" class="btn primary" title="Export animated WebM/MP4 of the active scene">EXPORT VIDEO</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel controls">
+
+      <!-- ── LOGO-scene controls ───────────────────────────────────────── -->
+      <div data-scene-controls="logo">
+        <section class="block">
+          <h2>// IDENTITY</h2>
+          <label class="field">
+            <span>GROUP NAME</span>
+            <input id="group-name" type="text" maxlength="32" value="FAIRLIGHT" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span>TAGLINE / HANDLE</span>
+            <input id="tagline" type="text" maxlength="48" value="EST. 1987 · THE SCENE NEVER DIES" autocomplete="off" spellcheck="false" />
+          </label>
+          <label class="field">
+            <span>YEAR / CODE</span>
+            <input id="year-code" type="text" maxlength="16" value="2026" autocomplete="off" spellcheck="false" />
+          </label>
+        </section>
+
+        <section class="block">
+          <h2>// STYLE PRESET</h2>
+          <div class="preset-grid" id="preset-grid"></div>
+        </section>
+
+        <section class="block">
+          <h2>// TYPOGRAPHY</h2>
+          <label class="field">
+            <span>FONT</span>
+            <select id="font-family"></select>
+          </label>
+          <label class="field">
+            <span>SIZE <em id="font-size-val">92</em></span>
+            <input id="font-size" type="range" min="36" max="160" value="92" />
+          </label>
+          <label class="field">
+            <span>LETTER SPACING <em id="letter-spacing-val">4</em></span>
+            <input id="letter-spacing" type="range" min="-8" max="40" value="4" />
+          </label>
+          <label class="field">
+            <span>CASE</span>
+            <select id="text-case">
+              <option value="upper">UPPERCASE</option>
+              <option value="lower">lowercase</option>
+              <option value="as-is">As Typed</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="block">
+          <h2>// PALETTE</h2>
+          <div class="palette-grid" id="palette-grid"></div>
+          <div class="color-row">
+            <label class="swatch-field">
+              <span>PRIMARY</span>
+              <input id="color-primary" type="color" value="#ff00aa" />
+            </label>
+            <label class="swatch-field">
+              <span>SECONDARY</span>
+              <input id="color-secondary" type="color" value="#00ffff" />
+            </label>
+            <label class="swatch-field">
+              <span>ACCENT</span>
+              <input id="color-accent" type="color" value="#ffff00" />
+            </label>
+            <label class="swatch-field">
+              <span>BG</span>
+              <input id="color-bg" type="color" value="#05050f" />
+            </label>
+          </div>
+        </section>
+
+        <section class="block">
+          <h2>// EFFECTS</h2>
+          <div class="toggles" id="effect-toggles"></div>
+          <label class="field">
+            <span>GLOW INTENSITY <em id="glow-val">18</em></span>
+            <input id="glow" type="range" min="0" max="40" value="18" />
+          </label>
+          <label class="field">
+            <span>OUTLINE WIDTH <em id="outline-val">3</em></span>
+            <input id="outline" type="range" min="0" max="12" value="3" />
+          </label>
+          <label class="field">
+            <span>CHROME DEPTH <em id="chrome-val">6</em></span>
+            <input id="chrome" type="range" min="0" max="16" value="6" />
+          </label>
+          <label class="field">
+            <span>RASTER SPEED <em id="raster-val">1.2</em></span>
+            <input id="raster-speed" type="range" min="0" max="40" value="12" />
+          </label>
+        </section>
+
+        <section class="block">
+          <h2>// DECOR</h2>
+          <label class="field">
+            <span>FRAME</span>
+            <select id="frame-style">
+              <option value="none">None</option>
+              <option value="double" selected>Double Box</option>
+              <option value="ascii">ASCII Border</option>
+              <option value="stars">Star Field Corners</option>
+              <option value="triangles">Triangle Marks</option>
+              <option value="bars">Side Bars</option>
+              <option value="hex">Hex Tech</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>BADGE</span>
+            <select id="badge-style">
+              <option value="none">None</option>
+              <option value="crack" selected>CRACKED BY</option>
+              <option value="present">PRESENTS</option>
+              <option value="proudly">PROUDLY PRESENTS</option>
+              <option value="of">OF THE SCENE</option>
+              <option value="warez">WAREZ DIVISION</option>
+              <option value="demo">DEMO DIVISION</option>
+              <option value="music">MUSIC DIVISION</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>BG PATTERN</span>
+            <select id="bg-pattern">
+              <option value="void">Void Black</option>
+              <option value="grid" selected>Perspective Grid</option>
+              <option value="stars">Starfield</option>
+              <option value="checker">Checker</option>
+              <option value="scan">Horizontal Scan</option>
+              <option value="plasma">Plasma Blob</option>
+              <option value="copper">Copper Bars</option>
+              <option value="noise">Noise Grain</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>LOGO MARK</span>
+            <select id="logo-mark">
+              <option value="none">None</option>
+              <option value="diamond" selected>◆ Diamond</option>
+              <option value="sphere">● Sphere</option>
+              <option value="cube">■ Cube</option>
+              <option value="star">★ Star</option>
+              <option value="cross">✚ Cross</option>
+              <option value="tri">▲ Triangle</option>
+              <option value="skull">☠ Skull</option>
+              <option value="omega">Ω Omega</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="block">
+          <h2>// GPU / SHADERS</h2>
+          <p class="field-note" id="shader-status">Probing GPU…</p>
+          <div class="shader-preset-grid" id="shader-preset-grid"></div>
+          <label class="field">
+            <span>SHADER EFFECT</span>
+            <select id="shader-effect">
+              <option value="off" selected>OFF · GPU passthrough</option>
+              <option value="crt">CRT · scan + barrel + chrm</option>
+              <option value="chromatic">Chromatic Aberration</option>
+              <option value="glitch">Glitch Shader</option>
+              <option value="pixelate">Pixelate</option>
+              <option value="bloom">Bloom / Glow</option>
+              <option value="plasma">Plasma Warp</option>
+              <option value="wave">Wave Distortion</option>
+              <option value="vhs">VHS Shake</option>
+              <option value="rainbow">Rainbow Hue Shift</option>
+              <option value="matrix">Matrix Rain Field</option>
+              <option value="custom">Custom GLSL ❯</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>INTENSITY <em id="shader-intensity-val">0.6</em></span>
+            <input id="shader-intensity" type="range" min="0" max="100" value="60" />
+          </label>
+          <label class="check">
+            <input id="gpu-accel" type="checkbox" checked />
+            <span>GPU ACCEL MODE · shader replaces matching 2D effects</span>
+          </label>
+          <label class="check">
+            <input id="shader-thumbs" type="checkbox" checked />
+            <span>AUTO-THUMBNAIL PREVIEWS · 3-frame filmstrip per pill</span>
+          </label>
+          <div id="custom-shader-wrap" class="hidden">
+            <label class="field">
+              <span>CUSTOM FRAGMENT SHADER
+                <button type="button" id="shader-cycle-prev" class="btn-cycle" title="Previous snippet (saves current edit)">« PREV</button>
+                <button type="button" id="shader-cycle-next" class="btn-cycle" title="Next snippet (saves current edit)">NEXT »</button>
+                <button type="button" id="custom-shader-reset" class="btn-link">RESET</button>
+              </span>
+              <textarea id="custom-shader" rows="8" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+            </label>
+            <p class="field-note">Compiled on every keystroke. Errors fall back to the passthrough shader and log to console.</p>
+          </div>
+        </section>
+      </div>
+
+      <!-- ── 3D-scene controls ────────────────────────────────────────── -->
+      <div data-scene-controls="three" class="hidden">
+        <section class="block">
+          <h2>// 3D SCENE</h2>
+          <p class="field-note" id="three-status">Three.js pending…</p>
+          <label class="field">
+            <span>OBJECT</span>
+            <select id="three-object">
+              <option value="torus" selected>Torus Knot · wireframe</option>
+              <option value="sphere">Chrome Sphere · lit</option>
+              <option value="cube">Wireframe Cube Stack</option>
+              <option value="icosa">Icosahedron · flat shaded</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>ROTATION SPEED <em id="three-rot-val">1.0</em></span>
+            <input id="three-rot" type="range" min="0" max="30" value="10" step="1" />
+          </label>
+          <label class="field">
+            <span>ORBIT SPEED <em id="three-orbit-val">0.25</em></span>
+            <input id="three-orbit" type="range" min="0" max="30" value="3" step="1" />
+          </label>
+          <label class="check">
+            <input id="three-palette" type="checkbox" checked />
+            <span>USE PALETTE COLORS · material + light track active palette</span>
+          </label>
+          <label class="check">
+            <input id="three-perspective" type="checkbox" />
+            <span>PERSPECTIVE CAMERA (off = orthographic)</span>
+          </label>
+          <p class="field-note">Material and lighting colors track PRIMARY / ACCENT. Use the PALETTE controls in the LOGO tab to recolor, then return here.</p>
+        </section>
+      </div>
+
+      <!-- ── Shadertoy-scene controls ─────────────────────────────────── -->
+      <div data-scene-controls="shadertoy" class="hidden">
+        <section class="block">
+          <h2>// SHADERTOY</h2>
+          <p class="field-note">Paste any standard Shadertoy fragment shader. The wrapper exposes <code>iTime</code>, <code>iResolution</code>, <code>iMouse</code> and an adapter <code>main()</code> that calls your <code>mainImage(out vec4, in vec2)</code>. Compiles on every keystroke.</p>
+          <label class="field">
+            <span>PRESET</span>
+            <select id="shadertoy-preset">
+              <option value="blank">Blank · solid black</option>
+              <option value="plasma" selected>Plasma Wavefield</option>
+              <option value="mandelbulb">Mandelbulb SDF (raymarched)</option>
+              <option value="fbm-clouds">FBM Clouds</option>
+              <option value="marble">Marble Tunnel</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>FRAGMENT SHADER
+              <button type="button" id="shadertoy-reset" class="btn-link">RESET PRESET</button>
+            </span>
+            <textarea id="shadertoy-src" rows="14" spellcheck="false" autocorrect="off" autocapitalize="off"></textarea>
+          </label>
+          <p class="field-note" id="shadertoy-status">Compile status: idle</p>
+          <pre class="shader-error hidden" id="shadertoy-error" aria-live="polite"></pre>
+        </section>
+      </div>
+
+      <!-- ── Always-visible canvas + export controls ───────────────────── -->
+      <section class="block" data-scene-controls="any">
+        <h2>// CANVAS</h2>
+        <label class="field">
+          <span>ASPECT</span>
+          <select id="aspect">
+            <option value="16:9" selected>16:9 Widescreen</option>
+            <option value="4:3">4:3 Classic</option>
+            <option value="1:1">1:1 Square</option>
+            <option value="21:9">21:9 Ultrawide</option>
+            <option value="2:1">2:1 Banner</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>RESOLUTION</span>
+          <select id="resolution">
+            <option value="1280">1280 wide</option>
+            <option value="1600" selected>1600 wide</option>
+            <option value="1920">1920 wide</option>
+            <option value="2560">2560 wide</option>
+          </select>
+        </label>
+        <label class="check">
+          <input id="animate" type="checkbox" checked />
+          <span>Animate preview</span>
+        </label>
+        <label class="check">
+          <input id="three-anim" type="checkbox" checked />
+          <span>Animate 3D scenes (when on, 3D rotates/orbits)</span>
+        </label>
+      </section>
+
+      <section class="block" data-scene-controls="any">
+        <h2>// VIDEO EXPORT</h2>
+        <label class="field">
+          <span>DURATION (SEC) <em id="video-duration-val">4</em></span>
+          <input id="video-duration" type="range" min="1" max="20" value="4" step="1" />
+        </label>
+        <label class="field">
+          <span>FRAME RATE</span>
+          <select id="video-fps">
+            <option value="24">24 FPS</option>
+            <option value="30" selected>30 FPS</option>
+            <option value="60">60 FPS</option>
+          </select>
+        </label>
+        <label class="field">
+          <span>FORMAT</span>
+          <select id="video-format"></select>
+        </label>
+        <label class="field">
+          <span>QUALITY</span>
+          <select id="video-quality">
+            <option value="low">Low · smaller file</option>
+            <option value="medium" selected>Medium</option>
+            <option value="high">High · larger file</option>
+          </select>
+        </label>
+        <p class="field-note" id="video-format-note">WebM works in most browsers. MP4 only if your browser's MediaRecorder supports H.264.</p>
+      </section>
+    </aside>
+
+    <section class="stage-wrap">
+      <div class="tab-strip" id="tab-strip" role="tablist" aria-label="Scene selector">
+        <button type="button" class="tab-btn active" role="tab" aria-selected="true" data-scene="logo">LOGO</button>
+        <button type="button" class="tab-btn" role="tab" aria-selected="false" data-scene="three">3D SCENE</button>
+        <button type="button" class="tab-btn" role="tab" aria-selected="false" data-scene="shadertoy">SHADERTOY</button>
+        <span class="tab-spacer"></span>
+        <span class="tab-meta" id="tab-meta">// LOGO · procedural 2D + GPU overlay</span>
+      </div>
+      <div class="stage-meta">
+        <span id="meta-style">STYLE: CHROME NFO</span>
+        <span id="meta-size">1600×900</span>
+        <span id="meta-fps">60 FPS</span>
+        <span id="meta-gpu" class="gpu-badge hidden">GPU · PASSTHROUGH</span>
+      </div>
+      <div class="stage" id="stage">
+        <!-- One canvas per scene; only the active one is visible. Stacked
+             via absolute positioning so width/height calculations stay
+             simple (one canvas = one set of CSS dimensions). -->
+        <canvas id="logo-canvas" data-scene-canvas="logo" width="1600" height="900"></canvas>
+        <canvas id="three-canvas" data-scene-canvas="three" width="1600" height="900" class="hidden"></canvas>
+        <canvas id="shadertoy-canvas" data-scene-canvas="shadertoy" width="1600" height="900" class="hidden"></canvas>
+      </div>
+      <div class="stage-hint">
+        Tip: EXPORT PNG for stills · EXPORT VIDEO for WebM/MP4 loops · if download is blocked, use the modal
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span>SCENEGEN · pure canvas · no backend</span>
+    <span class="blink">● LIVE</span>
+  </footer>
+
+  <!-- Export modal (PNG + video; needed when sandbox blocks silent downloads) -->
+  <div id="export-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="export-title">
+    <div class="modal-backdrop" data-close-export></div>
+    <div class="modal-card modal-card-wide">
+      <header class="modal-head">
+        <h2 id="export-title">// EXPORT</h2>
+        <button type="button" class="modal-x" data-close-export aria-label="Close">×</button>
+      </header>
+      <p class="modal-hint" id="export-status">Preparing export…</p>
+      <div class="export-progress hidden" id="export-progress">
+        <div class="export-progress-bar"><i id="export-progress-fill"></i></div>
+        <span id="export-progress-label">0%</span>
+      </div>
+      <div class="export-preview-wrap">
+        <img id="export-preview" class="hidden" alt="Scene export preview" />
+        <video id="export-video" class="hidden" controls playsinline loop muted></video>
+      </div>
+      <div class="modal-actions">
+        <a id="export-download" class="btn primary" download="scenegen_logo.png" aria-disabled="true">DOWNLOAD</a>
+        <button type="button" id="export-open" class="btn ghost">OPEN IN TAB</button>
+        <button type="button" id="export-cancel" class="btn ghost hidden">CANCEL RECORDING</button>
+        <button type="button" class="btn ghost" data-close-export>CLOSE</button>
+      </div>
+      <p class="modal-tip" id="export-tip">If download is blocked (e.g. in-app preview), right‑click the preview or use OPEN IN TAB.</p>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+</body>
+</html>

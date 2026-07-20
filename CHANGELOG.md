@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-07-20
+
+### Added
+- **Centralized modal management (`useModal` hook)** — Replaces 7 independent
+  boolean + setState modal pairs (settings, logoGen, playlist, demoSummary,
+  effectGallery, shader, compilingOverlay) with a single `useModal()` hook
+  providing `open(id)`, `close()`, `isOpen(id)`, and convenience wrappers.
+  `ModalPortal.tsx` provides a shared backdrop/ESC-to-close/createPortal
+  wrapper with fadeIn/scaleIn mount animations.
+- **Settings modal (`SettingsModal.tsx`)** — Persistent in-game UI for
+  viewing, saving, or clearing the Gemini API key at any time. Replaces the
+  first-launch-only bootstrap with an on-demand experience. Key visibility
+  toggle, validation, clear-with-confirmation, and help text linking to
+  Google AI Studio. Accessible from a gear icon in the in-game toolbar or
+  the Main Menu.
+- **Group logo generator (`LogoGeneratorModal.tsx` + `public/logo-generator/`)**
+  — Embeds the SCENEGEN demoscene group logo generator as a full-viewport
+  iframe overlay. Lets players design custom group logos using Canvas2D +
+  Three.js rendering. Export via PNG download or right-click save.
+  Accessible from the Crew tab and toolbar.
+- **LLM text generation system (`src/ai/textGenerator.ts`)** — Modular Gemini
+  API integration for generating contextual demoscene text. Supports 6 text
+  types: BBS replies, judge comments, news articles, NPC dialogue, interview
+  answers, and scene events. Each type has a tailored prompt template with
+  period-appropriate jargon. The `useTextGenerator` React hook manages
+  loading/error/result state for components.
+- **Event Inspector time-travel debugger (`EventInspectorPanel.tsx`)** —
+  DevTools panel reading the full append-only event log from
+  `eventStore.all()`. Filter by event type (with counts), click any row to
+  replay state via `reduceAll(emptyWorldState(), events.slice(0, idx+1))`,
+  view the full WorldState snapshot (player, calendar, crew, productions,
+  economy). "Jump to this state" button rewinds the live simulation to any
+  point in history via `loop.resetTo()`. JSON export button downloads the
+  event log for offline analysis.
+- **`resetTo()` method on SimulationLoop** — Enables time-travel debugging:
+  replaces the event store with a prefix of events, re-derives WorldState
+  from scratch, updates the simulation tick, and notifies all listeners.
+- **`AppBootstrapper.tsx`** — Wraps the React tree in
+  `SimulationLoopProvider` so `useSimulationSelector` and
+  `useSimulationLoop` work correctly at all call sites including the top of
+  App's function body. Fixes a crash where hooks called before the provider
+  was mounted.
+
+### Changed
+- **`package.json`** — bumped `0.6.0` → `0.6.1`.
+- **`src/App.tsx`** — 7 modal boolean useState pairs (14 lines) replaced
+  with single `const modal = useModal()`. All `setShowX(true)` →
+  `modal.openX()`, all `setShowX(false)` → `modal.close()`, all `showX`
+  reads → `modal.isOpen("x")`. SettingsModal, LogoGeneratorModal wired
+  into toolbar and pages.
+- **`src/ai/imageGenerator.ts`** — Gemini model updated from
+  `gemini-2.0-flash-exp` (deprecated/404) to `gemini-2.0-flash` (stable).
+  Error handling improved for API version mismatches.
+- **`src/main.tsx`** — App wrapped in `<AppBootstrapper />` instead of
+  rendering `<App />` directly, fixing SimulationLoopProvider context order.
+- **`src/components/DemoSummary.tsx`**, **`PlaylistManager.tsx`** — removed
+  `open` prop (handled by useModal conditional rendering).
+- **`src/components/SettingsModal.tsx`**, **`LogoGeneratorModal.tsx`** —
+  removed `open` prop; simplified ESC effects.
+- **`src/index.css`** — added `@keyframes fadeIn` and `@keyframes scaleIn`
+  for modal animations. Removed Google Fonts `@import` that was breaking
+  PostCSS/Tailwind v4 builds (moved fonts to `index.html` `<link>` tags).
+- **`index.html`** — Google Fonts loaded via `<link rel="stylesheet">`
+  instead of CSS `@import`, fixing Vite/PostCSS build failure.
+- **`src/pages/BbsTab.tsx`** — BBS interaction improvements.
+- **`src/pages/CrewTab.tsx`** — Logo generator button integrated.
+- **`src/devtools/DevMenu.tsx`** — Event Inspector added as "Event Log" tab
+  with `History` icon.
+- **`sim/engine/simulationLoop.ts`** — Added `resetTo()` method for
+  time-travel state rewinding.
+- **`electron/settings.ts`** — settings schema migration improvements.
+- Cleaned up stale `tmp/` scripts (`fix_commas.mjs`, `insert_effects.mjs`,
+  `patch_era_labels.mjs`, `verify-playback.mjs`).
+
+### Fixed
+- **CSS build failure** — Google Fonts `@import url(...)` containing
+  semicolons in the query string (`wght@400;500;700`) caused PostCSS to
+  error on `@tailwindcss/vite` expanded output ("Missed semicolon"). Fixed
+  by moving fonts to `index.html` `<link>` tags.
+- **Gemini model not found** — `gemini-2.0-flash-exp` was deprecated.
+  Updated to `gemini-2.0-flash` (stable).
+- **SimulationLoopProvider context crash** — `useSimulationLoop()` called at
+  the top of `App()` failed because the provider was inside App's JSX
+  return. Fixed with `AppBootstrapper` provider-first pattern.
+- **Compiling overlay open-then-close** — `openCompilingOverlay()` was
+  called before `close()` in `triggerAssembleCompiler`, causing the overlay
+  to flash and immediately close. Reordered to close-then-open.
+
+### Added (cont.)
+- **New files:**
+  - `src/hooks/useModal.ts` — centralized modal state hook
+  - `src/components/ModalPortal.tsx` — shared centered-modal wrapper
+  - `src/components/SettingsModal.tsx` — on-demand Gemini API key settings
+  - `src/components/LogoGeneratorModal.tsx` — group logo generator embed
+  - `src/components/AppBootstrapper.tsx` — SimulationLoop provider wrapper
+  - `src/devtools/EventInspectorPanel.tsx` — time-travel event log debugger
+  - `src/ai/textGenerator.ts` — LLM text generation module
+  - `src/hooks/useTextGenerator.ts` — LLM text generation React hook
+  - `postcss.config.js` — explicit PostCSS configuration
+  - `public/logo-generator/` — SCENEGEN group logo generator static assets
+
 ## [0.6.0] - 2026-07-20
 
 ### Added

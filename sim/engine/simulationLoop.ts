@@ -12,8 +12,9 @@
  * the defensive pattern that fixed the original compile-button bug.
  */
 
-import { reduce } from "./reducer";
+import { reduce, reduceAll, emptyWorldState } from "./reducer";
 import type { WorldState } from "./reducer";
+import type { SimEvent } from "../events/eventTypes";
 import {
   appendEvent,
   emit,
@@ -21,6 +22,7 @@ import {
   getCurrentTick,
   type EventDraft,
 } from "../events/appendEvent";
+import { eventStore } from "../events/eventStore";
 import { getYearUnlockedTechIds } from "../data/yearUnlocks";
 import { TECHNOLOGY_TREE } from "../data/technologyTree";
 
@@ -111,6 +113,23 @@ export class SimulationLoop {
    */
   getState(): WorldState {
     return this.state;
+  }
+
+  /**
+   * Dev-only: replace the entire event log and re-derive state from scratch.
+   * Used by the EventInspectorPanel's "Jump to this state" feature.
+   *
+   * After calling this, the simulation loop and all projections see the
+   * state as it was at the instant of the last event in the provided array.
+   * All subsequent events are discarded.
+   */
+  resetTo(events: readonly SimEvent[]): void {
+    const prefix = events as SimEvent[];
+    eventStore.__resetWith(prefix);
+    this.state = reduceAll(emptyWorldState(), prefix);
+    setCurrentTick(this.state.calendar.year * 12 + this.state.calendar.month);
+    this.onTick(this.state);
+    this.notify();
   }
 
   /** Advance the calendar one month, emitting the canonical event. */
