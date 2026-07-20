@@ -46,6 +46,7 @@ import {
   Layers,
   Film,
   Shuffle,
+  Sparkles,
 } from "lucide-react";
 import {
   DEMO_EFFECTS,
@@ -71,6 +72,7 @@ import {
 } from "@packages/types";
 import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 import DemoBudgetMeter from "./DemoBudgetMeter";
+import type { CustomShader } from "@packages/types";
 
 /**
  * DemoStudio props — every studio surface state + its setter (or a
@@ -158,13 +160,34 @@ export interface DemoStudioProps {
   /** One-click random slide show configurator. Auto-sets title, scene count, and scene data. */
   onRandomSlideShow: () => void;
 
+  /* ─── (8b) AI image generation toggle ─── */
+  /** Whether the user has enabled AI-generated images for a Slide Show. */
+  useAiImages: boolean;
+  onToggleAiImages: () => void;
+  /** Loading state while AI images are being generated. */
+  aiImagesLoading: boolean;
+  /** Error message from AI image generation, if any. */
+  aiImagesError: string | null;
+  /** Number of AI-generated slides so far (for progress display). */
+  aiImagesProgress: number;
+
   /* ─── (9) Modal callbacks ─── */
   /** Open the playlist manager modal. */
   onOpenPlaylist: () => void;
   /** Open the EFFECT GALLERY & VISUALIZER modal. */
   onOpenEffectGallery: () => void;
 
-  /* ─── (10) Compile orchestration ─── */
+  /* ─── (10) Custom shaders ─── */
+  /** All custom shaders the user has created. */
+  customShaders?: Record<string, CustomShader>;
+  /** IDs of shaders currently toggled on for this demo. */
+  selectedShaderIds?: string[];
+  /** Toggle a shader effect on/off. */
+  onToggleShader?: (id: string) => void;
+  /** Open the shader editor modal. */
+  onOpenShaderEditor?: () => void;
+
+  /* ─── (11) Compile orchestration ─── */
   /**
    * App.tsx's `triggerAssembleCompiler(e)` — DOM-event handler. The
    * parent owns validation + budget hard-stops + the interval-driven
@@ -329,9 +352,18 @@ export default function DemoStudio({
   demoScenes,
   onSceneChange,
   onRandomSlideShow,
+  useAiImages,
+  onToggleAiImages,
+  aiImagesLoading,
+  aiImagesError,
+  aiImagesProgress,
   onOpenPlaylist,
   onOpenEffectGallery,
   onCompile,
+  customShaders = {},
+  selectedShaderIds = [],
+  onToggleShader,
+  onOpenShaderEditor,
 }: DemoStudioProps): React.ReactNode {
   // The playlist read lives in DemoStudio so the dropdown re-renders
   // when tracks are imported or removed via the overlay modal.
@@ -431,17 +463,69 @@ export default function DemoStudio({
           </div>
         )}
 
-        {/* Random ArtSlide button — one-click slideshow generator */}
+        {/* Random ArtSlide + AI generation buttons — slideshow tools */}
         {competitionType === ProductionType.ArtSlide && (
-          <button
-            type="button"
-            onClick={onRandomSlideShow}
-            className="w-full bg-gradient-to-r from-[#a855f7]/15 via-[#ec4899]/15 to-[#facc15]/15 border border-[#a855f7]/30 hover:border-[#a855f7]/60 rounded p-2.5 flex items-center justify-center gap-2 text-[11px] font-extrabold tracking-wider text-[#c084fc] hover:text-[#e0aaff] transition-all cursor-pointer group"
-          >
-            <Shuffle className="w-4 h-4 text-[#ec4899] group-hover:rotate-180 transition-transform duration-700" />
-            <span>RANDOM ART SLIDE</span>
-            <span className="text-[8px] text-[#71717a] ml-1">GENERATE RANDOM SLIDE SHOW</span>
-          </button>
+          <div className="flex flex-col gap-2">
+            {/* Row of buttons */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onRandomSlideShow}
+                className="flex-1 bg-gradient-to-r from-[#a855f7]/15 via-[#ec4899]/15 to-[#facc15]/15 border border-[#a855f7]/30 hover:border-[#a855f7]/60 rounded p-2.5 flex items-center justify-center gap-2 text-[11px] font-extrabold tracking-wider text-[#c084fc] hover:text-[#e0aaff] transition-all cursor-pointer group"
+              >
+                <Shuffle className="w-4 h-4 text-[#ec4899] group-hover:rotate-180 transition-transform duration-700" />
+                <span>RANDOM ART SLIDE</span>
+                <span className="text-[8px] text-[#71717a] ml-1">GENERATE RANDOM SLIDE SHOW</span>
+              </button>
+              <button
+                type="button"
+                id="btn-toggle-ai-images"
+                onClick={onToggleAiImages}
+                disabled={aiImagesLoading}
+                className={`flex-1 rounded p-2.5 flex items-center justify-center gap-2 text-[11px] font-extrabold tracking-wider transition-all cursor-pointer group border ${
+                  useAiImages
+                    ? 'bg-[#22d3ee]/20 border-[#22d3ee]/60 text-[#22d3ee] hover:bg-[#22d3ee]/30'
+                    : 'bg-[#09090b]/40 border-[#3f3f46]/40 text-[#71717a] hover:border-[#22d3ee]/40 hover:text-[#22d3ee]'
+                } disabled:opacity-50 disabled:cursor-wait`}
+              >
+                <span className="relative">
+                  <Layers className={`w-4 h-4 ${aiImagesLoading ? 'animate-pulse' : ''}`} />
+                  {aiImagesLoading && (
+                    <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[#22d3ee] animate-ping" />
+                  )}
+                </span>
+                <span className="flex flex-col items-start">
+                  <span>{aiImagesLoading ? 'GENERATING…' : useAiImages ? 'AI IMAGES ON' : 'AI GENERATE'}</span>
+                  {aiImagesLoading && (
+                    <span className="text-[8px] text-[#22d3ee] font-mono">
+                      {aiImagesProgress}/{useAiImages ? aiImagesProgress : '?'} slides
+                    </span>
+                  )}
+                </span>
+                {!useAiImages && !aiImagesLoading && (
+                  <span className="text-[8px] text-[#71717a] ml-1">GEMINI AI</span>
+                )}
+              </button>
+            </div>
+
+            {/* Error display */}
+            {aiImagesError && (
+              <div className="px-3 py-2 text-[10px] border border-[#ef4444]/50 bg-[#ef4444]/10 text-[#fca5a5] rounded flex items-start gap-2">
+                <span className="text-[#ef4444] font-bold shrink-0">⚠</span>
+                <span>{aiImagesError}</span>
+              </div>
+            )}
+
+            {/* Active AI mode info */}
+            {useAiImages && !aiImagesLoading && !aiImagesError && (
+              <div className="px-3 py-2 text-[10px] border border-[#22d3ee]/30 bg-[#22d3ee]/5 text-[#22d3ee] rounded flex items-center gap-2">
+                <Layers className="w-3 h-3 shrink-0" />
+                <span className="font-mono">
+                  AI-GENERATED SLIDES ACTIVE — each slide rendered by Gemini 2.0 Flash
+                </span>
+              </div>
+            )}
+          </div>
         )}
 
         {/* (1) Production metadata: title + competition category */}
@@ -679,14 +763,26 @@ export default function DemoStudio({
             <label className="block text-[10px] text-[#a1a1aa] font-bold uppercase tracking-tight">
               LINK ALGORITHMIC GRAPHIC TRICKS ({selectedEffects.length} SELECTED)
             </label>
-            <button
-              type="button"
-              id="btn-open-effect-gallery"
-              onClick={onOpenEffectGallery}
-              className="bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 text-[#22d3ee] border border-[#22d3ee]/30 hover:border-[#22d3ee] rounded px-3 py-1 text-[10px] font-mono font-bold transition-all uppercase cursor-pointer"
-            >
-              EFFECT GALLERY & VISUALIZER
-            </button>
+            <div className="flex items-center gap-2">
+              {onOpenShaderEditor && (
+                <button
+                  type="button"
+                  onClick={onOpenShaderEditor}
+                  className="flex items-center gap-1 bg-[#a855f7]/10 hover:bg-[#a855f7]/25 text-[#c084fc] border border-[#a855f7]/30 hover:border-[#a855f7] rounded px-2.5 py-1 text-[9.5px] font-mono font-bold transition-all uppercase cursor-pointer"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  <span>CUSTOM SHADERS ({Object.keys(customShaders).length})</span>
+                </button>
+              )}
+              <button
+                type="button"
+                id="btn-open-effect-gallery"
+                onClick={onOpenEffectGallery}
+                className="bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 text-[#22d3ee] border border-[#22d3ee]/30 hover:border-[#22d3ee] rounded px-3 py-1 text-[10px] font-mono font-bold transition-all uppercase cursor-pointer"
+              >
+                EFFECT GALLERY & VISUALIZER
+              </button>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
             {DEMO_EFFECTS.map((eff) => {
@@ -780,6 +876,59 @@ export default function DemoStudio({
                       REQUIRES RIG: {eff.minPlatform}
                     </span>
                   )}
+                </div>
+              );
+            })}
+
+            {/* Custom shader cards — rendered alongside standard effects */}
+            {Object.values(customShaders).map((shader) => {
+              const isChecked = selectedShaderIds.includes(shader.id);
+              return (
+                <div
+                  key={shader.id}
+                  className={`p-2.5 rounded border text-xs flex flex-col justify-between transition-all ${
+                    isChecked
+                      ? "bg-[#a855f7]/10 border-[#a855f7] text-[#c084fc]"
+                      : "bg-[#09090b] border-[#27272a] text-[#a1a1aa]"
+                  }`}
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-1">
+                      <span className="font-bold block leading-snug flex items-center gap-1.5">
+                        <Sparkles className="w-3 h-3 text-[#a855f7]" />
+                        {shader.name}
+                      </span>
+                      {onToggleShader && (
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => onToggleShader(shader.id)}
+                          className="rounded bg-[#1a1b1e] border-[#3f3f46] text-[#a855f7] focus:ring-0 focus:ring-offset-0 w-3.5 h-3.5 cursor-pointer mt-0.5"
+                        />
+                      )}
+                    </div>
+                    <p className="text-[10px] text-[#71717a] mt-1.5 italic leading-normal">
+                      {shader.description}
+                    </p>
+                  </div>
+                  <div className="mt-2.5 pt-1.5 border-t border-[#27272a] flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[9px]">
+                    <span className="px-1 py-0.5 rounded bg-[#a855f7]/10 text-[#c084fc] font-bold border border-[#a855f7]/20">
+                      CUSTOM
+                    </span>
+                    <span className="px-1 py-0.5 rounded bg-[#a855f7]/10 text-[#c084fc] font-bold border border-[#a855f7]/20">
+                      CPX:{shader.complexity}
+                    </span>
+                    <span className="px-1 py-0.5 rounded bg-[#facc15]/10 text-[#facc15] font-bold border border-[#facc15]/20">
+                      VIS:{shader.visualImpact}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onOpenShaderEditor}
+                    className="mt-1.5 px-2 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#71717a] hover:text-[#c084fc] hover:border-[#a855f7]/40 text-[8px] font-mono font-bold uppercase transition cursor-pointer"
+                  >
+                    EDIT IN SHADER EDITOR
+                  </button>
                 </div>
               );
             })}

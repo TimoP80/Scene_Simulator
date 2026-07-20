@@ -47,11 +47,15 @@ import {
   X,
   Music2,
   Disc3,
+  AlertTriangle,
 } from "lucide-react";
 import { trackerPlayer } from "../audio/trackerPlayer";
 import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 
 import { ProductionType } from "@packages/types";
+import type { CustomShader } from "@packages/types";
+import { compileShader } from "@sim/utils/shaderEngine";
+import type { ShaderFn } from "@sim/utils/shaderEngine";
 import { paintSlide, paintSlideTransition, generateSlideMetadata } from "./SlideShowRenderer";
 
 interface DemoScreenProps {
@@ -69,6 +73,16 @@ interface DemoScreenProps {
    * Must match the scene count set in the DemoStudio.
    */
   slideCount?: number;
+  /**
+   * AI-generated slide images (data URLs). When provided and the
+   * production is ArtSlide, these are rendered instead of procedural
+   * slides. Each entry is the base64 data URL for that slide index.
+   */
+  aiSlideImages?: string[];
+  /**
+   * Whether AI mode is active (shows badge in HUD).
+   */
+  useAiImages?: boolean;
   /**
    * storedName of the tracker track attached to the production currently
    * rendered in the CRT monitor. When set, DemoScreen auto-plays the
@@ -93,6 +107,17 @@ interface DemoScreenProps {
   onToggleAudio: () => void;
   /** Toggle `isPlaying`. Owned by App.tsx (useCallback wrapper). */
   onTogglePlay: () => void;
+  /* ---- Custom shader rendering state ---- */
+  /** All user-created custom shaders (passed so the CRT can render them). */
+  customShaders?: Record<string, CustomShader>;
+
+  /* ---- Disk virus visual effect state ---- */
+  /** Whether the current demo was compiled on an infected disk. */
+  diskInfected?: boolean;
+  /** The manifestation type of the virus (glitch, crash, scrolltext, etc.). */
+  virusGlitchVariant?: string | null;
+  /** The display name of the virus strain, if any. */
+  virusStrainName?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +132,8 @@ function paintDemoFrame(
   demoName: string,
   groupName: string,
   frame: number,
-  scratch: { textOffset: number; _text?: string; firePixels: Uint8Array }
+  scratch: { textOffset: number; _text?: string; firePixels: Uint8Array },
+  compiledShaders?: Record<string, ShaderFn>
 ): void {
   const width = canvas.width;
   const height = canvas.height;
@@ -308,12 +334,28 @@ function paintDemoFrame(
     ctx.shadowBlur = 0;
   }
 
+  // 8. CUSTOM SHADERS — compile and render user-written procedural effects
+  if (compiledShaders) {
+    for (const [shaderId, shaderFn] of Object.entries(compiledShaders)) {
+      if (effects.includes(shaderId)) {
+        try {
+          shaderFn(ctx, width, height, frame, 0.5, 0.5);
+        } catch {
+          // Runtime shader errors are silently ignored
+        }
+      }
+    }
+  }
+
   // HUD
+  const customShaderCount = compiledShaders
+    ? Object.keys(compiledShaders).filter((id) => effects.includes(id)).length
+    : 0;
   ctx.fillStyle = "rgba(0, 255, 100, 0.75)";
   const hudFontSize = Math.max(8, Math.floor(Math.min(width, height) / 36));
   ctx.font = `${hudFontSize}px 'JetBrains Mono', 'Fira Code', monospace`;
   ctx.fillText(
-    `FPS: 60  EFF: ${effects.length}  MONITOR ID: S-CRT-CRT`,
+    `FPS: 60  EFF: ${effects.length}  CUSTOM: ${customShaderCount}  MONITOR ID: S-CRT-CRT`,
     6,
     12
   );
@@ -467,6 +509,12 @@ export default function DemoScreen({
   onToggleAudio,
   onTogglePlay,
   slideCount = 4,
+  aiSlideImages,
+  useAiImages,
+  diskInfected,
+  virusGlitchVariant,
+  virusStrainName,
+  customShaders,
 }: DemoScreenProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // audioEnabled + isPlaying are LIFTED to App.tsx so the fullscreen
@@ -492,6 +540,24 @@ export default function DemoScreen({
     [demoName, slideCount]
   );
 
+  // AI slide image rendering — when available, draw them onto canvas
+  const aiCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const hasAiImages = useAiImages && aiSlideImages && aiSlideImages.length > 0;
+
+  // Cache compiled shader functions — only recompiles when shader code changes
+  const compiledShaderCacheRef = useRef<Record<string, ShaderFn>>({});
+  useEffect(() => {
+    if (!customShaders) return;
+    const cache: Record<string, ShaderFn> = {};
+    for (const [id, shader] of Object.entries(customShaders)) {
+      const result = compileShader(shader.code);
+      if (typeof result !== "string") {
+        cache[id] = result;
+      }
+    }
+    compiledShaderCacheRef.current = cache;
+  }, [customShaders]);
+
   // Frame painter loop.
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -513,34 +579,99 @@ export default function DemoScreen({
         const slideIdx = Math.floor(frameInCycle / (slideFramesPerSlide + slideTransitionFrames));
         const frameInSlide = frameInCycle % (slideFramesPerSlide + slideTransitionFrames);
 
-        if (frameInSlide < slideFramesPerSlide) {
-          // Stationary slide
+        // When AI images are available, render directly from data URLs instead of procedural
+        if (hasAiImages && aiSlideImages && aiSlideImages.length > slideIdx) {
+          const img = new Image();
+          img.src = aiSlideImages[slideIdx];
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        } else if (frameInSlide < slideFramesPerSlide) {
+          // Stationary procedural slide
           paintSlide(ctx, canvas.width, canvas.height, demoName, slideIdx, f);
-
-          // Draw slide overlay info
-          const info = slideMetadata[slideIdx] ?? slideMetadata[0];
-          ctx.fillStyle = "rgba(0,0,0,0.6)";
-          ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
-          ctx.fillStyle = "#22d3ee";
-          ctx.font = "bold 10px 'JetBrains Mono', monospace";
-          ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 8);
-          ctx.fillStyle = "rgba(0,255,100,0.6)";
-          ctx.font = "8px 'JetBrains Mono', monospace";
-          ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 8);
         } else {
           // Transition to next slide
           const transitionProgress = (frameInSlide - slideFramesPerSlide) / slideTransitionFrames;
           const nextSlide = (slideIdx + 1) % sc;
           paintSlideTransition(ctx, canvas.width, canvas.height, demoName, slideIdx, nextSlide, Math.min(1, transitionProgress), f);
         }
+
+        // Draw slide overlay info (same for procedural and AI images)
+        const info = slideMetadata[slideIdx] ?? slideMetadata[0];
+        ctx.fillStyle = "rgba(0,0,0,0.6)";
+        ctx.fillRect(0, canvas.height - 26, canvas.width, 26);
+        ctx.fillStyle = "#22d3ee";
+        ctx.font = "bold 10px 'JetBrains Mono', monospace";
+        ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 9);
+        ctx.fillStyle = hasAiImages ? "rgba(34,211,238,0.8)" : "rgba(0,255,100,0.6)";
+        ctx.font = "8px 'JetBrains Mono', monospace";
+        if (hasAiImages) {
+          ctx.fillText(`AI GENERATED · GEMINI 2.0 FLASH`, canvas.width - 175, canvas.height - 9);
+        } else {
+          ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 9);
+        }
       } else {
-        paintDemoFrame(ctx, canvas, effects, demoName, groupName, f, scratchRef.current);
+        paintDemoFrame(ctx, canvas, effects, demoName, groupName, f, scratchRef.current, compiledShaderCacheRef.current);
       }
+
+      // Virus visual overlay effects — glitch, noise, scanline corruption
+      if (diskInfected && virusGlitchVariant) {
+        const width = canvas.width;
+        const height = canvas.height;
+
+        // Corrupted scrolltext overlay
+        if (virusGlitchVariant === "scrolltext" || virusGlitchVariant === "glitch") {
+          const virusMsg = virusStrainName
+            ? `INFECTED BY ${virusStrainName.toUpperCase()}`
+            : "DISK VIRUS DETECTED";
+          ctx.save();
+          ctx.fillStyle = "rgba(0,0,0,0.5)";
+          ctx.fillRect(0, height * 0.7, width, 28);
+          ctx.fillStyle = `hsla(${Math.random() * 360}, 100%, 70%, 0.7)`;
+          ctx.font = `bold 11px 'JetBrains Mono', monospace`;
+          const scrollX = width - (f * 2) % (width + ctx.measureText(virusMsg).width);
+          ctx.fillText(virusMsg, scrollX, height * 0.7 + 18);
+          ctx.restore();
+        }
+
+        // Random noise overlay for glitch variant
+        if (virusGlitchVariant === "glitch") {
+          if (f % 4 === 0) {
+            const noiseCount = 30 + Math.floor(Math.random() * 50);
+            for (let i = 0; i < noiseCount; i++) {
+              const nx = Math.random() * width;
+              const ny = Math.random() * height;
+              const nw = 4 + Math.random() * 20;
+              const nh = 1 + Math.random() * 3;
+              ctx.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0}, ${Math.random() > 0.5 ? 255 : 0}, ${Math.random() > 0.5 ? 255 : 0}, ${0.3 + Math.random() * 0.5})`;
+              ctx.fillRect(nx, ny, nw, nh);
+            }
+          }
+          // Occasional horizontal scanline shift
+          if (f % 30 === 0 || f % 47 === 0) {
+            const shiftY = Math.random() * height;
+            const shiftH = 4 + Math.random() * 8;
+            ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+            ctx.fillRect(0, shiftY, width, shiftH);
+          }
+        }
+
+        // Boot message overlay for harmless/scroltext variants
+        if ((virusGlitchVariant === "harmless_bootblock" || virusGlitchVariant === "scrolltext") && f % 300 < 180) {
+          const msg = virusStrainName
+            ? `INFECTED BY ${virusStrainName.toUpperCase()}`
+            : "INFECTED DISK";
+          ctx.save();
+          ctx.fillStyle = "rgba(0, 200, 80, 0.12)";
+          ctx.font = "8px 'JetBrains Mono', monospace";
+          ctx.fillText(`[ ${msg} ]`, 6, 24);
+          ctx.restore();
+        }
+      }
+
       id = requestAnimationFrame(run);
     };
     id = requestAnimationFrame(run);
     return () => cancelAnimationFrame(id);
-  }, [isPlaying, effects, demoName, groupName, isSlideShow]);
+  }, [isPlaying, effects, demoName, groupName, isSlideShow, diskInfected, virusGlitchVariant, virusStrainName]);
 
   // Headless capture hook — exposes the rendered canvas + a resize() helper
   // to the page context so scripts/capture-preview.mjs (driving
@@ -596,6 +727,12 @@ export default function DemoScreen({
             onClose={closeFullscreen}
             productionType={productionType}
             slideCount={slideCount}
+            aiSlideImages={aiSlideImages}
+            useAiImages={useAiImages}
+            customShaders={customShaders}
+            diskInfected={diskInfected}
+            virusGlitchVariant={virusGlitchVariant}
+            virusStrainName={virusStrainName}
           />,
           document.body
         )}
@@ -658,14 +795,38 @@ export default function DemoScreen({
               </p>
             </div>
           )}
-          {isSlideShow && effects.length === 0 && (
+          {isSlideShow && effects.length === 0 && !hasAiImages && (
             <div className="absolute inset-0 flex flex-col items-center justify-center p-4 bg-[#09090b]/95 text-center text-[#a1a1aa] font-mono">
               <span className="text-[#4ade80] animate-pulse text-sm font-bold tracking-widest mb-1.5">
-                [ SLIDE SHOW MODE ]
+                {useAiImages ? '[ AI GENERATION QUEUED ]' : '[ SLIDE SHOW MODE ]'}
               </span>
               <p className="text-[11px] max-w-[270px] leading-relaxed">
-                Generating procedural pixel-art slides for this ArtSlide production. Each slide is a unique algorithmic composition.
+                {useAiImages
+                  ? 'Waiting for Gemini AI to generate images... Open the Studio and click AI GENERATE.'
+                  : 'Generating procedural pixel-art slides for this ArtSlide production. Each slide is a unique algorithmic composition.'}
               </p>
+            </div>
+          )}
+          {isSlideShow && hasAiImages && (
+            <div className="absolute top-8 right-2 z-30 px-1.5 py-0.5 rounded bg-[#22d3ee]/15 border border-[#22d3ee]/40 text-[8px] font-mono text-[#22d3ee] pointer-events-none">
+              AI · GEMINI
+            </div>
+          )}
+
+          {/* Disk virus warning badge — shown when demo was compiled on infected media */}
+          {diskInfected && virusGlitchVariant && (
+            <div className={`absolute top-2 right-2 z-30 flex items-center gap-1 px-1.5 py-0.5 rounded text-[8px] font-mono tracking-wider pointer-events-none ${
+              virusGlitchVariant === "corruption" || virusGlitchVariant === "crash"
+                ? 'bg-[#ef4444]/20 border border-[#ef4444]/60 text-[#ef4444] animate-pulse'
+                : 'bg-[#fb923c]/15 border border-[#fb923c]/40 text-[#fb923c]'
+            }`}>
+              <AlertTriangle className="w-2.5 h-2.5" />
+              <span className="font-extrabold">
+                {virusStrainName ?? 'DISK VIRUS'}
+              </span>
+              <span className="opacity-70">
+                · {virusGlitchVariant.replace(/_/g, ' ').toUpperCase()}
+              </span>
             </div>
           )}
         </div>
@@ -738,6 +899,12 @@ interface FullscreenDemoViewProps {
   groupName: string;
   productionType?: ProductionType;
   slideCount?: number;
+  aiSlideImages?: string[];
+  useAiImages?: boolean;
+  customShaders?: Record<string, CustomShader>;
+  diskInfected?: boolean;
+  virusGlitchVariant?: string | null;
+  virusStrainName?: string | null;
   musicTrackStoredName?: string;
   /** Lifted from App.tsx — see DemoScreenProps for rationale. */
   audioEnabled: boolean;
@@ -756,6 +923,12 @@ function FullscreenDemoView({
   groupName,
   productionType,
   slideCount = 4,
+  aiSlideImages,
+  useAiImages,
+  customShaders,
+  diskInfected,
+  virusGlitchVariant,
+  virusStrainName,
   musicTrackStoredName,
   audioEnabled,
   isPlaying,
@@ -842,6 +1015,9 @@ function FullscreenDemoView({
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  // Fullscreen AI slide images
+  const fullscreenHasAiImages = useAiImages && aiSlideImages && aiSlideImages.length > 0;
+
   // Fullscreen slideshow metadata cache
   const isSlideShow = productionType === ProductionType.ArtSlide;
   const slideFramesPerSlide = 180;
@@ -850,6 +1026,20 @@ function FullscreenDemoView({
     () => generateSlideMetadata(demoName, slideCount),
     [demoName, slideCount]
   );
+
+  // Cache compiled shader functions for fullscreen
+  const fullscreenCompiledShadersRef = useRef<Record<string, ShaderFn>>({});
+  useEffect(() => {
+    if (!customShaders) return;
+    const cache: Record<string, ShaderFn> = {};
+    for (const [id, shader] of Object.entries(customShaders)) {
+      const result = compileShader(shader.code);
+      if (typeof result !== "string") {
+        cache[id] = result;
+      }
+    }
+    fullscreenCompiledShadersRef.current = cache;
+  }, [customShaders]);
 
   // Animation loop
   useEffect(() => {
@@ -868,21 +1058,32 @@ function FullscreenDemoView({
           const slideIdx = Math.floor(frameInCycle / (slideFramesPerSlide + slideTransitionFrames));
           const frameInSlide = frameInCycle % (slideFramesPerSlide + slideTransitionFrames);
 
-          if (frameInSlide < slideFramesPerSlide) {
+          // When AI images are available, render directly from data URLs
+          if (fullscreenHasAiImages && aiSlideImages && aiSlideImages.length > slideIdx) {
+            const img = new Image();
+            img.src = aiSlideImages[slideIdx];
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          } else if (frameInSlide < slideFramesPerSlide) {
             paintSlide(ctx, canvas.width, canvas.height, demoName, slideIdx, f);
-            const info = fullscreenSlideMetadata[slideIdx] ?? fullscreenSlideMetadata[0];
-            ctx.fillStyle = "rgba(0,0,0,0.6)";
-            ctx.fillRect(0, canvas.height - 24, canvas.width, 24);
-            ctx.fillStyle = "#22d3ee";
-            ctx.font = "bold 10px 'JetBrains Mono', monospace";
-            ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 8);
-            ctx.fillStyle = "rgba(0,255,100,0.6)";
-            ctx.font = "8px 'JetBrains Mono', monospace";
-            ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 8);
           } else {
             const transitionProgress = (frameInSlide - slideFramesPerSlide) / slideTransitionFrames;
             const nextSlide = (slideIdx + 1) % sc;
             paintSlideTransition(ctx, canvas.width, canvas.height, demoName, slideIdx, nextSlide, Math.min(1, transitionProgress), f);
+          }
+
+          // Draw slide overlay info
+          const info = fullscreenSlideMetadata[slideIdx] ?? fullscreenSlideMetadata[0];
+          ctx.fillStyle = "rgba(0,0,0,0.6)";
+          ctx.fillRect(0, canvas.height - 26, canvas.width, 26);
+          ctx.fillStyle = "#22d3ee";
+          ctx.font = "bold 10px 'JetBrains Mono', monospace";
+          ctx.fillText(`${info.index + 1}/${sc}  ${info.title}`, 8, canvas.height - 9);
+          ctx.fillStyle = fullscreenHasAiImages ? "rgba(34,211,238,0.8)" : "rgba(0,255,100,0.6)";
+          ctx.font = "8px 'JetBrains Mono', monospace";
+          if (fullscreenHasAiImages) {
+            ctx.fillText(`AI GENERATED · GEMINI 2.0 FLASH`, canvas.width - 175, canvas.height - 9);
+          } else {
+            ctx.fillText(`SLIDE: ${info.style.replace(/_/g, ' ').toUpperCase()}`, canvas.width - 140, canvas.height - 9);
           }
         } else {
           paintDemoFrame(
@@ -892,15 +1093,67 @@ function FullscreenDemoView({
             demoName,
             groupName,
             f,
-            scratchRef.current
+            scratchRef.current,
+            fullscreenCompiledShadersRef.current
           );
+        }
+
+        // Fullscreen virus visual overlay — same effects as inline
+        if (diskInfected && virusGlitchVariant) {
+          const w = canvas.width;
+          const h = canvas.height;
+
+          if (virusGlitchVariant === "scrolltext" || virusGlitchVariant === "glitch") {
+            const virusMsg = virusStrainName
+              ? `INFECTED BY ${virusStrainName.toUpperCase()}`
+              : "DISK VIRUS DETECTED";
+            ctx.save();
+            ctx.fillStyle = "rgba(0,0,0,0.5)";
+            ctx.fillRect(0, h * 0.7, w, 28);
+            ctx.fillStyle = `hsla(${Math.random() * 360}, 100%, 70%, 0.7)`;
+            ctx.font = `bold 11px 'JetBrains Mono', monospace`;
+            const scrollX = w - (f * 2) % (w + ctx.measureText(virusMsg).width);
+            ctx.fillText(virusMsg, scrollX, h * 0.7 + 18);
+            ctx.restore();
+          }
+
+          if (virusGlitchVariant === "glitch") {
+            if (f % 4 === 0) {
+              const noiseCount = 30 + Math.floor(Math.random() * 50);
+              for (let i = 0; i < noiseCount; i++) {
+                const nx = Math.random() * w;
+                const ny = Math.random() * h;
+                const nw = 4 + Math.random() * 20;
+                const nh = 1 + Math.random() * 3;
+                ctx.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 0}, ${Math.random() > 0.5 ? 255 : 0}, ${Math.random() > 0.5 ? 255 : 0}, ${0.3 + Math.random() * 0.5})`;
+                ctx.fillRect(nx, ny, nw, nh);
+              }
+            }
+            if (f % 30 === 0 || f % 47 === 0) {
+              const shiftY = Math.random() * h;
+              const shiftH = 4 + Math.random() * 8;
+              ctx.fillStyle = "rgba(255, 255, 255, 0.08)";
+              ctx.fillRect(0, shiftY, w, shiftH);
+            }
+          }
+
+          if ((virusGlitchVariant === "harmless_bootblock" || virusGlitchVariant === "scrolltext") && f % 300 < 180) {
+            const msg = virusStrainName
+              ? `INFECTED BY ${virusStrainName.toUpperCase()}`
+              : "INFECTED DISK";
+            ctx.save();
+            ctx.fillStyle = "rgba(0, 200, 80, 0.12)";
+            ctx.font = "8px 'JetBrains Mono', monospace";
+            ctx.fillText(`[ ${msg} ]`, 6, 24);
+            ctx.restore();
+          }
         }
       }
       id = requestAnimationFrame(run);
     };
     id = requestAnimationFrame(run);
     return () => cancelAnimationFrame(id);
-  }, [isPlaying, effects, demoName, groupName, isSlideShow, slideCount]);
+  }, [isPlaying, effects, demoName, groupName, isSlideShow, slideCount, diskInfected, virusGlitchVariant, virusStrainName]);
 
   // Keyboard shortcuts (one-time mount; reads handlers via refs).
   //   F       : toggle browser-native fullscreen API
@@ -1069,14 +1322,38 @@ function FullscreenDemoView({
           </p>
         </div>
       )}
-      {isSlideShow && effects.length === 0 && (
+      {isSlideShow && effects.length === 0 && !fullscreenHasAiImages && (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center text-center text-[#a1a1aa] font-mono">
           <span className="text-[#4ade80] animate-pulse text-base font-black tracking-widest mb-1.5">
-            [ SLIDE SHOW MODE ]
+            {useAiImages ? '[ AI GENERATION QUEUED ]' : '[ SLIDE SHOW MODE ]'}
           </span>
           <p className="text-[12px] max-w-[420px] leading-relaxed">
-            ArtSlide production with {slideCount} procedural slides. Each slide is a unique algorithmic composition.
+            {useAiImages
+              ? 'AI-generated slides will display here once generation completes in the Studio.'
+              : `ArtSlide production with ${slideCount} procedural slides. Each slide is a unique algorithmic composition.`}
           </p>
+        </div>
+      )}
+      {isSlideShow && fullscreenHasAiImages && (
+        <div className="absolute top-16 right-4 z-30 px-2 py-1 rounded bg-[#22d3ee]/15 border border-[#22d3ee]/40 text-[9px] font-mono text-[#22d3ee] pointer-events-none">
+          AI · GEMINI 2.0 FLASH
+        </div>
+      )}
+
+      {/* Fullscreen disk virus badge */}
+      {diskInfected && virusGlitchVariant && (
+        <div className={`absolute top-4 right-4 z-30 flex items-center gap-1.5 px-2 py-1 rounded text-[9px] font-mono tracking-wider pointer-events-none ${
+          virusGlitchVariant === "corruption" || virusGlitchVariant === "crash"
+            ? 'bg-[#ef4444]/20 border border-[#ef4444]/60 text-[#ef4444] animate-pulse'
+            : 'bg-[#fb923c]/15 border border-[#fb923c]/40 text-[#fb923c]'
+        }`}>
+          <AlertTriangle className="w-3 h-3" />
+          <span className="font-extrabold">
+            {virusStrainName ?? 'DISK VIRUS'}
+          </span>
+          <span className="opacity-70">
+            · {virusGlitchVariant.replace(/_/g, ' ').toUpperCase()}
+          </span>
         </div>
       )}
     </div>

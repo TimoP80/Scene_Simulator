@@ -1442,6 +1442,91 @@ export const BBS_RANDOM_EVENTS: BBSRandomEvent[] = [
  * Pre-defined vocabulary mutations for the BBS information-distortion engine.
  * Kept here so it lives next to the other BBS message pools.
  */
+// ============================================================================
+// 13. Virus debate thread generator
+// ============================================================================
+
+/**
+ * Generate a BBS thread about a recent virus outbreak, where NPCs debate
+ * whether antivirus software is "scene" or not. The player can respond to
+ * gain reputation or research points.
+ *
+ * Called reactively when a virus is detected during compilation, not seeded.
+ */
+export function generateVirusDebateThread(
+  playerGroupName: string,
+  strainName: string,
+  currentYear: number,
+  currentMonth: number,
+): BBSThread {
+  const threadId = `thread_virus_${currentYear}_${currentMonth}_${Date.now()}`;
+
+  return {
+    id: threadId,
+    board: "SCENE_RUMORS",
+    topic: `ALERT: ${strainName.toUpperCase()} VIRUS OUTBREAK — IS ANTIVIRUS SOFTWARE 'SCENE' OR NOT?`,
+    year: currentYear,
+    month: currentMonth,
+    actorId: "unreal_coder",
+    messages: [
+      {
+        sender: "ByteWizard",
+        text: `The ${strainName} virus is spreading through every swap disk at the last copy party. Three groups have lost their entire production pipelines. This is getting out of hand.`,
+        color: NPC_COLORS["ByteWizard"],
+      },
+      {
+        sender: "FlameAlchemist",
+        text: "Antivirus software? Might as well run Windows. Real sceners know how to handle their disks. Write your own boot-block checker in assembly like a real coder.",
+        color: NPC_COLORS["FlameAlchemist"],
+      },
+      {
+        sender: "DemosceneHistorian",
+        text: "For context, the SCA bootblock virus from Switzerland infected over 70% of all Amiga floppies in Europe by 1991. Thinking antivirus is 'unscene' is how we got here in the first place. The scene needs sanitation tools, not machismo.",
+        color: NPC_COLORS["DemosceneHistorian"],
+      },
+      {
+        sender: "CrashOverride",
+        text: "LOL. You think a virus scanner is going to save your demo? If your code can't survive on an infected disk, it wasn't hardcore enough. Let the viruses come I say. Survival of the fittest.",
+        color: NPC_COLORS["CrashOverride"],
+      },
+      {
+        sender: "SysOp42",
+        text: "[MODERATION NOTICE]: This thread is being monitored. Keep discussion civil. That said — three nodes have reported corrupted archives this week alone. The virus is real whether you believe in scanners or not.",
+        color: NPC_COLORS["SysOp42"],
+      },
+    ],
+    interacted: false,
+    playerActionTaken: null,
+    dramaFinished: false,
+    choices: [
+      {
+        text: "Antivirus is essential scene infrastructure. Write it in asm, distribute it on BBS nodes — it's the most scene thing you can do.",
+        type: "support_av",
+        effectDescription: "+10 Reputation (scenesters appreciate your pragmatism), +15 Research Points (ideas for write-protect discipline)",
+      },
+      {
+        text: "Real coders don't need scanners. If your disk hygiene is good, you don't catch viruses. Stop being lazy.",
+        type: "flame_av",
+        effectDescription: "+15 Reputation (traditionalists applaud your hardcore stance)",
+      },
+      {
+        text: `I'll research antivirus techniques for ${playerGroupName}. We'll release a free boot-block checker to the scene.`,
+        type: "research_av",
+        effectDescription: "+25 Research Points (unlock antivirus scanning faster), +5 Reputation",
+      },
+    ],
+    infoType: "rumor",
+    credibilityScore: 70,
+    propagationSpeed: 90,
+    distortionRate: 30,
+    influenceWeight: 75,
+    viralSpreadRank: 3,
+    isSuppressed: false,
+    originalTopic: `ALERT: ${strainName.toUpperCase()} VIRUS OUTBREAK — IS ANTIVIRUS SOFTWARE 'SCENE' OR NOT?`,
+    mutationCount: 0,
+  };
+}
+
 export const BBS_MUTATIONS: Array<(text: string) => string> = [
   (t) => t.replace(/RUMORED/g, "CONFIRMED"),
   (t) => t.replace(/PLAGIARIZE/g, "STEAL"),

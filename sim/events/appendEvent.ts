@@ -69,6 +69,7 @@ import type {
   HardwareCategory,
   IncomeSource,
   Production,
+  ReputationVector,
   SceneMagazine,
   TravelSubscriptionTier,
 } from "@packages/types";
@@ -246,6 +247,8 @@ export const emit = {
       amount,
       distanceKind,
     }),
+  reputationVectorChanged: (delta: Partial<ReputationVector>, reason: string) =>
+    appendEvent({ type: "ReputationVectorChanged", ts: currentTick, delta, reason }),
   travelSubscriptionChanged: (tier: TravelSubscriptionTier, monthlyFee: number) =>
     appendEvent({
       type: "TravelSubscriptionChanged",

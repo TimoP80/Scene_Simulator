@@ -30,6 +30,10 @@ import {
   type SceneMagazine,
   type SocialEdge,
   type SocialNode,
+  type ReputationVector,
+  DEFAULT_REPUTATION_VECTOR,
+  applyReputationDelta,
+  reputationVectorToLegacy,
 } from "@packages/types";
 import type { SimEvent } from "../events/eventTypes";
 
@@ -44,7 +48,18 @@ export interface WorldState {
   };
   player: {
     money: number;
+    /**
+     * Legacy scalar reputation (0-1000). Kept as the arithmetic mean of
+     * `reputationVector` for backward compatibility. New code should read
+     * the vector and write to it via `ReputationVectorChanged` events.
+     */
     reputation: number;
+    /**
+     * Multi-dimensional reputation vector (v0.6.0). Each axis 0-1000.
+     * The legacy `reputation` field is automatically derived as the mean
+     * of all eight axes when a `ReputationVectorChanged` event is reduced.
+     */
+    reputationVector: ReputationVector;
     researchPoints: number;
     handle: string;
     groupName: string;
@@ -143,6 +158,7 @@ export function emptyWorldState(): WorldState {
       // doc-comment for the cross-cutting rationale.
       money: 250,
       reputation: 20,
+      reputationVector: { ...DEFAULT_REPUTATION_VECTOR },
       researchPoints: 30,
       handle: "AssemblyKid",
       // Bootstrap default applied ONLY for the brief seed window BEFORE
@@ -248,6 +264,18 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
           reputation: Math.max(0, Math.min(1000, state.player.reputation + event.delta)),
         },
       };
+    case "ReputationVectorChanged": {
+      const nextVector = applyReputationDelta(state.player.reputationVector, event.delta);
+      const nextLegacy = reputationVectorToLegacy(nextVector);
+      return {
+        ...state,
+        player: {
+          ...state.player,
+          reputationVector: nextVector,
+          reputation: nextLegacy,
+        },
+      };
+    }
     case "ResearchPointsChanged":
       return {
         ...state,

@@ -15,6 +15,7 @@ import type {
   PartyEvent,
   PlatformId,
   Production,
+  ReputationVector,
   SceneMagazine,
   SocialEdge,
   SocialNode,
@@ -187,6 +188,20 @@ export interface BbsThreadMutatedEvent extends BaseEvent {
   viralRank: number;
 }
 
+// --- Multi-dimensional reputation (v0.6.0) ---------------------------------
+
+/**
+ * Partial delta applied to the player's multi-dimensional reputation vector.
+ * Only the axes in `delta` are modified; unspecified axes keep their current
+ * value. The legacy scalar `state.player.reputation` is kept in sync as the
+ * arithmetic mean of all eight axes (see reducer case).
+ */
+export interface ReputationVectorChangedEvent extends BaseEvent {
+  type: "ReputationVectorChanged";
+  delta: Partial<ReputationVector>;
+  reason: string;
+}
+
 // --- NPC cognitive drift ----------------------------------------------------
 
 export interface NpcMemoryTransformedEvent extends BaseEvent {
@@ -333,6 +348,7 @@ export type SimEvent =
   | TravelExpensePaidEvent
   | SoftwarePurchasedEvent
   | PartyPrizeAwardedEvent
+  | ReputationVectorChangedEvent
   | TravelSubscriptionChangedEvent;
 
 /** Narrow event types for a given `type` discriminator. */

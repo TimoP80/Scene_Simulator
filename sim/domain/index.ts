@@ -24,3 +24,12 @@ export * from "./economy";
 
 // ---- Demo scoring engine (v2) ----
 export * from "./scoring";
+
+// ---- Multi-dimensional reputation (v0.6.0) ----
+export * from "./reputation";
+
+// ---- Reactive technology tree (v0.6.0 Phase 1b) ----
+export * from "./technology";
+
+// ---- Amiga disk virus subsystem ----
+export * from "./virus";

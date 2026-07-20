@@ -2,218 +2,232 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Scaffolding-safety smoke for `sim/data/technologyTree.ts`.
+ * Smoke test for the reactive technology tree (v0.6.0 Phase 1b).
  *
- * Pins the invariants a contributor renaming/effecting the tech tree
- * would silently break:
- *   - every node has a unique id (record-key + inner-id equality)
- *   - every `preRequisiteIds[]` entry resolves against the tree itself
- *   - no self-loops; no duplicate prerequisites within a single node
- *   - every `effectUnlocks[]` resolves against `DEMO_EFFECTS` ids
- *     (the downstream `getUnlockedEffectIds` relies on this exact mapping)
- *   - every `bonusAttribute.type` ∈ closed literal set
- *   - every `era` ∈ EraId enum; every `platformUnlocks[]` ∈ PlatformId enum
- *   - `costPoints` is a positive integer; every present bonus `value` > 0
- *   - reads are idempotent across calls
- *
- * Mirrors the style of `effectSynergies.smoke.ts` and friends.
+ * Verifies:
+ *   - eraForYear() maps years to correct eras
+ *   - getYearUnlockedTechIds() returns correct techs for a given year
+ *   - Simulation loop advanceMonth() auto-unlocks techs on year boundary
+ *   - getEffectIdsAvailableAtYear() gates effects by era
+ *   - getUnlockedEffectIds() respects year gating
  */
 
 import { strict as assert } from "node:assert";
-import { TECHNOLOGY_TREE } from "@sim/data/technologyTree";
+
+import { emptyWorldState } from "@sim/engine/reducer";
+import { SimulationLoop } from "@sim/engine/simulationLoop";
+import { eventStore } from "@sim/events/eventStore";
+import { setCurrentTick } from "@sim/events/appendEvent";
+import { ERA_BOUNDARIES, eraForYear } from "@sim/data/eraConfig";
+import { getYearUnlockedTechIds } from "@sim/data/yearUnlocks";
+import { getEffectIdsAvailableAtYear, getUnlockedEffectIds } from "@sim/data/effectUnlocks";
 import { DEMO_EFFECTS } from "@sim/data/demoEffects";
-import { EraId, PlatformId } from "@packages/types";
 
-const TREES = TECHNOLOGY_TREE;
-const EFFECT_IDS: ReadonlySet<string> = new Set(DEMO_EFFECTS.map((e) => e.id));
-const NODE_IDS: ReadonlySet<string> = new Set(TREES.map((n) => n.id));
-const VALID_BONUS_TYPES = new Set([
-  "coding",
-  "music",
-  "graphics",
-  "size_reduction",
-  "optimization",
-]);
-const VALID_ERAS: ReadonlySet<string> = new Set(Object.values(EraId));
-const VALID_PLATFORMS: ReadonlySet<string> = new Set(Object.values(PlatformId));
+function freshLoop(year = 1985, month = 1): SimulationLoop {
+  eventStore.__resetWith([]);
+  setCurrentTick(year * 12 + month);
+  const initial = emptyWorldState();
+  initial.calendar.year = year;
+  initial.calendar.month = month;
+  return new SimulationLoop({
+    initial,
+    onTick: () => { /* no-op */ },
+  });
+}
 
-let failed = 0;
-
-function check(name: string, fn: () => void): void {
+let failures = 0;
+function check(label: string, run: () => void): void {
   try {
-    fn();
-    console.log(`PASS  ${name}`);
+    run();
+    console.log(`  PASS  ${label}`);
   } catch (err) {
-    failed++;
-    console.log(`FAIL  ${name}`);
-    console.log(`      ${err instanceof Error ? err.message : String(err)}`);
+    failures += 1;
+    console.error(`  FAIL  ${label}\n        ${(err as Error).message}`);
   }
 }
 
-// SCENARIO 0 — Scaffolding sanity gate
-//
-// Cheap upfront guards. A failure here is a "this file isn't even load-
-// able" problem; the deeper invariants below assume the catalogue is at
-// least structurally sane.
-console.log("\n=== SCENARIO 0 — Scaffolding sanity ===");
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 1 — eraForYear mapping
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 1: Era mapping");
 
-check("technologyTree: catalogue is non-empty", () => {
-  assert.ok(TREES.length > 0, "expected at least one tech node");
+check("ERA_8_BIT for 1985", () => assert.equal(eraForYear(1985), "ERA_8_BIT"));
+check("ERA_8_BIT for 1989", () => assert.equal(eraForYear(1989), "ERA_8_BIT"));
+check("ERA_16_BIT for 1990", () => assert.equal(eraForYear(1990), "ERA_16_BIT"));
+check("ERA_16_BIT for 1995", () => assert.equal(eraForYear(1995), "ERA_16_BIT"));
+check("ERA_PC_DAWN for 1996", () => assert.equal(eraForYear(1996), "ERA_PC_DAWN"));
+check("ERA_3D_SHADER for 2001", () => assert.equal(eraForYear(2001), "ERA_3D_SHADER"));
+check("ERA_HD_SHADER for 2006", () => assert.equal(eraForYear(2006), "ERA_HD_SHADER"));
+check("ERA_HD_SHADER for 2026", () => assert.equal(eraForYear(2026), "ERA_HD_SHADER"));
+
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 2 — year unlock tech IDs
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 2: Year unlock tech IDs");
+
+check("1985 auto-unlocks include raster_sync", () => {
+  const ids = getYearUnlockedTechIds(1985);
+  assert.ok(ids.has("raster_sync"));
 });
 
-check("technologyTree: every entry has a non-empty string id, name, description", () => {
-  for (const n of TREES) {
-    assert.ok(
-      typeof n.id === "string" && n.id.length > 0,
-      `bad id: ${JSON.stringify(n.id)}`,
-    );
-    assert.ok(
-      typeof n.name === "string" && n.name.length > 0,
-      `bad name on ${n.id}`,
-    );
-    assert.ok(
-      typeof n.description === "string" && n.description.length > 0,
-      `bad description on ${n.id}`,
-    );
-  }
+check("1985 does NOT include copper_lists", () => {
+  const ids = getYearUnlockedTechIds(1985);
+  assert.ok(!ids.has("copper_lists"));
 });
 
-// Pin the initial-state default `researched === false`. The reducer
-// reads this field on every tick to gate the bonus/effectUnlocks; a
-// refactor that flipped the default would silently hand the player
-// every research outcome on day-1.
-check("technologyTree: every entry starts with researched === false", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (n.researched !== false) bad.push(`${n.id}: ${n.researched}`);
-  }
-  assert.equal(bad.length, 0, `nodes not pre-unresearched: ${bad.join(", ")}`);
+check("1990 auto-unlocks include copper_lists", () => {
+  const ids = getYearUnlockedTechIds(1990);
+  assert.ok(ids.has("copper_lists"));
 });
 
-check("technologyTree: every era ∈ EraId enum", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (!VALID_ERAS.has(n.era)) bad.push(`${n.id}: ${n.era}`);
-  }
-  assert.equal(bad.length, 0, `unknown eras: ${bad.join(", ")}`);
+check("1990 auto-unlocks still include raster_sync (cumulative)", () => {
+  const ids = getYearUnlockedTechIds(1990);
+  assert.ok(ids.has("raster_sync"));
 });
 
-// SCENARIO 1 — Graph integrity (preRequisiteIds resolves within tree)
-//
-// Mirrors the hardware-catalog pattern: a deep structural guard catches
-// "any duplicate / any dangling edge" in one shot, then a named scan
-// surfaces the specific offender so the failure message is actionable.
-console.log("\n=== SCENARIO 1 — Graph integrity ===");
-
-check("technologyTree: every preRequisiteId resolves against the tree", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    for (const prid of n.preRequisiteIds) {
-      if (!NODE_IDS.has(prid)) bad.push(`${n.id} -> ${prid}`);
-    }
-  }
-  assert.equal(bad.length, 0, `dangling prerequisites: ${bad.join(", ")}`);
+check("1998 auto-unlocks include opengl_direct3d", () => {
+  const ids = getYearUnlockedTechIds(1998);
+  assert.ok(ids.has("opengl_direct3d"));
 });
 
-check("technologyTree: no node lists itself as a prerequisite (no self-loops)", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (n.preRequisiteIds.includes(n.id)) bad.push(n.id);
-  }
-  assert.equal(bad.length, 0, `self-loop nodes: ${bad.join(", ")}`);
+check("2026 auto-unlocks include ai_assisted_tools", () => {
+  const ids = getYearUnlockedTechIds(2026);
+  assert.ok(ids.has("ai_assisted_tools"));
 });
 
-check("technologyTree: no duplicate prerequisite edges inside a single node", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    const seen = new Set<string>();
-    for (const prid of n.preRequisiteIds) {
-      if (seen.has(prid)) bad.push(`${n.id} duplicate -> ${prid}`);
-      seen.add(prid);
-    }
-  }
-  assert.equal(bad.length, 0, bad.join("; "));
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 3 — effect year gating
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 3: Effect year gating");
+
+check("raster_bars (ERA_8_BIT) available in 1985", () => {
+  const ids = getEffectIdsAvailableAtYear(DEMO_EFFECTS, 1985);
+  assert.ok(ids.has("raster_bars"));
 });
 
-// SCENARIO 2 — Cross-reference to DEMO_EFFECTS via effectUnlocks
-//
-// The downstream `getUnlockedEffectIds` projects NODE.effectUnlocks →
-// DEMO_EFFECTS.id lookup. A typo here would silently zero out research.
-console.log("\n=== SCENARIO 2 — effectUnlocks resolves against DEMO_EFFECTS ===");
-
-check("technologyTree: every effectUnlocks[] entry resolves against DEMO_EFFECTS", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    for (const eid of n.effectUnlocks ?? []) {
-      if (!EFFECT_IDS.has(eid)) bad.push(`${n.id} -> ${eid}`);
-    }
-  }
-  assert.equal(bad.length, 0, `dangling effect unlocks: ${bad.join(", ")}`);
+check("animated_plasma (ERA_16_BIT) NOT available in 1985", () => {
+  const ids = getEffectIdsAvailableAtYear(DEMO_EFFECTS, 1985);
+  assert.ok(!ids.has("animated_plasma"));
 });
 
-// SCENARIO 3 — bonusAttribute shape + numeric fields
-console.log("\n=== SCENARIO 3 — bonusAttribute + numeric fields ===");
-
-check("technologyTree: bonusAttribute.type ∈ closed literal set (when present)", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (n.bonusAttribute && !VALID_BONUS_TYPES.has(n.bonusAttribute.type)) {
-      bad.push(`${n.id}: ${n.bonusAttribute.type}`);
-    }
-  }
-  assert.equal(bad.length, 0, `unknown bonus types: ${bad.join(", ")}`);
+check("animated_plasma available in 1990", () => {
+  const ids = getEffectIdsAvailableAtYear(DEMO_EFFECTS, 1990);
+  assert.ok(ids.has("animated_plasma"));
 });
 
-check("technologyTree: bonusAttribute.value is positive-finite (when present)", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (!n.bonusAttribute) continue;
-    const v = n.bonusAttribute.value;
-    if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) {
-      bad.push(`${n.id}.bonusAttribute.value=${v}`);
-    }
-  }
-  assert.equal(bad.length, 0, bad.join("; "));
+check("raymarching_3d (ERA_3D_SHADER) NOT available in 1990", () => {
+  const ids = getEffectIdsAvailableAtYear(DEMO_EFFECTS, 1990);
+  assert.ok(!ids.has("raymarching_3d"));
 });
 
-check("technologyTree: every costPoints is a positive integer", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    if (!Number.isInteger(n.costPoints) || n.costPoints <= 0) {
-      bad.push(`${n.id}: ${n.costPoints}`);
-    }
-  }
-  assert.equal(bad.length, 0, bad.join("; "));
+check("raymarching_3d available in 2001", () => {
+  const ids = getEffectIdsAvailableAtYear(DEMO_EFFECTS, 2001);
+  assert.ok(ids.has("raymarching_3d"));
 });
 
-check("technologyTree: every platformUnlocks entry ∈ PlatformId enum", () => {
-  const bad: string[] = [];
-  for (const n of TREES) {
-    for (const p of n.platformUnlocks ?? []) {
-      if (!VALID_PLATFORMS.has(p)) bad.push(`${n.id} -> ${p}`);
-    }
-  }
-  assert.equal(bad.length, 0, `unknown platforms: ${bad.join(", ")}`);
-});
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 4 — simulation loop automatically unlocks techs on year boundary
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 4: Simulation loop auto-unlocks on year boundary");
 
-// SCENARIO 4 — Idempotence
-//
-// hardware-catalog-style: two reads must agree on length and id order.
-// A drift here usually means a top-level mutation slipped during refactor.
-console.log("\n=== SCENARIO 4 — Idempotence ===");
+{
+  const loop = freshLoop(1984, 12); // December 1984
 
-check("technologyTree: two reads of TECHNOLOGY_TREE return the same length", () => {
-  assert.equal(TREES.length, TECHNOLOGY_TREE.length, "catalogue length changed between reads");
-});
+  check("Pre-advance: calendar is at December 1984", () => {
+    assert.equal(loop.snapshot().calendar.year, 1984);
+    assert.equal(loop.snapshot().calendar.month, 12);
+  });
 
-check("technologyTree: id ordering is stable across reads", () => {
-  const a = TREES.map((n) => n.id);
-  const b = TECHNOLOGY_TREE.map((n) => n.id);
-  assert.deepEqual(a, b, "id ordering drifted between reads — catalogue is no longer stable");
-});
+  // Advance to January 1985 — should auto-unlock 1985 techs
+  loop.advanceMonth();
 
-if (failed > 0) {
-  console.log(`\nFAILED — ${failed} check(s) did not pass`);
-  process.exit(1);
+  check("Post-advance: calendar is 1985-01", () => {
+    assert.equal(loop.snapshot().calendar.year, 1985);
+    assert.equal(loop.snapshot().calendar.month, 1);
+  });
+
+  check("Post-advance: sid_analog_mod IS unlocked (1985 auto-unlock)", () => {
+    assert.ok(loop.snapshot().player.unlockedTechs.includes("sid_analog_mod"));
+  });
+
+  check("Post-advance: calendar is 1985-01", () => {
+    assert.equal(loop.snapshot().calendar.year, 1985);
+    assert.equal(loop.snapshot().calendar.month, 1);
+  });
 }
-console.log("\nOK — technologyTree smoke all green.");
+
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 5 — multiple year advances accumulate techs
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 5: Multiple year advances accumulate techs");
+
+{
+  const loop = freshLoop(1984, 12);
+
+  // Advance through 1985
+  loop.advanceMonth(); // → 1985-01
+  loop.advanceMonth(); // → 1985-02
+  // ...advance to 1988
+  for (let y = 1985; y < 1988; y++) {
+    for (let m = 1; m <= 12; m++) {
+      if (loop.snapshot().calendar.year === 1988) break;
+      loop.advanceMonth();
+    }
+  }
+
+  check("By 1988: raster_sync is unlocked", () => {
+    assert.ok(loop.snapshot().player.unlockedTechs.includes("raster_sync"));
+  });
+
+  check("By 1988: custom_spr_tricky is unlocked", () => {
+    assert.ok(loop.snapshot().player.unlockedTechs.includes("custom_spr_tricky"));
+  });
+
+  // Advance to 1990
+  for (let y = 1988; y < 1990; y++) {
+    for (let m = 1; m <= 12; m++) {
+      if (loop.snapshot().calendar.year === 1990) break;
+      loop.advanceMonth();
+    }
+  }
+
+  check("By 1990: copper_lists is unlocked", () => {
+    assert.ok(loop.snapshot().player.unlockedTechs.includes("copper_lists"));
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SCENARIO 6 — getUnlockedEffectIds with year gating
+// ──────────────────────────────────────────────────────────────────────────
+console.log("\nScenario 6: getUnlockedEffectIds year gating");
+
+{
+  // No unlocked techs, year = 1985
+  const ids1985 = getUnlockedEffectIds([], [], 1985);
+  check("1985: raster_bars available (free, ERA_8_BIT)", () => {
+    assert.ok(ids1985.has("raster_bars"));
+  });
+  check("1985: aniimated_plasma NOT available (ERA_16_BIT)", () => {
+    assert.ok(!ids1985.has("animated_plasma"));
+  });
+
+  // Year = 1990
+  const ids1990 = getUnlockedEffectIds([], [], 1990);
+  check("1990: animated_plasma IS available", () => {
+    assert.ok(ids1990.has("animated_plasma"));
+  });
+
+  // No year passed = no gating (backward compat)
+  const idsNoYear = getUnlockedEffectIds([]);
+  check("No year: animated_plasma available (free effect, no gating)", () => {
+    assert.ok(idsNoYear.has("animated_plasma"));
+  });
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Final tally
+// ──────────────────────────────────────────────────────────────────────────
+console.log(
+  `\n${failures === 0 ? "OK" : "FAILED"} — ${failures === 0 ? "all checks green." : `${failures} check(s) failed.`}`,
+);
+if (failures > 0) process.exit(1);

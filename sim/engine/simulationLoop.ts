@@ -21,6 +21,8 @@ import {
   getCurrentTick,
   type EventDraft,
 } from "../events/appendEvent";
+import { getYearUnlockedTechIds } from "../data/yearUnlocks";
+import { TECHNOLOGY_TREE } from "../data/technologyTree";
 
 export interface SimulationLoopOptions {
   initial: WorldState;
@@ -37,12 +39,33 @@ export class SimulationLoop {
   private ticking = false;
   /** StrictMode / double-interval defense. */
   private firedThisInterval = false;
+  /** External listeners notified on every state change. */
+  private listeners = new Set<() => void>();
 
   constructor(opts: SimulationLoopOptions) {
     this.state = opts.initial;
     this.intervalMs = opts.intervalMs ?? 1000;
     this.onTick = opts.onTick;
     setCurrentTick(this.state.calendar.year * 12 + this.state.calendar.month);
+  }
+
+  /**
+   * Subscribe to state changes. Returns an unsubscribe function.
+   * Called on every dispatch and advanceMonth — NOT on passive tickOnce.
+   * Used by useSyncExternalStore in the UI layer.
+   */
+  subscribe(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  /** Notify all external listeners that state changed. */
+  private notify(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
   }
 
   start(): void {
@@ -74,10 +97,19 @@ export class SimulationLoop {
     const evt = appendEvent(draft);
     this.state = reduce(this.state, evt);
     this.onTick(this.state);
+    this.notify();
     return this.state;
   }
 
   snapshot(): WorldState {
+    return this.state;
+  }
+
+  /**
+   * Return the current snapshot (same object ref until state changes).
+   * Safe to pass to useSyncExternalStore's getSnapshot.
+   */
+  getState(): WorldState {
     return this.state;
   }
 
@@ -94,7 +126,30 @@ export class SimulationLoop {
     const evt = emit.monthAdvanced(prevY, prevM, nextY, nextM);
     setCurrentTick(nextY * 12 + nextM);
     this.state = reduce(this.state, evt);
+
+    // ---- Auto-unlock techs when a year boundary is crossed (Dec → Jan) ----
+    if (prevY !== nextY) {
+      const unlockedSet = new Set(this.state.player.unlockedTechs);
+      const yearAutoUnlocks = getYearUnlockedTechIds(nextY);
+
+      for (const techId of yearAutoUnlocks) {
+        if (unlockedSet.has(techId)) continue;
+        // Only auto-unlock techs that actually exist in the tree
+        const tech = TECHNOLOGY_TREE.find((t) => t.id === techId);
+        if (!tech) continue;
+        // Dispatch TechResearched for each eligible tech
+        const techEvt = appendEvent({
+          type: "TechResearched",
+          ts: getCurrentTick(),
+          techId,
+        });
+        this.state = reduce(this.state, techEvt);
+        unlockedSet.add(techId);
+      }
+    }
+
     this.onTick(this.state);
+    this.notify();
     return this.state;
   }
 

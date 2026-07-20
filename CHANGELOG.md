@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-20
+
+### Added
+- **Custom shader system** — A full expression-based shader DSL with tokenizer, recursive-descent parser, and Canvas2D runtime. Users write procedural effects in a code editor (`ShaderEditor.tsx`) with live canvas preview, compile error display, and save/delete/toggle management. Built-in example gallery (plasma wave, tunnel effect). DSL supports variables, math functions (sin/cos/sqrt/pow/atan2), color helpers (rgba/hsla/#hex), drawing commands (fillRect/fillCircle/setPixel/fillGradient/clear), loops, if/else, RNG with seedable mulberry32 PRNG, and runtime safety limits. Custom shaders render in both the inline CRT and fullscreen portal overlay (`DemoScreen.tsx`), and appear as toggleable cards in the DemoStudio effect grid alongside built-in effects.
+- **Full tab decomposition — all 13 tabs extracted from App.tsx into `src/pages/`** — The monolithic App.tsx (~5,930 lines) was decomposed into 13 standalone page components: `WorkspaceTab`, `CrewTab`, `ResearchTab`, `PartyTab`, `ScenariosTab`, `NewsTab`, `BbsTab`, plus lazy-loaded `SocialGraphTab`, `GddViewer`, `EconomyPanel`, `HallOfFamePanel`, `StatsDashboard`, `ProductionTimeline`. An `ActiveTabRouter` switch function handles all routing. Each page component has an explicit props interface documenting its dependencies. App.tsx reduced to ~4,880 lines (-18%). Barrel file `src/pages/index.ts` provides a single import surface.
+- **Multi-dimensional reputation system (Phase 1a)** — `packages/types/src/reputation.ts` defines a `ReputationVector` type with 7 axes (technical, artistic, music, graphics, party popularity, scene respect, oldschool credibility). New `ReputationChanged` event variant and reducer case. Domain helpers for reputation diffusion and decay (pure functions, no React/DOM).
+- **Reactive technology tree (Phase 1b)** — Effects unlock automatically as the calendar advances. `sim/data/yearUnlocks.ts` pre-computes a year-to-unlocked-techs map. `sim/data/eraConfig.ts` defines era boundaries (8-bit 1985→1990, 16-bit 1990→1996, PC Dawn 1996→2001, 3D Shader 2001→2006, HD Shader 2006→2026). `sim/domain/technology.ts` provides `getEffectIdsAvailableAtYear`. The `effectUnlocks.ts` cache was optimized to O(1) via a pre-computed year→effects module-level map. `TechnologyForecast.tsx` renders year milestones, unlocked/upcoming techs, and era boundaries as a panel.
+- **Simulation loop hooks** — `SimulationLoopContext.tsx` and `useSimulationSelector.ts` provide slice-level reactive reads from `loop.snapshot()`, enabling incremental migration from `useState` to event-sourced world state.
+- **Disk virus subsystem** — `sim/domain/virus.ts` adds Amiga disk virus mechanics with random infection on compilation, visual manifestations (glitch, scrolltext, boot message, crash, corruption), and BBS discussion threads about outbreaks. 
+- **AI image generation (`src/ai/imageGenerator.ts`)** — Integration with Gemini 2.0 Flash API to generate slide images for ArtSlide productions. Toggle in DemoStudio triggers per-slide generation with progress tracking.
+- **BBS virus debate threads** — `sim/data/bbsMessages.ts` extended with `generateVirusDebateThread` and interactive reply options that let players gain reputation or research points by responding to NPC arguments about antivirus software being "scene" or not.
+
+### Changed
+- **`package.json`** — bumped `0.5.1` → `0.6.0`.
+- **`src/App.tsx`** — ~1,045 lines of inline JSX removed as 13 tabs were extracted to page components. `renderTabContent` switch function handles all routing. State management for custom shaders (save/delete/toggle) and AI image generation added. DemoScreen receives `customShaders` and `mergedActiveEffects` props.
+- **`src/components/DemoScreen.tsx`** — `paintDemoFrame` now accepts a `compiledShaders` map and renders custom shaders per frame. Both inline and fullscreen CRT views compile and render custom shaders. HUD displays custom shader count.
+- **`src/components/DemoStudio.tsx`** — Custom shader section added to the effect grid with toggleable shader cards, complexity/visual impact readouts, and "EDIT IN SHADER EDITOR" links. New `onOpenShaderEditor` prop.
+- **`sim/data/effectUnlocks.ts`** — `getEffectIdsAvailableAtYear` optimized from O(n) to O(1) via a pre-computed year→effects module-level map cache.
+- **`sim/domain/index.ts`** — barrel exports updated for reputation, technology, and virus modules.
+- **`sim/data/index.ts`** — barrel exports updated for eraConfig, yearUnlocks, and effectUnlocks helpers.
+- **`vite.config.ts`** — resolved `@sim` alias path, removed stale `tmp/` file references.
+
+### Added (cont.)
+- **New files:**
+  - `packages/types/src/shader.ts` — CustomShader type definition
+  - `sim/utils/shaderEngine.ts` — Full DSL interpreter (tokenizer, parser, compiler, Canvas2D runtime)
+  - `sim/utils/index.ts` — Barrel export for shader engine
+  - `src/components/ShaderEditor.tsx` — Code editor with live preview, save/delete/toggle, example gallery
+  - `src/components/TechnologyForecast.tsx` — Year milestone forecast panel
+  - `src/hooks/SimulationLoopContext.tsx` — React context for simulation loop
+  - `src/hooks/useSimulationSelector.ts` — Slice-level reactive selector hook
+  - `src/pages/index.ts` — Barrel file exporting all 13 page components
+  - `src/pages/WorkspaceTab.tsx`, `CrewTab.tsx`, `ResearchTab.tsx`, `PartyTab.tsx`, `ScenariosTab.tsx`, `NewsTab.tsx`, `BbsTab.tsx` — Extracted page components
+  - `sim/data/eraConfig.ts` — Era boundary configuration
+  - `sim/data/yearUnlocks.ts` — Year-to-tech-unlock map
+  - `sim/domain/reputation.ts` — Multi-dimensional reputation helpers
+  - `sim/domain/technology.ts` — Reactive technology helpers
+  - `sim/domain/virus.ts` — Disk virus subsystem
+  - `sim/__tests__/reputation.smoke.ts` — Reputation smoke tests
+  - `src/ai/imageGenerator.ts` — Gemini AI image generation
+
 ## [0.5.1] - 2026-07-19
 
 ### Added

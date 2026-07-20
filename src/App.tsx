@@ -62,6 +62,7 @@ import {
   VOICE_PROFILES,
   getSeedThreads,
   generateFollowedReply,
+  generateVirusDebateThread,
   colorForHandle,
   type BBSBoard,
   ARTISTIC_DIRECTION_DEFS,
@@ -72,12 +73,16 @@ import {
   rivalFocusFor,
   generateDemoSummary,
   compatibleEffects,
+  rollVirusInfection,
+  type VirusOutcome,
 } from "@sim/domain";
-import GddViewer from "./components/GddViewer";
 import DemoScreen from "./components/DemoScreen";
-import { generateRandomSlideShowConfig } from "./components/SlideShowRenderer";
-import SocialGraphTab from "./components/SocialGraphTab";
-import EconomyPanel from "./components/EconomyPanel";
+import ShaderEditor from "./components/ShaderEditor";
+import type { CustomShader } from "@packages/types";
+import { WorkspaceTab, CrewTab, ResearchTab, PartyTab, NewsTab, ScenariosTab, BbsTab } from "./pages";
+import { generateRandomSlideShowConfig, generateSlideMetadata } from "./components/SlideShowRenderer";
+import { generateAiSlideImages } from "./ai/imageGenerator";
+import type { AiSlideResult } from "./ai/imageGenerator";
 
 import MainMenu from "./components/MainMenu";
 import DemoBudgetMeter from "./components/DemoBudgetMeter";
@@ -96,13 +101,20 @@ import { emptyWorldState } from "@sim/engine/reducer";
 import { getCurrentTick } from "@sim/events/appendEvent";
 import type { SceneEvent } from "@packages/types";
 import SplashScreen, { type SplashMessage } from "./components/SplashScreen";
-// v0.5.0 Competition expansion imports
-import PartyRankingScreen from "./components/PartyRankingScreen";
-import HallOfFamePanel from "./components/HallOfFamePanel";
-import StatsDashboard from "./components/StatsDashboard";
-import ProductionTimeline from "./components/ProductionTimeline";
+import { SimulationLoopProvider } from "./hooks/SimulationLoopContext";
+import { useSimulationSelector } from "./hooks/useSimulationSelector";
+// Lazy-loaded tab panels — loaded on first tab switch, not at boot
 import { useCompetitionSystem } from "./hooks/useCompetitionSystem";
 import type { CompetitionCeremony, HallOfFameEntry, PlayerStatistics, ProductionHistoryRecord } from "@packages/types";
+
+// Lazy declarations (React.lazy + dynamic import)
+const SocialGraphTab = React.lazy(() => import("./components/SocialGraphTab"));
+const GddViewer = React.lazy(() => import("./components/GddViewer"));
+const EconomyPanel = React.lazy(() => import("./components/EconomyPanel"));
+const HallOfFamePanel = React.lazy(() => import("./components/HallOfFamePanel"));
+const StatsDashboard = React.lazy(() => import("./components/StatsDashboard"));
+const ProductionTimeline = React.lazy(() => import("./components/ProductionTimeline"));
+const PartyRankingScreen = React.lazy(() => import("./components/PartyRankingScreen"));
 // SVG/Lucide Icons
 import {
   Wrench,
@@ -435,6 +447,21 @@ export default function App() {
   const [currentMonth, setCurrentMonth] = useState<number>(1); // January (1) to December (12)
   const [playerMoney, setPlayerMoney] = useState<number>(250);
   const [playerReputation, setPlayerReputation] = useState<number>(20); // 0-1000 range
+  // v0.6.0 — WorldState-backed selectors (pilot migration). These read
+  // directly from the SimulationLoop snapshot via useSyncExternalStore.
+  // As more state migrates off useState, these replace their useState
+  // counterparts above.
+  //
+  // KNOWN TRANSITIONAL STATE: The useState mirrors below (currentYear,
+  // playerMoney, playerReputation) are still updated independently and
+  // WILL diverge from wsYear/wsMoney/wsReputation because the useState
+  // values are only synced to WorldState in specific handlers (New Game,
+  // save load), not on every dispatch. This is intentional — the selectors
+  // are the TRUE source of truth, and the useState mirrors will be removed
+  // as each consumer is migrated.
+  const wsYear = useSimulationSelector((s) => s.calendar.year);
+  const wsMoney = useSimulationSelector((s) => s.player.money);
+  const wsReputation = useSimulationSelector((s) => s.player.reputation);
   const [researchPoints, setResearchPoints] = useState<number>(30);
   const [playerHandle, setPlayerHandle] = useState<string>("AssemblyKid");
   const [playerGroupName, setPlayerGroupName] = useState<string>("Tricycle Crews");
@@ -686,6 +713,13 @@ export default function App() {
   const [studioProdType, setStudioProdType] = useState<ProductionType>(ProductionType.Demo);
   const [studioSelectedEffects, setStudioSelectedEffects] = useState<string[]>(["raster_bars", "sine_scroller"]);
 
+  // AI image generation state for Slide Show productions
+  const [useAiImages, setUseAiImages] = useState(false);
+  const [aiSlideImages, setAiSlideImages] = useState<string[]>([]);
+  const [aiImagesLoading, setAiImagesLoading] = useState(false);
+  const [aiImagesError, setAiImagesError] = useState<string | null>(null);
+  const [aiImagesProgress, setAiImagesProgress] = useState(0);
+
   // Effort percentage allocations (sum up to 100)
   const [effortCoding, setEffortCoding] = useState<number>(40);
   const [effortArt, setEffortArt] = useState<number>(30);
@@ -713,6 +747,9 @@ export default function App() {
   // Post-compile summary modal state.
   const [showDemoSummary, setShowDemoSummary] = useState<boolean>(false);
   const [lastDemoSummary, setLastDemoSummary] = useState<DemoSummary | null>(null);
+  // Per-production full summary archive — lets the user view detailed
+  // score reports for any past release from the portfolio list.
+  const [productionSummaries, setProductionSummaries] = useState<Record<string, DemoSummary>>({});
 
   // Compiling process state loader
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
@@ -720,6 +757,11 @@ export default function App() {
   const [compilerLogs, setCompilerLogs] = useState<string[]>([]);
   const [showCompilingOverlay, setShowCompilingOverlay] = useState<boolean>(false);
   const [lastCompiledRelease, setLastCompiledRelease] = useState<Production | null>(null);
+
+  // Disk virus infection state
+  const [lastVirusOutcome, setLastVirusOutcome] = useState<VirusOutcome | null>(null);
+  const [diskInfected, setDiskInfected] = useState<boolean>(false);
+  const [currentVirusGlitchVariant, setCurrentVirusGlitchVariant] = useState<string | null>(null);
 
   // Active screen parameters to display on the CRT Monitor Canvas
   const [crtActiveEffects, setCrtActiveEffects] = useState<string[]>(["raster_bars", "sine_scroller"]);
@@ -1013,6 +1055,38 @@ export default function App() {
     });
   }, [playerGroupName]);
 
+  // --------- CUSTOM SHADER STATE ---------
+  const [customShaders, setCustomShaders] = useState<Record<string, CustomShader>>({});
+  const [selectedCustomShaderIds, setSelectedCustomShaderIds] = useState<string[]>([]);
+  const [showShaderEditor, setShowShaderEditor] = useState<boolean>(false);
+
+  const handleSaveShader = useCallback((shader: CustomShader) => {
+    setCustomShaders((prev) => ({ ...prev, [shader.id]: shader }));
+  }, []);
+
+  const handleDeleteShader = useCallback((id: string) => {
+    setCustomShaders((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    setSelectedCustomShaderIds((prev) => prev.filter((sid) => sid !== id));
+  }, []);
+
+  const handleToggleShader = useCallback((id: string) => {
+    setSelectedCustomShaderIds((prev) =>
+      prev.includes(id)
+        ? prev.filter((sid) => sid !== id)
+        : [...prev, id]
+    );
+  }, []);
+
+  // Merge standard effects with custom shader IDs for CRT rendering
+  const mergedActiveEffects = useMemo(
+    () => [...crtActiveEffects, ...selectedCustomShaderIds],
+    [crtActiveEffects, selectedCustomShaderIds]
+  );
+
   // --------- EFFECT GALLERY MODAL STATE ---------
   const [showEffectGallery, setShowEffectGallery] = useState<boolean>(false);
   const [gallerySelectedEffectId, setGallerySelectedEffectId] = useState<string>("raster_bars");
@@ -1022,8 +1096,8 @@ export default function App() {
   const [gallerySearchQuery, setGallerySearchQuery] = useState<string>("");
 
   const unlockedEffectIds = useMemo(
-    () => getUnlockedEffectIds(unlockedTechs),
-    [unlockedTechs]
+    () => getUnlockedEffectIds(unlockedTechs, [], currentYear),
+    [unlockedTechs, currentYear]
   );
 
   const isEffectUnlocked = (effId: string) => unlockedEffectIds.has(effId);
@@ -1056,6 +1130,7 @@ export default function App() {
       const resetNPCs = { ...INITIAL_NPCS };
       setCharacters(resetNPCs);
       setMyReleases({});
+      setProductionSummaries({});
       setCrtActiveEffects(["raster_bars", "sine_scroller"]);
       setCrtDemoName("SINUS WAVES");
       setCrtMusicTrack("");
@@ -1113,6 +1188,7 @@ export default function App() {
         }
       };
       setMyReleases(simulatedReleases);
+      setProductionSummaries({});
 
       // Reset specific NPCs
       const nlist = { ...INITIAL_NPCS };
@@ -1162,6 +1238,7 @@ export default function App() {
       setCharacters(nlist);
 
       setMyReleases({});
+      setProductionSummaries({});
       setCrtActiveEffects(["voxel_hills", "texture_mapper"]);
       setCrtDemoName("VOXELLOID");
       setCrtMusicTrack("");
@@ -1437,7 +1514,69 @@ const ERA_LABELS: Record<string, string> = {
     setEffortArt(60);
     setEffortMusic(10);
     setEffortOptimization(15);
+    // Reset AI image state when generating a new random slideshow
+    setUseAiImages(false);
+    setAiSlideImages([]);
+    setAiImagesError(null);
+    setAiImagesProgress(0);
   }, []);
+
+  // AI image generation toggle — generates slides via Gemini API
+  const handleToggleAiImages = useCallback(async () => {
+    if (useAiImages) {
+      // Toggle OFF: clear AI images and revert to procedural
+      setUseAiImages(false);
+      setAiSlideImages([]);
+      setAiImagesError(null);
+      setAiImagesProgress(0);
+      return;
+    }
+
+    // Toggle ON: verify API key exists first
+    const hasKey = typeof window !== "undefined" && window.electronAPI
+      ? await window.electronAPI.hasApiKey()
+      : false;
+
+    if (!hasKey) {
+      setAiImagesError(
+        "No Gemini API key found. Go to Settings and set your Gemini API key first."
+      );
+      return;
+    }
+
+    // Generate AI images
+    setUseAiImages(true);
+    setAiImagesLoading(true);
+    setAiImagesError(null);
+    setAiImagesProgress(0);
+
+    try {
+      // Build slide metadata from the production name + scene count
+      const slideMetadata = generateSlideMetadata(
+        studioDemoName,
+        studioSceneCount
+      );
+
+      const images = await generateAiSlideImages(
+        studioDemoName,
+        studioSceneCount,
+        slideMetadata.map((s) => s.style),
+        slideMetadata.map((s) => s.title),
+        (current, total) => setAiImagesProgress(current)
+      );
+
+      setAiSlideImages(images.map((img) => img.dataUrl));
+      setAiImagesLoading(false);
+      setAiImagesProgress(0);
+    } catch (err) {
+      setAiImagesError(
+        err instanceof Error ? err.message : "Failed to generate AI images."
+      );
+      setAiImagesLoading(false);
+      setUseAiImages(false);
+      setAiSlideImages([]);
+    }
+  }, [useAiImages, studioDemoName, studioSceneCount]);
 
   // Scene management handlers
   const handleSceneCountChange = useCallback((count: number) => {
@@ -1557,17 +1696,37 @@ const ERA_LABELS: Record<string, string> = {
     setCompilerProgress(0);
     setCompilerLogs([]);
 
+    // Roll for disk virus infection BEFORE compilation
+    const bbsActive = Boolean(
+      bbsDialed || bbsThreads.length > 0
+    );
+    const hasAntivirus = unlockedTechs.includes("antivirus_scanning");
+    const virusOutcome = rollVirusInfection(
+      currentYear,
+      activePlatform,
+      hasAntivirus,
+      studioOptimizationFocus,
+      bbsActive,
+    );
+    setLastVirusOutcome(virusOutcome);
+    setDiskInfected(virusOutcome.infected);
+
     const logLines = [
       `Demoscene Assembler v2.09 loaded.`,
       `Initializing target platform: ${activeRigConfig.name}`,
       `Checking hardware configurations: ${activeRigConfig.graphicsTech}`,
       `Linking sound arrays with chip: ${activeRigConfig.audioTech}`,
       `Assembling code effect elements: ${studioSelectedEffects.join(", ")}`,
+      virusOutcome.infected
+        ? `⚠ DISK VIRUS SCAN: ${virusOutcome.strain?.name ?? "UNKNOWN"} DETECTED!`
+        : `Disk virus scan: clean. No boot-block infections found.`,
       `Injecting lookup table trigonometric offsets...`,
       `Squeezing code size bytes... Level ${studioProdType === ProductionType.Intro4k ? "EXTREME 4K CRANK" : "Standard"}`,
       `Running LZSS Huffman payload final compression...`,
-      `Compiled successfully ! Binary executable built without memory leaks.`
-    ];
+      virusOutcome.infected && !virusOutcome.isBricked
+        ? `⚠ WARNING: Output binary may exhibit ${virusOutcome.manifestationType} symptoms!`
+        : `Compiled successfully ! Binary executable built without memory leaks.`
+    ].filter(Boolean);
 
     let step = 0;
     compileIntervalRef.current = setInterval(() => {
@@ -1577,7 +1736,7 @@ const ERA_LABELS: Record<string, string> = {
             clearInterval(compileIntervalRef.current);
           }
           compileIntervalRef.current = null;
-          finishCompilation();
+          finishCompilation(virusOutcome);
           return 100;
         }
 
@@ -1591,7 +1750,7 @@ const ERA_LABELS: Record<string, string> = {
     }, 180);
   };
 
-  const finishCompilation = () => {
+  const finishCompilation = (virusOutcomeParam?: VirusOutcome | null) => {
     // ---- Expanded scoring engine (v2) ----
     // Resolve the selected effects to their full DemoEffect metadata.
     const resolvedEffects = studioSelectedEffects
@@ -1671,6 +1830,55 @@ const ERA_LABELS: Record<string, string> = {
     // engine output, then build the Production object the rest of
     // App.tsx (social graph, party vote, releases list) consumes.
     let finalOverall = summary.breakdown.overall;
+
+    // ---- DISK VIRUS EFFECTS ----
+    // The virus outcome was determined in triggerAssembleCompiler
+    // and passed through virusOutcomeParam to avoid stale closure.
+    // Apply score penalties, possible bricking, and set glitch variant.
+    const virus = virusOutcomeParam ?? lastVirusOutcome;
+    if (virus?.infected) {
+      if (virus.isBricked) {
+        // Demo is completely bricked — score set to minimum, no reputation gain
+        finalOverall = Math.min(5, Math.floor(finalOverall * 0.1));
+        setCurrentVirusGlitchVariant(virus.manifestationType ?? "corruption");
+      } else {
+        // Apply score penalty
+        finalOverall = Math.max(0, finalOverall - virus.scorePenalty);
+        // Set visual glitch variant for DemoScreen rendering
+        setCurrentVirusGlitchVariant(virus.manifestationType ?? null);
+      }
+
+      // ---- VIRUS BBS DEBATE THREAD ----
+      // Spawn a heated BBS thread about antivirus software and the outbreak.
+      // De-duplication is handled inside the functional updater to avoid
+      // closure staleness from the setInterval callback.
+      setBbsThreads((prev) => {
+        const exists = prev.some((t) => t.id.startsWith("thread_virus_"));
+        if (exists) return prev;
+        const newThread = generateVirusDebateThread(
+          playerGroupName,
+          virus.strain?.name ?? "Unknown",
+          currentYear,
+          currentMonth,
+        );
+        return [newThread, ...prev];
+      });
+      setNewsLog((prev) => [
+        ...prev,
+        {
+          id: `news_virus_bbs_${Date.now()}`,
+          title: "BBS VIRUS OUTBREAK THREAD",
+          year: currentYear,
+          month: currentMonth,
+          headline: `ANTIVIRUS DEBATE EXPLODES AFTER ${(virus.strain?.name ?? "UNKNOWN VIRUS").toUpperCase()} OUTBREAK`,
+          body: `The BBS is on fire. Sceners are arguing whether running antivirus software is "scene" or not after the ${virus.strain?.name ?? "unknown virus"} outbreak. Your production was affected. Join the debate to earn reputation or research points!`,
+          type: "scandal",
+        },
+      ]);
+    } else {
+      setCurrentVirusGlitchVariant(null);
+    }
+
     if (studioProdType === ProductionType.Intro4k && rawSize > 4096) {
       finalOverall = Math.floor(finalOverall * 0.3);
     }
@@ -1715,6 +1923,8 @@ const ERA_LABELS: Record<string, string> = {
     // production so the rest of the pipeline sees the same numbers.
     const summaryWithProd: DemoSummary = { ...summary, production: newProd };
     setLastDemoSummary(summaryWithProd);
+    // Archive the full summary so the user can view it later from the portfolio
+    setProductionSummaries((prev) => ({ ...prev, [newProd.id]: summaryWithProd }));
     setShowDemoSummary(true);
 
     // Save release
@@ -1834,6 +2044,22 @@ const ERA_LABELS: Record<string, string> = {
     };
 
     setNewsLog((prev) => [targetRev, ...prev]);
+
+    // ---- Virus outbreak news ----
+    // If the demo was infected, add a scandalous news item about the
+    // virus outbreak in the scene.
+    if (virus?.infected && virus.strain) {
+      const virusNews: SceneMagazine = {
+        id: `virus_${Date.now()}`,
+        title: "DISK MAG ALERT",
+        year: currentYear,
+        month: currentMonth,
+        headline: `DISK VIRUS OUTBREAK: ${virus.strain.name.toUpperCase()} FOUND IN ${newProd.name.toUpperCase()}!`,
+        body: `Sources report that ${playerGroupName}'s latest release "${newProd.name}" was compiled on an infected floppy disk carrying the ${virus.strain.name} virus. ${virus.isBricked ? "The demo has been completely corrupted and will not boot on real hardware." : virus.scorePenalty > 0 ? `The infection has degraded the demo's quality and it may exhibit ${virus.manifestationType} symptoms during playback.` : "The infection appears to be cosmetic — the demo runs fine but the bootblock is marked. Sceners are advised to scan their disk collections."}`,
+        type: "scandal",
+      };
+      setNewsLog((prev) => [virusNews, ...prev]);
+    }
 
     setIsCompiling(false);
   };
@@ -3345,6 +3571,7 @@ const ERA_LABELS: Record<string, string> = {
         unlockedTechs,
         hiredCrewIds,
         myReleases,
+        productionSummaries,
         researchPoints,
         playerHandle,
         playerGroupName,
@@ -3404,6 +3631,10 @@ const ERA_LABELS: Record<string, string> = {
       setPartyVoteTally({});
       setPartySelectedProdId("");
       setPartyContestLogger([]);
+      // Reset virus infection state on save load
+      setDiskInfected(false);
+      setLastVirusOutcome(null);
+      setCurrentVirusGlitchVariant(null);
       const raw = localStorage.getItem("demoscene_sim_autosave");
       if (!raw) {
         console.warn("No autosaved file slot was discovered in local storage.");
@@ -3420,6 +3651,7 @@ const ERA_LABELS: Record<string, string> = {
       setUnlockedTechs(data.unlockedTechs ?? ["raster_sync"]);
       setHiredCrewIds(data.hiredCrewIds ?? []);
       setMyReleases(data.myReleases ?? {});
+      setProductionSummaries(data.productionSummaries ?? {});
       setResearchPoints(data.researchPoints ?? 30);
       setPlayerHandle(data.playerHandle ?? "AssemblyKid");
       setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
@@ -3471,7 +3703,11 @@ const ERA_LABELS: Record<string, string> = {
 
   // Setup initial load of active save session if existing
   // --------- MAIN-MENU HANDLERS ---------
-  // New Game: dismiss splash and apply the player-supplied identity.
+  // New Game: reset ALL game state to fresh defaults and apply the
+  // player-supplied identity. The hydration useEffect fires on mount
+  // and overwrites defaults with the saved localStorage data, so we
+  // must reset everything here — otherwise the user sees old saved
+  // state (money, year, techs, crew, etc.) after clicking New Game.
   const handleNewGame = (handle: string, groupName: string) => {
     // Event-sourced hydrate (v0.2.0): stamp the player's identity into the
     // append-only event log AND into WorldState.player.* via the reducer
@@ -3494,6 +3730,146 @@ const ERA_LABELS: Record<string, string> = {
     });
     setPlayerHandle(handle);
     setPlayerGroupName(groupName);
+
+    // Reset ALL game state to fresh defaults — otherwise the
+    // mount-time hydration effect's saved data leaks through.
+    setCurrentYear(1985);
+    setCurrentMonth(1);
+    setPlayerMoney(250);
+    setPlayerReputation(20);
+    setResearchPoints(30);
+    setActivePlatform(PlatformId.C64);
+    setOwnedRigs([PlatformId.C64]);
+    setUnlockedTechs(["raster_sync"]);
+    setHiredCrewIds([]);
+    setMyReleases({});
+    setProductionSummaries({});
+    setCharacters(() => {
+      const list = { ...INITIAL_NPCS };
+      Object.keys(list).forEach((key) => {
+        list[key] = ensureCognitive(list[key]);
+      });
+      return list;
+    });
+    // Reset studio state
+    setStudioDemoName("SINUS WAVES");
+    setStudioProdType(ProductionType.Demo);
+    setStudioSelectedEffects(["raster_bars", "sine_scroller"]);
+    setEffortCoding(40);
+    setEffortArt(30);
+    setEffortMusic(20);
+    setEffortOptimization(10);
+    setStudioArtisticDirection("Technical Showcase");
+    setStudioOptimizationFocus("Balanced");
+    setStudioDuration("Medium");
+    setStudioMusicTrackStoredName("");
+    setStudioSceneCount(3);
+    setStudioScenes(generateDefaultScenes(3, ["raster_bars", "sine_scroller"]));
+    // Reset CRT state
+    setCrtActiveEffects(["raster_bars", "sine_scroller"]);
+    setCrtDemoName("SINUS WAVES");
+    setCrtGroupName(groupName);
+    setCrtMusicTrack("");
+    // Reset news log
+    setNewsLog([{
+      id: "news_init",
+      title: "AMIGA WORLD SCENEDESK #01",
+      year: 1985,
+      month: 1,
+      headline: "A NEW ERA DAWNS IN COMPUTING HACKING!",
+      body: "Young computer teenagers across Europe are leaving conventional software houses and organizing underground demogroups.",
+      type: "editorial"
+    }]);
+    // Reset BBS state
+    setBbsDialed(false);
+    setBbsDialing(false);
+    setBbsFilterBoard("all");
+    setBbsSelectedThreadId(null);
+    setBbsThreads(getSeedThreads(groupName));
+    setBbsCustomMessage("");
+    setBbsEffectNotification(null);
+    // Reset party/vote state
+    setActiveParty(null);
+    setIsPartyRunning(false);
+    setPartyStep(0);
+    setPartyRivals([]);
+    setPartyVoteTally({});
+    setPartySelectedProdId("");
+    // Reset virus infection state
+    setDiskInfected(false);
+    setLastVirusOutcome(null);
+    setCurrentVirusGlitchVariant(null);
+    setPartyContestLogger([]);
+    // Reset graph state to fresh seeds (mirrors the useState initializer)
+    setGraphNodes(() => {
+      const nodes: SocialNode[] = [];
+      Object.values(INITIAL_NPCS).forEach((char) => {
+        nodes.push({
+          id: char.id, type: "npc", label: char.handle,
+          groupName: char.groupId || "Freelancer",
+          details: `${char.name} (${char.specialty}). Prefers ${char.preferredPlatform}. Bio: ${char.bio}`
+        });
+      });
+      Object.values(INITIAL_GROUPS).forEach((grp) => {
+        nodes.push({
+          id: grp.id, type: "group", label: grp.name,
+          reputation: grp.reputation,
+          details: `Group: ${grp.name} from ${grp.hqLocation}. Fanbase: ${grp.fanbase}. Motto: "${grp.motto}"`
+        });
+      });
+      nodes.push({
+        id: "player_group", type: "group", label: groupName,
+        reputation: 20,
+        details: `${groupName}, active player demogroup.`
+      });
+      nodes.push({
+        id: "player", type: "npc", label: handle,
+        groupName: "player_group",
+        details: "You! The digital scener coordinate manager."
+      });
+      const tools = [
+        { id: "protracker", label: "Protracker", details: "Classic tracker tool for Amiga music modules (4-channel MOD compositing)." },
+        { id: "fasttracker_ii", label: "FastTracker II", details: "XM format tracker with multi-channel envelope controls." },
+        { id: "turbo_assembler", label: "Turbo Assembler", details: "High speed compiler for byte-perfect assembler routines." },
+        { id: "deluxe_paint", label: "Deluxe Paint IV", details: "Legendary Amiga painting program." },
+        { id: "amiga_blitter", label: "Amiga Blitter Registers", details: "Hardware register commands for real-time raster memory copies." },
+        { id: "sid_chip", label: "SID Chip Hardware", details: "Analog retro voice channels with custom ring modulation." },
+      ];
+      tools.forEach((t) => nodes.push({ id: t.id, type: "tool", label: t.label, details: t.details }));
+      [
+        { id: "second_reality", label: "Second Reality", details: "PC masterpiece by Future Crew (1993)." },
+        { id: "state_of_the_art", label: "State of the Art", details: "Amiga vector animation by Spaceballs (1992)." },
+        { id: "hardwired", label: "Hardwired", details: "Amiga hardware scaling by The Silents (1991)." },
+        { id: "werkzeug", label: "Werkzeug (.fr-08)", details: "64KB procedural shader intro by Farbrausch (2000)." },
+        { id: "panic", label: "Panic", details: "PC 3D flat shaded polygon demo by Future Crew (1992)." }
+      ].forEach((d) => { nodes.push({ id: d.id, type: "demo", label: d.label, details: d.details }); });
+      [
+        { id: "breakpoint", label: "Breakpoint", details: "Famous European Easter demoparty." },
+        { id: "assembly_summer", label: "Assembly Summer", details: "Ultimate hardware arena demoparty in Finland." },
+        { id: "the_party", label: "The Party", details: "Winter scene gathering in Denmark." },
+        { id: "bbs_controversy_1", label: "BBS Split Controversy", details: "Heated BBS forum debate." },
+        { id: "bbs_fc_rumor", label: "BBS Plagiarism Rumor", details: "Whispers about Future Crew's matrix rotation hacks." },
+      ].forEach((e) => { nodes.push({ id: e.id, type: "event", label: e.label, details: e.details }); });
+      return nodes;
+    });
+    setGraphEdges(() => {
+      return [
+        { id: "purple_motion-future_crew", source: "purple_motion", sourceType: "npc", target: "future_crew", targetType: "group", type: "collaboration", weight: 95, details: "Primary composer of Future Crew." },
+        { id: "player_group-future_crew", source: "player_group", sourceType: "group", target: "future_crew", targetType: "group", type: "rivalry", weight: 45, details: "Player's quest to surpass the legends!" },
+        { id: "second_reality-future_crew", source: "second_reality", sourceType: "demo", target: "future_crew", targetType: "group", type: "influence", weight: 99, details: "Released by Future Crew at Assembly 1993." },
+        { id: "assembly_summer-second_reality", source: "assembly_summer", sourceType: "event", target: "second_reality", targetType: "demo", type: "influence", weight: 85, details: "Assembly winner gold release." },
+        { id: "werkzeug-chaos_coder", source: "werkzeug", sourceType: "demo", target: "chaos_coder", targetType: "npc", type: "technical_dependency", weight: 95, details: "Coded in Farbrausch editor." },
+        { id: "skaven-protracker", source: "skaven", sourceType: "npc", target: "protracker", targetType: "tool", type: "inspiration", weight: 85, details: "Learned step envelopes on Amiga trackers." },
+      ];
+    });
+    setGraphStoryLogs([
+      "Y1985 M1: Social Graph Initialization complete! Connected scene nodes and edges.",
+    ]);
+
+    // Clear the autosave so Continue doesn't re-load stale data
+    localStorage.removeItem("demoscene_sim_autosave");
+    setMainMenuSaveInfo(null);
+
     setShowMainMenu(false);
     setSaveNotice(`IDENTITY SET · ${handle.toUpperCase()} OF ${groupName.toUpperCase()}`);
     setTimeout(() => setSaveNotice(""), 2400);
@@ -3520,13 +3896,19 @@ const ERA_LABELS: Record<string, string> = {
     } catch {
       // localStorage unavailable; fall through with splash dismissal.
     }
+    // Reset virus infection state on file load
+    setDiskInfected(false);
+    setLastVirusOutcome(null);
+    setCurrentVirusGlitchVariant(null);
     setShowMainMenu(false);
   };
 
   useEffect(() => {
     const raw = localStorage.getItem("demoscene_sim_autosave");
     if (raw) {
-      // Auto hydrate quietly
+      // Auto hydrate quietly — populates state from localStorage so
+      // Continue just dismisses the menu. ALSO sets mainMenuSaveInfo
+      // so the MainMenu Continue button shows as enabled (hasLocalSave).
       try {
         const data = JSON.parse(raw);
         setPlayerMoney(data.playerMoney ?? 200);
@@ -3538,6 +3920,7 @@ const ERA_LABELS: Record<string, string> = {
         setUnlockedTechs(data.unlockedTechs ?? ["raster_sync"]);
         setHiredCrewIds(data.hiredCrewIds ?? []);
         setMyReleases(data.myReleases ?? {});
+        setProductionSummaries(data.productionSummaries ?? {});
         setResearchPoints(data.researchPoints ?? 30);
         setPlayerHandle(data.playerHandle ?? "AssemblyKid");
         setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
@@ -3547,6 +3930,12 @@ const ERA_LABELS: Record<string, string> = {
           if (nlist[cId]) nlist[cId].groupId = "player";
         });
         setCharacters(nlist);
+
+        // Set mainMenuSaveInfo so the Continue button appears enabled
+        setMainMenuSaveInfo({
+          summary: `${data.playerGroupName || "Tricycle Crews"} · ${data.currentYear || 1985}/${String(data.currentMonth || 1).padStart(2, "0")} · ${data.playerHandle || "AssemblyKid"}`,
+          timestamp: new Date().toISOString(),
+        });
       } catch (e) {
         console.warn("Hydrating failed, using defaults");
       }
@@ -3596,7 +3985,225 @@ const ERA_LABELS: Record<string, string> = {
     );
   }
 
+  // ---- Tab content render function (replaces the 12-way if/else chain) ----
+  function renderTabContent(tab: string): React.ReactNode {
+    switch (tab) {
+      case "workspace":
+        return (
+          <WorkspaceTab
+            activePlatform={activePlatform}
+            setActivePlatform={setActivePlatform}
+            ownedRigs={ownedRigs}
+            buyRig={buyRig}
+            studioDemoName={studioDemoName}
+            setStudioDemoName={setStudioDemoName}
+            studioProdType={studioProdType}
+            setStudioProdType={setStudioProdType}
+            studioDuration={studioDuration}
+            setStudioDuration={setStudioDuration}
+            studioOptimizationFocus={studioOptimizationFocus}
+            setStudioOptimizationFocus={setStudioOptimizationFocus}
+            studioArtisticDirection={studioArtisticDirection}
+            setStudioArtisticDirection={setStudioArtisticDirection}
+            studioMusicTrackStoredName={studioMusicTrackStoredName}
+            setStudioMusicTrackStoredName={setStudioMusicTrackStoredName}
+            studioSelectedEffects={studioSelectedEffects}
+            toggleSelectEffect={toggleSelectEffect}
+            currentYear={currentYear}
+            unlockedTechs={unlockedTechs}
+            combinedCpuDemand={combinedCpuDemand}
+            combinedRamDemand={combinedRamDemand}
+            effortCoding={effortCoding}
+            effortArt={effortArt}
+            effortMusic={effortMusic}
+            effortOptimization={effortOptimization}
+            setEffortCoding={setEffortCoding}
+            setEffortArt={setEffortArt}
+            setEffortMusic={setEffortMusic}
+            setEffortOptimization={setEffortOptimization}
+            studioSceneCount={studioSceneCount}
+            handleSceneCountChange={handleSceneCountChange}
+            studioScenes={studioScenes}
+            handleSceneChange={handleSceneChange}
+            handleRandomSlideShow={handleRandomSlideShow}
+            useAiImages={useAiImages}
+            handleToggleAiImages={handleToggleAiImages}
+            aiImagesLoading={aiImagesLoading}
+            aiImagesError={aiImagesError}
+            aiImagesProgress={aiImagesProgress}
+            triggerAssembleCompiler={triggerAssembleCompiler}
+            setShowPlaylistModal={setShowPlaylistModal}
+            setShowEffectGallery={setShowEffectGallery}
+            customShaders={customShaders}
+            selectedShaderIds={selectedCustomShaderIds}
+            onToggleShader={handleToggleShader}
+            onOpenShaderEditor={() => setShowShaderEditor(true)}
+            myReleases={myReleases}
+            productionSummaries={productionSummaries}
+            setCrtActiveEffects={setCrtActiveEffects}
+            setCrtDemoName={setCrtDemoName}
+            setCrtGroupName={setCrtGroupName}
+            setLastDemoSummary={setLastDemoSummary}
+            setShowDemoSummary={setShowDemoSummary}
+          />
+        );
+      case "crew":
+        return (
+          <CrewTab
+            characters={characters}
+            hiredCrewIds={hiredCrewIds}
+            playerGroupName={playerGroupName}
+            playerHandle={playerHandle}
+            expandedCognitiveNpcId={expandedCognitiveNpcId}
+            setExpandedCognitiveNpcId={setExpandedCognitiveNpcId}
+            hireMember={hireMember}
+            fireMember={fireMember}
+            handleMeltBurnout={handleMeltBurnout}
+            ensureCognitive={ensureCognitive}
+          />
+        );
+      case "research":
+        return (
+          <ResearchTab
+            researchPoints={researchPoints}
+            unlockedTechs={unlockedTechs}
+            researchNode={researchNode}
+          />
+        );
+      case "party":
+        return (
+          <PartyTab
+            isPartyRunning={isPartyRunning}
+            activeParty={activeParty}
+            partyStep={partyStep}
+            partyRivals={partyRivals}
+            partyVoteTally={partyVoteTally}
+            partySelectedProdId={partySelectedProdId}
+            partyContestLogger={partyContestLogger}
+            currentMonth={currentMonth}
+            playerMoney={playerMoney}
+            activePlatform={activePlatform}
+            playerGroupName={playerGroupName}
+            playerReputation={playerReputation}
+            myReleases={myReleases}
+            getMonthName={getMonthName}
+            setActiveParty={setActiveParty}
+            setIsPartyRunning={setIsPartyRunning}
+            setPartyStep={setPartyStep}
+            setPartyVoteTally={setPartyVoteTally}
+            setPartySelectedProdId={setPartySelectedProdId}
+            setPlayerMoney={setPlayerMoney}
+            setPlayerReputation={setPlayerReputation}
+            openPartyPanel={openPartyPanel}
+            startPartyVotingProcess={startPartyVotingProcess}
+            currentYear={currentYear}
+            lastDemoSummary={lastDemoSummary}
+            startCompetition={startCompetition}
+          />
+        );
+      case "news":
+        return (
+          <NewsTab
+            newsLog={newsLog}
+            getMonthName={getMonthName}
+          />
+        );
+      case "scenarios":
+        return (
+          <ScenariosTab
+            loadScenario={loadScenario}
+          />
+        );
+      case "bbs":
+        return (
+          <BbsTab
+            bbsDialed={bbsDialed}
+            bbsDialing={bbsDialing}
+            bbsFilterBoard={bbsFilterBoard}
+            bbsSelectedThreadId={bbsSelectedThreadId}
+            bbsThreads={bbsThreads}
+            bbsCustomMessage={bbsCustomMessage}
+            bbsEffectNotification={bbsEffectNotification}
+            bbsTerminalLogs={bbsTerminalLogs}
+            playerHandle={playerHandle}
+            playerGroupName={playerGroupName}
+            playerReputation={playerReputation}
+            researchPoints={researchPoints}
+            groups={groupsMap}
+            characters={characters}
+            hiredCrewIds={hiredCrewIds}
+            setBbsDialed={setBbsDialed}
+            setBbsDialing={setBbsDialing}
+            setBbsFilterBoard={setBbsFilterBoard}
+            setBbsSelectedThreadId={setBbsSelectedThreadId}
+            setBbsThreads={setBbsThreads}
+            setBbsCustomMessage={setBbsCustomMessage}
+            setBbsEffectNotification={setBbsEffectNotification}
+            setBbsTerminalLogs={setBbsTerminalLogs}
+            setPlayerReputation={setPlayerReputation}
+            setCharacters={setCharacters}
+            setResearchPoints={setResearchPoints}
+            toggleFollowBbsThread={toggleFollowBbsThread}
+          />
+        );
+
+      case "social_graph":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <SocialGraphTab
+              nodes={combinedGraphNodes}
+              edges={combinedGraphEdges}
+              storyLogs={graphStoryLogs}
+              characters={characters}
+              playerHandle={playerHandle}
+              playerGroupName={playerGroupName}
+              onInjectRumor={handleInjectRumorOnGraph}
+              onProposeJointCollab={handleProposeJointCollabOnGraph}
+              onTriggerReputationDiffusion={handleManualReputationDiffusion}
+            />
+          </div>
+        );
+      case "gdd":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <GddViewer />
+          </div>
+        );
+      case "economy":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <EconomyPanel loop={simulationLoopRef.current} />
+          </div>
+        );
+      case "hall_of_fame":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <HallOfFamePanel entries={compHallOfFame} />
+          </div>
+        );
+      case "statistics":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <StatsDashboard
+              stats={compStats}
+              history={compProductionHistory}
+              hallOfFame={compHallOfFame}
+            />
+          </div>
+        );
+      case "timeline":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <ProductionTimeline history={compProductionHistory} />
+          </div>
+        );
+      default:
+        return null;
+    }
+  }
+
     return (
+    <SimulationLoopProvider loop={simulationLoopRef.current!}>
     <div className="min-h-screen bg-[#09090b] text-[#d4d4d8] flex flex-col font-mono text-sm antialiased pb-12 selection:bg-[#22d3ee] selection:text-black">
       {/* Dynamic Header Bar resembling classic tracker layout */}
       <header className="bg-[#2d2d30] border-b border-[#3f3f46] px-4 py-2 flex flex-col lg:flex-row items-center justify-between gap-3 shadow-md">
@@ -3615,7 +4222,7 @@ const ERA_LABELS: Record<string, string> = {
             <span className="flex items-center gap-1">
               <span>DATE:</span>
               <span id="header-calendar-date" className="text-[#22d3ee] font-bold bg-[#1a1b1e] px-1.5 py-0.5 rounded border border-[#3f3f46]">
-                {getMonthName(currentMonth).toUpperCase()} {currentYear}
+                {getMonthName(currentMonth).toUpperCase()} {wsYear}
               </span>
             </span>
             <span className="hidden md:inline text-[#3f3f46]">|</span>
@@ -3628,13 +4235,13 @@ const ERA_LABELS: Record<string, string> = {
           <div className="flex items-center gap-1.5 bg-[#18181b] border border-[#27272a] px-2.5 py-1 rounded">
             <Coins className="w-3.5 h-3.5 text-[#facc15]" />
             <span className="text-[#a1a1aa] font-bold">MONEY:</span>
-            <span id="player-hud-money" className="text-[#22d3ee] font-black">${playerMoney}</span>
+            <span id="player-hud-money" className="text-[#22d3ee] font-black">${wsMoney}</span>
           </div>
 
           <div className="flex items-center gap-1.5 bg-[#18181b] border border-[#27272a] px-2.5 py-1 rounded">
             <Award className="w-3.5 h-3.5 text-[#fb923c]" />
             <span className="text-[#a1a1aa] font-bold">REPUTATION:</span>
-            <span id="player-hud-reputation" className="text-[#ea580c] font-bold">{playerReputation} pts</span>
+            <span id="player-hud-reputation" className="text-[#ea580c] font-bold">{wsReputation} pts</span>
           </div>
 
           <div className="flex items-center gap-1.5 bg-[#18181b] border border-[#27272a] px-2.5 py-1 rounded" title="Research Points represent modular mathematical focus to acquire advanced algorithms">
@@ -3661,9 +4268,10 @@ const ERA_LABELS: Record<string, string> = {
         <div className="lg:col-span-4 flex flex-col gap-6 w-full">
           {/* Main Simulated CRT screen */}
           <DemoScreen
-            effects={crtActiveEffects}
+            effects={mergedActiveEffects}
             demoName={crtDemoName}
             groupName={crtGroupName}
+            customShaders={customShaders}
             productionType={studioProdType}
             musicTrackStoredName={crtMusicTrack}
             audioEnabled={crtAudioEnabled}
@@ -3671,6 +4279,11 @@ const ERA_LABELS: Record<string, string> = {
             onToggleAudio={toggleCrtAudio}
             onTogglePlay={toggleCrtPlay}
             slideCount={studioSceneCount}
+            aiSlideImages={aiSlideImages}
+            useAiImages={useAiImages}
+            diskInfected={diskInfected}
+            virusGlitchVariant={currentVirusGlitchVariant}
+            virusStrainName={lastVirusOutcome?.strain?.name ?? null}
           />
 
           {/* Quick crew stats card */}
@@ -3927,1690 +4540,9 @@ const ERA_LABELS: Record<string, string> = {
                             </button>
           </div>
 
-          {/* TAB 1: WORKSPACE / COMPILER CREATOR STUDIO */}
-          {activeTab === "workspace" && (
-            <div className="space-y-6">
-              {/* Rig / Hardware Config Desk */}
-              <div className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">
-                <div className="flex items-center justify-between border-b border-[#27272a] pb-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <Cpu className="text-[#facc15] w-4 h-4" />
-                    <h3 className="font-bold text-[#d4d4d8] text-xs">WORKSTATION / TARGET RIG CONFIG</h3>
-                  </div>
-                  <span className="text-[10px] text-[#a1a1aa] bg-[#09090b] border border-[#27272a] px-2.5 py-0.5 rounded">
-                    ACTIVE RIG: <strong className="text-[#facc15]">{activePlatform}</strong>
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-                  {Object.values(PlatformId).map((pId) => {
-                    const isOwned = ownedRigs.includes(pId);
-                    const config = HISTORICAL_PLATFORMS[pId];
-                    const isCurrent = activePlatform === pId;
-
-                    return (
-                      <button
-                        key={pId}
-                        id={`shop-rig-${pId}`}
-                        onClick={() => buyRig(pId)}
-                        className={`p-2.5 rounded border text-xs text-left transition relative active:scale-95 flex flex-col justify-between cursor-pointer ${
-                          isCurrent
-                            ? "bg-[#facc15]/10 border-[#facc15] text-[#facc15] shadow-[0_0_12px_rgba(250,204,21,0.06)]"
-                            : isOwned
-                            ? "bg-[#09090b] border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a]"
-                            : "bg-[#09090b]/40 border-[#27272a]/80 text-[#71717a] hover:bg-[#09090b] hover:text-[#a1a1aa]"
-                        }`}
-                      >
-                        <div>
-                          <div className="font-bold flex items-center justify-between">
-                            <span>{config.name}</span>
-                            {isCurrent && <span className="text-[8.5px] bg-[#facc15] text-[#09090b] px-1 rounded font-black font-sans uppercase">LIVE</span>}
-                          </div>
-                          <span className="text-[9px] block text-[#71717a] mt-1">ERA DESIGN: {config.year}</span>
-                        </div>
-
-                        {!isOwned && (
-                          <div className="mt-2 text-[10px] text-[#facc15] font-bold bg-[#facc15]/10 p-0.5 border border-[#facc15]/20 text-center rounded">
-                            BUY (${config.cost})
-                          </div>
-                        )}
-                        {isOwned && !isCurrent && (
-                          <div className="mt-2 text-[10px] text-[#4ade80] font-bold bg-[#4ade80]/10 border border-[#4ade80]/20 p-0.5 text-center rounded">
-                            ACTIVATE
-                          </div>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Selected Platform Stats summary */}
-                <div className="mt-4 bg-[#09090b] border border-[#27272a] rounded p-3 text-xs grid grid-cols-1 md:grid-cols-3 gap-3">
-                  <div>
-                    <span className="text-[#71717a] font-bold block mb-0.5 uppercase text-[9px]">CPU CAP BUDGET:</span>
-                    <p className="text-[#22d3ee] font-bold">{activeRigConfig.cpuLimit} cycles</p>
-                  </div>
-                  <div>
-                    <span className="text-[#71717a] font-bold block mb-0.5 uppercase text-[9px]">RAM SIZE CAP:</span>
-                    <p className="text-[#818cf8] font-bold">{activeRigConfig.ramLimitKb} KB</p>
-                  </div>
-                  <div>
-                    <span className="text-[#71717a] font-bold block mb-0.5 uppercase text-[9px]">GRAPHICS & CHIP AUDIO:</span>
-                    <p className="text-[#d4d4d8] truncate text-[10px]" title={activeRigConfig.graphicsTech}>
-                      {activeRigConfig.graphicsTech} / {activeRigConfig.audioTech}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Compile Demoscene Studio Form */}
-                            {/* Demo creation surface -- extracted to src/components/DemoStudio.tsx (v2.5) */}
-              <DemoStudio
-                productionTitle={studioDemoName}
-                onTitleChange={setStudioDemoName}
-                competitionType={studioProdType}
-                onCompetitionTypeChange={setStudioProdType}
-                activePlatform={activePlatform}
-                setActivePlatform={setActivePlatform}
-                ownedRigs={ownedRigs}
-                duration={studioDuration}
-                onDurationChange={setStudioDuration}
-                optimizationFocus={studioOptimizationFocus}
-                onOptimizationFocusChange={setStudioOptimizationFocus}
-                artisticDirection={studioArtisticDirection}
-                onArtisticDirectionChange={setStudioArtisticDirection}
-                musicTrackStoredName={studioMusicTrackStoredName}
-                onMusicTrackStoredNameChange={setStudioMusicTrackStoredName}
-                selectedEffects={studioSelectedEffects}
-                onToggleSelectEffect={toggleSelectEffect}
-                currentYear={currentYear}
-                unlockedTechs={unlockedTechs}
-                combinedCpuDemand={combinedCpuDemand}
-                combinedRamDemand={combinedRamDemand}
-                platformCpuLimit={activeRigConfig.cpuLimit}
-                platformRamLimitKb={activeRigConfig.ramLimitKb}
-                effortCoding={effortCoding}
-                effortArt={effortArt}
-                effortMusic={effortMusic}
-                effortOptimization={effortOptimization}
-                setEffortCoding={setEffortCoding}
-                setEffortArt={setEffortArt}
-                setEffortMusic={setEffortMusic}
-                setEffortOptimization={setEffortOptimization}
-                sceneCount={studioSceneCount}
-                onSceneCountChange={handleSceneCountChange}
-                demoScenes={studioScenes}
-                onSceneChange={handleSceneChange}
-                onRandomSlideShow={handleRandomSlideShow}
-                onOpenPlaylist={() => setShowPlaylistModal(true)}
-                onOpenEffectGallery={() => setShowEffectGallery(true)}
-                onCompile={triggerAssembleCompiler}
-              />
-
-
-                
-
-              {/* Complete compiled releases archives list */}
-              <div className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">
-                <div className="flex items-center justify-between border-b border-[#27272a] pb-2 mb-3">
-                  <div className="flex items-center gap-2">
-                    <HardDrive className="text-[#22d3ee] w-4 h-4" />
-                    <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Your Compiled Executables Portfolio ({Object.keys(myReleases).length})</h3>
-                  </div>
-                </div>
-
-                {Object.keys(myReleases).length === 0 ? (
-                  <div className="text-center p-6 text-[#71717a] italic text-xs">
-                    No custom computer graphics binary compilations have been found in your storage arrays. Compile your first release above!
-                  </div>
-                ) : (
-                  <div className="divide-y divide-[#27272a]/70">
-                    {(Object.values(myReleases) as Production[]).map((release) => (
-                      <div key={release.id} className="py-2.5 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-bold text-white">"{release.name.toUpperCase()}"</span>
-                            <span className="text-[9px] bg-[#818cf8]/10 px-1.5 py-0.5 rounded text-[#818cf8] border border-[#818cf8]/20 font-bold uppercase tracking-wide">{release.type}</span>
-                            <span className="text-[10px] text-[#a1a1aa] font-bold">{release.platform}</span>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-3 text-[10px] text-[#71717a]">
-                            <span>SIZE: {release.sizeB} Bytes</span>
-                            <span>TECH: {release.scoreTechnical}%</span>
-                            <span>ART: {release.scoreAesthetic}%</span>
-                            <span>AUDIO: {release.scoreAudio}%</span>
-                            <span>OVERALL SCORE: <strong className="text-[#22d3ee] font-bold">{release.totalScore}%</strong></span>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            id={`watch-release-${release.id}`}
-                            onClick={() => {
-                              setCrtActiveEffects(release.effects);
-                              setCrtDemoName(release.name);
-                              setCrtGroupName(release.groupName);
-                              // Smooth scroll up to CRT Monitor
-                              const elm = document.getElementById("retro-demoscreen");
-                              if (elm) elm.scrollIntoView({ behavior: "smooth" });
-                            }}
-                            className="bg-[#818cf8]/10 hover:bg-[#818cf8]/20 text-[#818cf8] px-2.5 py-1 border border-[#818cf8]/30 rounded transition active:scale-95 text-[10px] cursor-pointer font-bold"
-                          >
-                            WATCH ON CRT
-                          </button>
-
-                          {release.placement ? (
-                            <div className="flex items-center gap-1 text-[11px] font-bold text-[#facc15] bg-[#facc15]/10 border border-[#facc15]/30 px-2 py-0.5 rounded">
-                              <Trophy className="w-3 h-3 text-[#facc15]" />
-                              <span>RANK #{release.placement} ({release.partyName})</span>
-                            </div>
-                          ) : (
-                            <span className="text-[10px] text-[#ef4444] bg-[#ef4444]/10 px-1.5 py-0.5 rounded border border-[#ef4444]/20" title="This release has not competed in any demoparties yet">
-                              NO PARTY LAUNCH
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 2: HIRE SCENE NPC AGENTS */}
-          {activeTab === "crew" && (
-            <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b border-[#27272a] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Users className="text-[#facc15] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Underground Freelancers Exchange</h3>
-                </div>
-                <p className="text-[10px] text-[#a1a1aa]">Assemble a balanced combination of assembly coders, pixel stylists, and soundtracker composers.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {(Object.values(characters) as Character[]).map((char) => {
-                  const isHired = hiredCrewIds.includes(char.id);
-                  const isRival = char.groupId !== null && char.groupId !== "player";
-
-                  return (
-                    <div
-                      key={char.id}
-                      id={`recruitment-card-${char.id}`}
-                      className={`p-3.5 rounded border text-xs flex flex-col justify-between transition-all ${
-                        isHired
-                          ? "bg-[#09090b] border-[#4ade80]/60 text-white shadow-[0_0_12px_rgba(74,222,128,0.05)]"
-                          : isRival
-                          ? "bg-[#09090b]/40 border-[#27272a]/50 text-[#71717a]"
-                          : "bg-[#09090b] border-[#27272a] hover:border-[#3f3f46] hover:bg-[#09090b]"
-                      }`}
-                    >
-                      <div>
-                        {/* Title details */}
-                        <div className="flex items-center justify-between border-b border-[#27272a]/70 pb-1.5 mb-2.5">
-                          <div>
-                            <span className="text-[10px] text-[#71717a] block">'{char.name}'</span>
-                            <h4 className="font-bold text-white text-xs flex items-center gap-1.5">
-                              {char.handle.toUpperCase()}
-                              {isHired && <span className="bg-[#4ade80] text-[#09090b] px-1 text-[8.5px] rounded font-black leading-none uppercase">HIRED</span>}
-                            </h4>
-                          </div>
-                          <span className="bg-[#1a1b1e] border border-[#27272a] px-2 py-0.5 rounded text-[10px] font-bold text-[#a1a1aa] uppercase tracking-wide">
-                            {char.specialty}
-                          </span>
-                        </div>
-
-                        <p className="text-[10px] text-[#a1a1aa] italic mb-3 leading-normal">{char.bio}</p>
-
-                        {/* Skill meters */}
-                        <div className="space-y-1.5 mt-2">
-                          <div className="flex items-center justify-between text-[10px] text-[#71717a]">
-                            <span>ASSEMBLER CODING</span>
-                            <span className="font-bold text-[#22d3ee]">{char.skills.coding}/100</span>
-                          </div>
-                          <div className="w-full bg-[#1a1b1e] border border-[#27272a]/80 h-1.5 rounded overflow-hidden">
-                            <div className="bg-[#22d3ee] h-full rounded" style={{ width: `${char.skills.coding}%` }} />
-                          </div>
-
-                          <div className="flex items-center justify-between text-[10px] text-[#71717a] pt-1">
-                            <span>PIXEL GRAPHICS STYLING</span>
-                            <span className="font-bold text-[#fb923c]">{char.skills.graphics}/100</span>
-                          </div>
-                          <div className="w-full bg-[#1a1b1e] border border-[#27272a]/80 h-1.5 rounded overflow-hidden">
-                            <div className="bg-[#fb923c] h-full rounded" style={{ width: `${char.skills.graphics}%` }} />
-                          </div>
-
-                          <div className="flex items-center justify-between text-[10px] text-[#71717a] pt-1">
-                            <span>TRACKER CHIP MUSIC</span>
-                            <span className="font-bold text-[#4ade80]">{char.skills.music}/100</span>
-                          </div>
-                          <div className="w-full bg-[#1a1b1e] border border-[#27272a]/80 h-1.5 rounded overflow-hidden">
-                            <div className="bg-[#4ade80] h-full rounded" style={{ width: `${char.skills.music}%` }} />
-                          </div>
-                        </div>
-
-                        {/* Morale statuses */}
-                        {isHired && (
-                          <div className="mt-3.5 pt-2 border-t border-[#27272a] text-[10px] flex justify-between gap-3 text-[#a1a1aa] font-bold">
-                            <span>MORALE: {char.motivation}/100</span>
-                            <span className={char.burnout > 70 ? "text-[#ef4444] animate-pulse" : ""}>BURNOUT: {char.burnout}/100</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="mt-4 pt-2 border-t border-[#27272a]/70 flex items-center justify-between text-[10px] text-[#71717a]">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span>PREF: <strong className="text-[#a1a1aa]">{char.preferredPlatform}</strong></span>
-                          <button
-                            onClick={() => setExpandedCognitiveNpcId(expandedCognitiveNpcId === char.id ? null : char.id)}
-                            className={`py-0.5 px-1.5 rounded font-black border transition text-[8px] tracking-wide cursor-pointer uppercase ${
-                              expandedCognitiveNpcId === char.id
-                                ? "bg-purple-950/60 border-purple-500/70 text-purple-300 shadow-[0_0_6px_rgba(168,85,247,0.3)]"
-                                : "bg-zinc-900/90 border-zinc-700/60 text-zinc-400 hover:text-zinc-200 hover:border-purple-800"
-                            }`}
-                          >
-                            🧠 COG INTEL
-                          </button>
-                        </div>
-
-                        {isHired ? (
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              id={`fire-member-${char.id}`}
-                              onClick={() => fireMember(char.id)}
-                              className="text-[#ef4444] hover:text-[#ef4444]/90 border border-[#ef4444]/30 hover:border-[#ef4444]/40 bg-[#ef4444]/5 hover:bg-[#ef4444]/15 py-1 px-2 rounded transition cursor-pointer font-bold"
-                            >
-                              DISMISS
-                            </button>
-                            <button
-                              id={`rest-member-${char.id}`}
-                              onClick={() => handleMeltBurnout(char.id)}
-                              className="text-[#4ade80] hover:text-[#4ade80]/90 border border-[#4ade80]/30 hover:border-[#4ade80]/40 bg-[#4ade80]/5 hover:bg-[#4ade80]/15 py-1 px-2 rounded transition cursor-pointer font-bold"
-                              title="Spend $40 to decrease stress and restore energy"
-                            >
-                              REST ($40)
-                            </button>
-                          </div>
-                        ) : isRival ? (
-                          <span className="text-[9px] bg-[#1a1b1e] px-1.5 py-0.5 rounded text-[#71717a] font-bold border border-[#27272a] uppercase tracking-wider">
-                            CREW: {char.groupId?.toUpperCase()}
-                          </span>
-                        ) : (
-                          <button
-                            id={`hire-member-${char.id}`}
-                            onClick={() => hireMember(char.id)}
-                            className="bg-[#22d3ee] hover:bg-[#06b6d4] text-[#09090b] font-extrabold px-3 py-1 rounded transition active:scale-95 cursor-pointer uppercase text-[10px]"
-                          >
-                            RECRUIT (${char.salaryDemand})
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Expanded Cognitive Model Section */}
-                      {expandedCognitiveNpcId === char.id && (() => {
-                        const cog = ensureCognitive(char).cognitive as CognitiveModel;
-                        
-                        // Detect system contradiction alert
-                        // e.g. lower trust but high opinion, or holding negative and positive memories
-                        const containsContradiction = (() => {
-                          const playerOpinion = cog.opinionVectors["player_group"] || 0;
-                          const playerTrust = cog.trustGraph["player"] || 40;
-                          
-                          if (playerOpinion > 50 && playerTrust < 30) return true;
-                          
-                          const hasPos = cog.shortTermMemory.some(m => m.sentiment === "positive") || cog.longTermMemory.some(m => m.sentiment === "positive");
-                          const hasNeg = cog.shortTermMemory.some(m => m.sentiment === "negative") || cog.longTermMemory.some(m => m.sentiment === "negative");
-                          if (hasPos && hasNeg) return true;
-
-                          return false;
-                        })();
-
-                        return (
-                          <div className="mt-3 bg-[#110c1a] border border-[#a855f7]/30 rounded p-3 text-[11px] font-mono select-none shadow-[inset_0_1px_8px_rgba(168,85,247,0.1)]">
-                            <div className="text-[#c084fc] font-bold tracking-widest text-[9px] uppercase mb-2.5 flex items-center justify-between border-b border-[#a855f7]/20 pb-1">
-                              <span>{"<<< COGNITIVE TELEMETRY REPORT >>>"}</span>
-                              <span className="text-purple-500 text-[8.5px] animate-pulse">LIVE NODE</span>
-                            </div>
-
-                            {/* Contradictory Belief Diagnostic Alert */}
-                            {containsContradiction && (
-                              <div className="mb-3 p-2 rounded border border-rose-500/40 bg-rose-950/20 text-rose-300 text-[9px] leading-relaxed">
-                                <span className="font-extrabold block mb-0.5 text-rose-400">⚠️ CONTRADICTORY BELIEF ALERT</span>
-                                Split-consciousness registered. Subject holds high technical admiration ({cog.opinionVectors["player_group"] || 0} Opinion of ${playerGroupName}) while concurrently maintaining suspicious or critical trust level ({cog.trustGraph["player"] || 40} Trust of Player).
-                              </div>
-                            )}
-
-                            {/* Section: Emotional Engines */}
-                            <div className="mb-3 space-y-2">
-                              <span className="text-[#a855f7] font-bold text-[8.5px] uppercase tracking-wider block border-b border-purple-950/70 pb-0.5">I. EMOTIONAL ENGINES</span>
-                              
-                              <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-[9px]">
-                                <div className="space-y-0.5">
-                                  <div className="flex justify-between text-zinc-400">
-                                    <span>BURNOUT</span>
-                                    <span className="text-zinc-200">{char.burnout}%</span>
-                                  </div>
-                                  <div className="w-full bg-[#1b1523] h-1 rounded overflow-hidden">
-                                    <div className="bg-[#f43f5e] h-full" style={{ width: `${char.burnout}%` }} />
-                                  </div>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <div className="flex justify-between text-zinc-400">
-                                    <span>STRESS</span>
-                                    <span className="text-zinc-200">{cog.emotionalState.stress}%</span>
-                                  </div>
-                                  <div className="w-full bg-[#1b1523] h-1 rounded overflow-hidden">
-                                    <div className="bg-[#fb923c] h-full" style={{ width: `${cog.emotionalState.stress}%` }} />
-                                  </div>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <div className="flex justify-between text-zinc-400">
-                                    <span>SCENE HYPE</span>
-                                    <span className="text-zinc-200">{cog.emotionalState.hype}%</span>
-                                  </div>
-                                  <div className="w-full bg-[#1b1523] h-1 rounded overflow-hidden">
-                                    <div className="bg-pink-500 h-full" style={{ width: `${cog.emotionalState.hype}%` }} />
-                                  </div>
-                                </div>
-                                <div className="space-y-0.5">
-                                  <div className="flex justify-between text-zinc-400">
-                                    <span>INSPIRATION</span>
-                                    <span className="text-zinc-200">{cog.emotionalState.inspiration}%</span>
-                                  </div>
-                                  <div className="w-full bg-[#1b1523] h-1 rounded overflow-hidden">
-                                    <div className="bg-[#10b981] h-full" style={{ width: `${cog.emotionalState.inspiration}%` }} />
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Section: Short Term Memories (Decay Queue) */}
-                            <div className="mb-3">
-                              <span className="text-[#a855f7] font-bold text-[8.5px] uppercase tracking-wider block border-b border-purple-950/70 pb-0.5 mb-1.5">II. SHORT-TERM MEMORY CACHE</span>
-                              {cog.shortTermMemory.length === 0 ? (
-                                <p className="text-zinc-600 italic text-[9px] pl-1">No short-term registries written...</p>
-                              ) : (
-                                <div className="space-y-1 max-h-[110px] overflow-y-auto pr-1">
-                                  {cog.shortTermMemory.map((mem) => {
-                                    const isPos = mem.sentiment === "positive";
-                                    const isNeg = mem.sentiment === "negative";
-                                    return (
-                                      <div key={mem.id} className="bg-[#161021] p-1.5 rounded border border-zinc-850 flex flex-col gap-0.5">
-                                        <div className="flex justify-between items-center text-[8px]">
-                                          <span className="text-indigo-400 font-bold">{mem.timestamp}</span>
-                                          <div className="flex items-center gap-1.5">
-                                            <span className={`px-1 rounded text-[7px] uppercase font-bold ${
-                                              isPos ? "bg-emerald-950/50 text-[#34d399]" : isNeg ? "bg-rose-950/50 text-[#f43f5e]" : "bg-zinc-900 border border-zinc-800 text-zinc-400"
-                                            }`}>
-                                              {mem.sentiment}
-                                            </span>
-                                            <span className="text-purple-400/80">STRENGTH: {mem.strength}%</span>
-                                          </div>
-                                        </div>
-                                        <p className="text-zinc-300 text-[8.5px] leading-tight mt-0.5 italic">"{mem.description}"</p>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Section: Long Term Memories */}
-                            <div className="mb-3">
-                              <span className="text-[#a855f7] font-bold text-[8.5px] uppercase tracking-wider block border-b border-purple-950/70 pb-0.5 mb-1.5">III. HISTORIC SCENE LORE</span>
-                              {cog.longTermMemory.length === 0 ? (
-                                <p className="text-zinc-600 italic text-[9px] pl-1">No permanent lore records recorded...</p>
-                              ) : (
-                                <div className="space-y-1 max-h-[110px] overflow-y-auto pr-1">
-                                  {cog.longTermMemory.map((mem) => (
-                                    <div key={mem.id} className="bg-[#140e1f] p-1.5 rounded border border-purple-950/30 flex flex-col gap-0.5">
-                                      <div className="flex justify-between items-center text-[8px]">
-                                        <span className="text-indigo-400/80">{mem.timestamp}</span>
-                                        <span className="text-[#c084fc] text-[8px] uppercase font-bold">LORE SECURE</span>
-                                      </div>
-                                      <p className="text-zinc-300 text-[8.5px] leading-tight mt-0.5">"{mem.description}"</p>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            {/* Section: Opinion Vectors */}
-                            <div className="mb-3">
-                              <span className="text-[#a855f7] font-bold text-[8.5px] uppercase tracking-wider block border-b border-purple-950/70 pb-0.5 mb-1.5">IV. REGISTRY OPINIONS</span>
-                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 mt-1 text-[8.5px] text-zinc-400">
-                                <div className="flex justify-between border-b border-purple-950/10 pb-0.5">
-                                  <span>{playerGroupName}:</span>
-                                  <span className={`font-bold ${
-                                    (cog.opinionVectors["player_group"] || 0) > 0 ? "text-emerald-400" : (cog.opinionVectors["player_group"] || 0) < 0 ? "text-rose-400" : "text-zinc-500"
-                                  }`}>
-                                    {(cog.opinionVectors["player_group"] || 0) > 0 ? "+" : ""}{cog.opinionVectors["player_group"] || 0}
-                                  </span>
-                                </div>
-                                {Object.keys(cog.opinionVectors)
-                                  .filter(k => k !== "player_group")
-                                  .slice(0, 3)
-                                  .map((k) => (
-                                    <div key={k} className="flex justify-between border-b border-purple-950/10 pb-0.5">
-                                      <span className="capitalize">{k.replace("_", " ")}:</span>
-                                      <span className={`font-bold ${
-                                        (cog.opinionVectors[k] || 0) > 0 ? "text-emerald-400" : (cog.opinionVectors[k] || 0) < 0 ? "text-rose-400" : "text-zinc-500"
-                                      }`}>
-                                        {(cog.opinionVectors[k] || 0) > 0 ? "+" : ""}{cog.opinionVectors[k] || 0}
-                                      </span>
-                                    </div>
-                                  ))}
-                              </div>
-                            </div>
-
-                            {/* Section: Trust network graph-list */}
-                            <div>
-                              <span className="text-[#a855f7] font-bold text-[8.5px] uppercase tracking-wider block border-b border-purple-950/70 pb-0.5 mb-1.5">V. TRUST NETWORK SPECTRUM</span>
-                              <div className="grid grid-cols-3 gap-1 text-[8px] mt-1">
-                                {Object.keys(cog.trustGraph).slice(0, 3).map((npcId) => {
-                                  let handleStr = npcId.toUpperCase();
-                                  if (npcId === "player") handleStr = playerHandle.toUpperCase();
-                                  const trVal = cog.trustGraph[npcId] || 40;
-                                  return (
-                                    <div key={npcId} className="bg-[#150f1f] px-1 py-1 rounded border border-purple-950/40 text-center text-zinc-300">
-                                      <span className="block text-[7px] text-zinc-500 truncate">{handleStr}</span>
-                                      <span className={`font-bold ${
-                                        trVal > 70 ? "text-emerald-400" : trVal < 30 ? "text-rose-400" : "text-zinc-400"
-                                      }`}>{trVal}%</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 3: RESEARCH COMPREHENSIVE TECHNOLOGY TREE */}
-          {activeTab === "research" && (
-            <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b border-[#27272a] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Compass className="text-[#facc15] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Mathematical Chip Algorithms Knowledge Graph</h3>
-                </div>
-                <div className="flex items-center gap-2 bg-[#09090b] border border-[#27272a] px-3 py-1 rounded text-xs select-none">
-                  <Zap className="w-3.5 h-3.5 text-[#818cf8]" />
-                  <span className="text-[#a1a1aa] font-bold">SPENDABLE FOCUS:</span>
-                  <span className="text-[#818cf8] font-black">{researchPoints} RP</span>
-                </div>
-              </div>
-
-              <div className="space-y-6">
-                {Object.values(EraId).map((eraId) => {
-                  // Get nodes in this era
-                  const nodes = TECHNOLOGY_TREE.filter((node) => node.era === eraId);
-
-                  return (
-                    <div key={eraId} className="space-y-3">
-                      <div className="text-[10px] text-[#818cf8] font-bold tracking-widest uppercase border-b border-[#27272a] pb-1.5 flex items-center gap-1.5">
-                        <Activity className="w-3.5 h-3.5" />
-                        <span>
-                          {eraId === EraId.ERA_8_BIT
-                            ? "1. THE 8-BIT AGE ENVELOPES (1985-1889)"
-                            : eraId === EraId.ERA_16_BIT
-                            ? "2. THE 16-BIT GOLDEN CONSOLE (1990-1995)"
-                            : eraId === EraId.ERA_PC_DAWN
-                            ? "3. THE DOS MODE-13H PC RECONSTRUCTION (1996-2000)"
-                            : eraId === EraId.ERA_3D_SHADER
-                            ? "4. THE MODERN SHADER RAYMARCHING AGE (2001-2005)"
-                            : "5. THE HD SHADER PROCESSION (2006-2026)"}
-
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {nodes.map((node) => {
-                          const isUnlocked = unlockedTechs.includes(node.id);
-                          const lockedPre = node.preRequisiteIds.filter((pId) => !unlockedTechs.includes(pId));
-
-                          return (
-                            <div
-                              key={node.id}
-                              id={`tech-card-${node.id}`}
-                              className={`p-3.5 rounded border text-xs flex flex-col justify-between transition-all ${
-                                isUnlocked
-                                  ? "bg-[#09090b] border-[#818cf8] text-[#d4d4d8]"
-                                  : lockedPre.length > 0
-                                  ? "bg-[#09090b]/40 border-[#27272a]/50 text-[#71717a]"
-                                  : "bg-[#09090b] border-[#27272a] text-[#a1a1aa] hover:bg-[#09090b]/80 hover:border-[#3f3f46]"
-                              }`}
-                            >
-                              <div>
-                                <div className="flex items-start justify-between border-b border-[#27272a]/70 pb-1 mb-2">
-                                  <h4 className="font-bold flex items-center gap-1.5 text-white">
-                                    {isUnlocked && <Sparkles className="w-3.5 h-3.5 text-[#818cf8] animate-pulse" />}
-                                    {node.name}
-                                  </h4>
-                                </div>
-                                <p className="text-[10px] text-[#71717a] leading-relaxed mb-2">{node.description}</p>
-
-                                {node.effectUnlocks.length > 0 && (
-                                  <div className="text-[10px] text-[#a1a1aa] mt-2 font-mono">
-                                    Unlocks effects: <strong className="text-[#facc15] font-bold">{node.effectUnlocks.join(", ").toUpperCase()}</strong>
-                                  </div>
-                                )}
-                              </div>
-
-                              <div className="mt-4 pt-2.5 border-t border-[#27272a]/70 flex items-center justify-between text-[10px]">
-                                {lockedPre.length > 0 ? (
-                                  <span className="text-[9px] text-[#71717a] bg-[#1a1b1e] px-1.5 py-0.5 rounded border border-[#27272a] uppercase select-none">
-                                    LOCKED BY: {lockedPre.join(", ").toUpperCase()}
-                                  </span>
-                                ) : isUnlocked ? (
-                                  <span className="text-[9px] text-[#4ade80] bg-[#4ade80]/10 px-2 py-0.5 rounded border border-[#4ade80]/20 uppercase select-none font-bold">
-                                    UNLOCKED / CRACKED
-                                  </span>
-                                ) : (
-                                  <button
-                                    id={`tech-buy-${node.id}`}
-                                    onClick={() => researchNode(node)}
-                                    className="bg-[#818cf8] hover:bg-[#6366f1] text-[#09090b] font-extrabold px-3 py-1 rounded transition active:scale-95 cursor-pointer flex items-center gap-1 uppercase text-[10px]"
-                                  >
-                                    <Zap className="w-3" />
-                                    <span>CRACK CODE ({node.costPoints} RP)</span>
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 4: DEMOPARTY CONTEST ARENA METRICS */}
-          {activeTab === "party" && (
-            <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b border-[#27272a] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Trophy className="text-[#facc15] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Underground Competitive Party Contests</h3>
-                </div>
-                <p className="text-[10px] text-[#a1a1aa]">Parties occur during specific months of the year. Build demos matched to target processors to compete.</p>
-              </div>
-
-              {!isPartyRunning ? (
-                <div className="space-y-4">
-                  <div className="bg-[#09090b] p-3 rounded border border-[#27272a] text-xs leading-relaxed">
-                    <span className="text-[#facc15] font-bold block mb-1 uppercase tracking-wider text-[10px]">ANNUAL HOSTS DESK:</span>
-                    <p className="text-[#a1a1aa]">
-                      If the current calendar month displays an active party event (indicated by a red blinking badge), you may lock and register your compiled creations. Compete against elite groups such as Future Crew. Score high to grab cash prize pools and boost your reputation exponentially!
-                    </p>
-                  </div>
-
-                  <div className="divide-y divide-[#27272a]/70">
-                    {PARTY_CALENDAR.map((party) => {
-                      const isActiveMonth = currentMonth === party.month;
-
-                      return (
-                        <div key={party.id} className="py-3 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 text-xs">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-1.5">
-                              <span className="font-bold text-white text-sm">"{party.name.toUpperCase()}"</span>
-                              <span className="text-[9px] bg-[#fb923c]/10 px-2 py-0.5 rounded text-[#fb923c] border border-[#fb923c]/20 uppercase font-extrabold font-mono tracking-wider">
-                                MONTH {party.month} ({getMonthName(party.month)})
-                              </span>
-                            </div>
-                            <p className="text-[#a1a1aa] leading-relaxed pl-0.5">{party.headlineNews}</p>
-                            <p className="text-[10px] text-[#71717a] pt-0.5 uppercase tracking-wide">LOCATION: {party.location} <span className="text-[#3f3f46]">|</span> FOCUS RIG: {party.platformFocus}</p>
-                          </div>
-
-                          <div>
-                            {isActiveMonth ? (
-                              <button
-                                id={`party-submit-${party.id}`}
-                                onClick={() => openPartyPanel(party)}
-                                className="bg-[#4ade80] hover:bg-[#22c55e] text-[#09090b] font-black px-4.5 py-2.5 border border-white/10 rounded transition active:scale-95 flex items-center gap-1.5 cursor-pointer uppercase text-xs tracking-wider shadow"
-                              >
-                                <span>ENTER PARTY CONTEST</span>
-                                <ChevronRight className="w-4 h-4" />
-                              </button>
-                            ) : (
-                              <span className="text-[10px] text-[#71717a] bg-[#09090b] px-3 py-1.5 rounded border border-[#27272a] select-none block text-center min-w-[155px] uppercase font-bold tracking-wide">
-                                OVER IN {getMonthName(party.month)}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : (
-                /* LIVE PARTY SCENE CONTEST MODAL ENGINE */
-                <div className="bg-[#18181b] border border-[#facc15] shadow-[0_0_20px_rgba(250,204,21,0.08)] p-4 rounded space-y-4 font-mono">
-                  <div className="flex items-center justify-between bg-[#09090b] p-3 rounded border border-[#27272a] text-xs">
-                    <div>
-                      <span className="text-[#facc15] font-black block uppercase tracking-wide">{activeParty?.name} COMPETITION STAGE</span>
-                      <span className="text-[#71717a] text-[10px] uppercase">ORGANIZER HALL: {activeParty?.location}</span>
-                    </div>
-                    <span className="bg-[#1a1b1e] border border-[#27272a] text-[#22d3ee] px-2.5 py-1 rounded text-[11px] font-black">
-                      ATTENDANCE: {activeParty?.attendance} SCENERS
-                    </span>
-                  </div>
-
-                  {partyStep === 0 && (
-                    <div className="space-y-4">
-                      <span className="text-xs text-[#a1a1aa] font-bold block uppercase tracking-wide border-b border-[#27272a]/70 pb-1">[STEP 1] SELECT YOUR COMPILED PAYLOAD TO SUBMIT</span>
-
-                      <div className="bg-[#09090b] p-2.5 text-[10.5px] text-[#71717a] border border-[#27272a] rounded">
-                        Compatible submission constraints strictly require hardware configured for: <strong className="text-[#22d3ee]">{activePlatform}</strong>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-[220px] overflow-y-auto pr-1">
-                        {(Object.values(myReleases) as Production[])
-                          .filter((p) => p.platform === activePlatform)
-                          .map((prod) => (
-                            <label
-                              key={prod.id}
-                              style={{
-                                border: partySelectedProdId === prod.id ? "1.5px solid #facc15" : "1px solid #27272a"
-                              }}
-                              className={`p-2.5 rounded flex items-center justify-between gap-3 text-xs cursor-pointer select-none transition-all ${
-                                partySelectedProdId === prod.id ? "bg-[#facc15]/5 text-white" : "bg-[#09090b] text-[#a1a1aa] hover:bg-[#1a1b1e]"
-                              }`}
-                            >
-                              <div className="flex items-center gap-2.5">
-                                <input
-                                  type="radio"
-                                  name="party-prod"
-                                  checked={partySelectedProdId === prod.id}
-                                  onChange={() => setPartySelectedProdId(prod.id)}
-                                  className="accent-[#facc15] cursor-pointer"
-                                />
-                                <span className="font-extrabold text-white">"{prod.name.toUpperCase()}"</span>
-                                <span className="text-[9px] bg-[#818cf8]/10 text-[#818cf8] px-1.5 rounded uppercase border border-[#818cf8]/20 font-bold">{prod.type}</span>
-                              </div>
-                              <span className="text-[10.5px] text-[#22d3ee] font-bold">REPUTE: {prod.totalScore}%</span>
-                            </label>
-                          ))}
-
-                        {(Object.values(myReleases) as Production[]).filter((p) => p.platform === activePlatform).length === 0 && (
-                          <div className="text-center py-6 text-[#71717a] italic text-xs">
-                            No executable compiles matching platform active config detected.
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex justify-end gap-2 pt-2 border-t border-[#27272a]">
-                        <button
-                          id="party-cancel"
-                          onClick={() => setIsPartyRunning(false)}
-                          className="bg-[#09090b] hover:bg-[#27272a] border border-[#3f3f46] text-[#d4d4d8] py-1.5 px-3 rounded text-xs transition cursor-pointer font-bold active:scale-95"
-                        >
-                          LEAVE / BACK
-                        </button>
-                        <button
-                          id="btn-party-start-voting"
-                          disabled={!partySelectedProdId}
-                          onClick={startPartyVotingProcess}
-                          className="bg-[#4ade80] hover:bg-[#22c55e] text-[#09090b] font-black py-1.5 px-4.5 rounded text-xs transition disabled:bg-[#27272a] disabled:text-[#71717a] disabled:border-transparent border border-white/10 cursor-pointer uppercase active:scale-95"
-                        >
-                          CONFIRM SUBMISSION
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* STEP 2: STAGE REAL TIME VOTER TICKER */}
-                  {(partyStep === 1 || partyStep === 2) && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {/* Live Score block */}
-                        <div className="bg-[#09090b] p-4 rounded border border-[#27272a] space-y-3 shadow-inner">
-                          <span className="text-[9.5px] text-[#facc15] font-extrabold tracking-widest block uppercase border-b border-[#27272a]/70 pb-1.5">VOTING SCENE LIVE TERMINAL</span>
-                          <div className="space-y-2.5">
-                            {partyRivals.map((rival) => {
-                              const points = partyVoteTally[rival.id] || 0;
-                              return (
-                                <div key={rival.id} className="text-xs">
-                                  <div className="flex items-center justify-between mb-1.5 text-[11px]">
-                                    <span className={rival.isPlayer ? "text-[#4ade80] font-black animate-pulse" : "text-[#d4d4d8]"}>
-                                      {rival.isPlayer ? "[YOU] " : ""}"{rival.name.toUpperCase()}" ({rival.group.toUpperCase()})
-                                    </span>
-                                    <span className="font-extrabold text-[#22d3ee]">{points} VOTES</span>
-                                  </div>
-                                  <div className="w-full bg-[#1a1b1e] border border-[#27272a] h-2 rounded overflow-hidden">
-                                    <div
-                                      className={`h-full rounded ${rival.isPlayer ? "bg-[#4ade80]" : "bg-[#818cf8]"}`}
-                                      style={{ width: `${Math.min(points / 8, 100)}%` }}
-                                    />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-
-                        {/* Hall commentators chatter */}
-                        <div className="bg-[#09090b] p-4 rounded border border-[#27272a] text-xs flex flex-col justify-between shadow-inner">
-                          <div>
-                            <span className="text-[9.5px] text-[#fb923c] font-extrabold tracking-widest block uppercase mb-2.5 border-b border-[#27272a]/70 pb-1.5">SPECTRUM SOUNDSYSTEM CHAT</span>
-                            <div className="space-y-1.5 max-h-[143px] overflow-y-auto text-[10px] text-[#a1a1aa] pr-1">
-                              {partyContestLogger.map((log, index) => (
-                                <p key={index} className="border-l-2 border-[#818cf8] pl-2 py-0.5 leading-normal">
-                                  ● {log}
-                                </p>
-                              ))}
-                            </div>
-                          </div>
-
-                          {partyStep === 2 && (
-                            <div className="pt-4 flex justify-end">
-                              <button
-                                id="btn-party-finish-show"
-                                onClick={() => {
-                                  // Trigger the new v0.5.0 competition ceremony
-                                  const selectedProd = myReleases[partySelectedProdId];
-                                  if (selectedProd && activeParty) {
-                                    startCompetition({
-                                      partyId: activeParty.id,
-                                      partyName: activeParty.name,
-                                      year: currentYear,
-                                      month: currentMonth,
-                                      prizePool: activeParty.prestige * 10 + 500,
-                                      playerProduction: selectedProd,
-                                      playerBreakdown: lastDemoSummary?.breakdown ?? {
-                                        programming: selectedProd.scoreTechnical,
-                                        graphics: selectedProd.scoreAesthetic,
-                                        music: selectedProd.scoreAudio,
-                                        originality: selectedProd.scoreOriginality,
-                                        optimization: 50,
-                                        audienceAppeal: 50,
-                                        technicalDifficulty: 50,
-                                        overall: selectedProd.totalScore,
-                                        factors: {
-                                          skillContributions: { programming: 0, graphics: 0, music: 0 },
-                                          effectContributions: { visualImpact: 0, complexity: 0, originality: 0 },
-                                          synergyBonus: 0, directionModifier: 0, optimizationModifier: 0,
-                                          musicModuleBonus: 0, platformFit: 0, developmentTimeFactor: 0,
-                                          productionTypeModifier: 0, sceneVarietyBonus: 0,
-                                        },
-                                        synergiesTriggered: [],
-                                      },
-                                      playerScore: selectedProd.totalScore,
-                                      rivalCount: 5,
-                                    });
-                                  }
-                                  setPartyStep(3);
-                                }}
-                                className="bg-[#facc15] hover:bg-[#eab308] text-[#09090b] font-black px-4.5 py-1.5 rounded transition cursor-pointer text-xs uppercase shadow"
-                              >
-                                SHOW AWARD CEREMONY
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* STEP 3: AWARDS CONGRATULATIONS AND RESULTS PANEL */}
-                  {partyStep === 3 && (
-                    <div className="bg-[#1a1b1e] border-2 border-[#4ade80] shadow-[0_0_20px_rgba(74,222,128,0.1)] p-5 rounded text-center space-y-4">
-                      <Trophy className="w-11 h-11 text-[#facc15] mx-auto animate-bounce" />
-                      <div>
-                        <h4 className="text-sm font-extrabold text-white tracking-tight uppercase">RESULTS CEREMONY OFFICIALLY COMPLETE!</h4>
-                        <p className="text-[11px] text-[#a1a1aa] mt-1.5 max-w-sm mx-auto leading-relaxed">
-                          The voting logs have closed and cash rewards, focus points, and massive reputation bonuses have been wired to your box keys storage panel!
-                        </p>
-                      </div>
-
-                      <div className="border border-[#27272a] bg-[#09090b] p-3 rounded text-xs max-w-md mx-auto divide-y divide-[#27272a]/60">
-                        {partyRivals
-                          .sort((a, b) => (partyVoteTally[b.id] || 0) - (partyVoteTally[a.id] || 0))
-                          .map((r, index) => (
-                            <div key={r.id} className="py-2 flex justify-between gap-3 text-[11px]">
-                              <span className={r.isPlayer ? "text-[#4ade80] font-extrabold" : "text-[#71717a]"}>
-                                #{index + 1} - "{r.name.toUpperCase()}" ({r.group.toUpperCase()})
-                              </span>
-                              <span className="font-bold text-white">{partyVoteTally[r.id]} PTS</span>
-                            </div>
-                          ))}
-                      </div>
-
-                      <div className="pt-2">
-                        <button
-                          id="btn-party-return-home"
-                          onClick={() => {
-                            setIsPartyRunning(false);
-                            setActiveParty(null);
-                          }}
-                          className="bg-[#4ade80] hover:bg-[#22c55e] text-[#09090b] font-black px-5 py-2 rounded transition cursor-pointer text-xs uppercase tracking-wide border border-white/10"
-                        >
-                          RETURN TO HOME BENCH
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* TAB 5: SCENE MAGAZINES FEEDNEWS */}
-          {activeTab === "news" && (
-            <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
-              <div className="flex items-center justify-between border-b border-[#27272a] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Newspaper className="text-[#facc15] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Underground Scene Magazines Feed</h3>
-                </div>
-              </div>
-
-              <div className="space-y-4 max-h-[420px] overflow-y-auto pr-1">
-                {newsLog.map((log) => {
-                  const isBbsAlert = log.title && log.title.includes("BBS");
-                  return (
-                    <div
-                      key={log.id}
-                      className={`p-3.5 rounded text-xs leading-relaxed transition-all border ${
-                        isBbsAlert
-                          ? "bg-[#0c0813] border-[#a855f7]/40 shadow-[0_0_15px_rgba(168,85,247,0.06)] hover:border-[#a855f7]"
-                          : "bg-[#09090b] border-[#27272a] hover:border-[#3f3f46]"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between border-b border-[#27272a]/70 pb-2 mb-2 text-[10px]">
-                        <span className={`font-bold uppercase flex items-center gap-1.5 ${
-                          isBbsAlert ? "text-[#c084fc]" : "text-[#fb923c]"
-                        }`}>
-                          {isBbsAlert ? (
-                            <Terminal className="w-3.5 h-3.5 text-[#a855f7]" />
-                          ) : (
-                            <Newspaper className="w-3.5 h-3.5" />
-                          )}
-                          {log.title}
-                        </span>
-                        <span className="text-[#71717a] font-bold uppercase tracking-wider">
-                          {getMonthName(log.month).toUpperCase()} {log.year}
-                        </span>
-                      </div>
-                      <h4 className={`font-bold text-xs mb-1.5 uppercase tracking-wide ${
-                        isBbsAlert ? "text-[#e9d5ff]" : "text-white"
-                      }`}>{log.headline}</h4>
-                      <p className="text-[#a1a1aa] pl-0.5 leading-relaxed">{log.body}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* TAB 6: SCENARIOS ERA SELECTS */}
-          {activeTab === "scenarios" && (
-            <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
-              <div className="border-b border-[#27272a] pb-2 mb-3">
-                <div className="flex items-center gap-2">
-                  <Power className="text-[#fb923c] w-4 h-4" />
-                  <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Time-Machine Portal Desk</h3>
-                </div>
-                <p className="text-[10px] text-[#a1a1aa] mt-1">Jump directly to iconic milestones of compute hardware and discover specific specialties.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Variant 1 */}
-                <div className="p-4 bg-[#09090b] hover:border-[#3f3f46] border border-[#27272a] rounded text-xs flex flex-col justify-between transition-all">
-                  <div>
-                    <h4 className="font-bold text-[#fb923c] text-sm tracking-tight">1. BEDROOM 8-BIT AGE (1985)</h4>
-                    <p className="text-[#a1a1aa] mt-1.5 pb-2.5 border-b border-[#27272a] leading-normal">
-                      Start solo with a micro-budget Commodore 64 and a cassette tape desk, learning the low level registers of 6502 assembly lines.
-                    </p>
-                    <div className="mt-3.5 text-[10.5px] text-[#71717a] space-y-1 font-mono">
-                      <div>MONEY: <strong className="text-white font-bold">$200</strong></div>
-                      <div>ACTIVE RIG: <strong className="text-[#fb923c] font-bold">Commodore 64</strong></div>
-                      <div>CREW SIZE: <strong className="text-white font-bold">Solo (1)</strong></div>
-                    </div>
-                  </div>
-                  <button
-                    id="btn-scen-1985"
-                    onClick={() => loadScenario("1985_8bit")}
-                    className="mt-5 w-full bg-[#fb923c] hover:bg-[#f97316] text-[#09090b] font-black py-2 rounded text-xs transition cursor-pointer text-center uppercase tracking-wide"
-                  >
-                    BOOT AGE 1985
-                  </button>
-                </div>
-
-                {/* Variant 2 */}
-                <div className="p-4 bg-[#09090b] hover:border-[#3f3f46] border border-[#27272a] rounded text-xs flex flex-col justify-between transition-all">
-                  <div>
-                    <h4 className="font-bold text-[#4ade80] text-sm tracking-tight">2. AMIGA OCS GOLDEN AGE (1991)</h4>
-                    <p className="text-[#a1a1aa] mt-1.5 pb-2.5 border-b border-[#27272a] leading-normal">
-                      Pummel hardware displaying colorful parallax sine patterns with the Amiga Copper List and soundtracker modulator samples.
-                    </p>
-                    <div className="mt-3.5 text-[10.5px] text-[#71717a] space-y-1 font-mono">
-                      <div>MONEY: <strong className="text-white font-bold">$1,400</strong></div>
-                      <div>ACTIVE RIG: <strong className="text-[#4ade80] font-bold">Amiga 500</strong></div>
-                      <div>CREW SIZE: <strong className="text-white font-bold">Trio (3)</strong></div>
-                    </div>
-                  </div>
-                  <button
-                    id="btn-scen-1991"
-                    onClick={() => loadScenario("1991_16bit")}
-                    className="mt-5 w-full bg-[#4ade80] hover:bg-[#22c55e] text-[#09090b] font-black py-2 rounded text-xs transition cursor-pointer text-center uppercase tracking-wide"
-                  >
-                    BOOT AGE 1991
-                  </button>
-                </div>
-
-                {/* Variant 3 */}
-                <div className="p-4 bg-[#09090b] hover:border-[#3f3f46] border border-[#27272a] rounded text-xs flex flex-col justify-between transition-all">
-                  <div>
-                    <h4 className="font-bold text-[#22d3ee] text-sm tracking-tight">3. SVGA & 3D HARDWARE (1998)</h4>
-                    <p className="text-[#a1a1aa] mt-1.5 pb-2.5 border-b border-[#27272a] leading-normal">
-                      Command modern vertex floating buffers and hardware 3D textures renderer using Direct3D or math-calculated voxel terrain hills.
-                    </p>
-                    <div className="mt-3.5 text-[10.5px] text-[#71717a] space-y-1 font-mono">
-                      <div>MONEY: <strong className="text-white font-bold">$3,200</strong></div>
-                      <div>ACTIVE RIG: <strong className="text-[#22d3ee] font-bold">Pentium II + Voodoo</strong></div>
-                      <div>CREW SIZE: <strong className="text-white font-bold">Trio (3)</strong></div>
-                    </div>
-                  </div>
-                  <button
-                    id="btn-scen-1998"
-                    onClick={() => loadScenario("1998_pc3d")}
-                    className="mt-5 w-full bg-[#22d3ee] hover:bg-[#06b6d4] text-[#09090b] font-black py-2 rounded text-xs transition cursor-pointer text-center uppercase tracking-wide"
-                  >
-                    BOOT AGE 1998
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* TAB: BBS TERMINAL SCULPTED CONVERSATION ENGINE */}
-          {activeTab === "bbs" && (
-            <div className="bg-[#09090b] text-[#a855f7] border-2 border-[#a855f7]/60 p-4 rounded font-mono shadow-[0_0_25px_rgba(168,85,247,0.15)] space-y-4 relative">
-              
-              {/* Header bar */}
-              <div className="flex items-center justify-between border-b border-[#a855f7]/40 pb-2 mb-2 text-xs">
-                <div className="flex items-center gap-2">
-                  <Terminal className="text-[#a855f7] animate-pulse w-4 h-4" />
-                  <span className="font-extrabold tracking-widest text-[#d8b4fe]">TRICYCLE_SWAP_LINE_BBS.EXE (NODE_01)</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-[#c084fc]">
-                  <span>SPEED: 14400 BAUD</span>
-                  <span className="animate-pulse text-[#4ade80]">● STANDBY</span>
-                </div>
-              </div>
-
-              {!bbsDialed && !bbsDialing && (
-                <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
-                  <div className="w-16 h-16 rounded-full bg-[#a855f7]/10 flex items-center justify-center border border-[#a855f7]/30">
-                    <PhoneCall className="w-8 h-8 text-[#d8b4fe]" />
-                  </div>
-                  <div>
-                    <h4 className="font-extrabold text-white text-sm uppercase">MODEM CONNECTION DESK</h4>
-                    <p className="text-[10px] text-[#c084fc] max-w-sm mt-1.5 leading-relaxed">
-                      Dial into the multi-node European scener exchange board to read chat threads, inspect demogroup discussions, and recruit or flame key sceners to resolve peer drama!
-                    </p>
-                  </div>
-                  <button
-                    id="btn-dial-bbs"
-                    onClick={() => {
-                      setBbsDialing(true);
-                      setBbsTerminalLogs(["ATDT 09-08240-BBS...", "DIALING PRIV_NET CHANNELS..."]);
-                      let count = 0;
-                      const logSequence = [
-                        "CONNECT 14400 / ARQ / LAP-M",
-                        "RINGING RECEIVER MATRIX NODE...",
-                        "CARRIER SIGNAL DETECTED...",
-                        "DOWNLOADING ENCRYPTED DATA SECTOR PACKETS...",
-                        "ACCESS GRANTED TYPE: MULTI-USER SCENEPOLY COUPLER",
-                        "LOGGED IN AS: " + playerHandle,
-                        "LEVEL: SYSOP GOLD BADGE"
-                      ];
-                      
-                      const timer = setInterval(() => {
-                        if (count < logSequence.length) {
-                          setBbsTerminalLogs(prev => [...prev, `[ONLINE] ${logSequence[count]}`]);
-                          count++;
-                        } else {
-                          clearInterval(timer);
-                          setBbsDialed(true);
-                          setBbsDialing(false);
-                        }
-                      }, 400);
-                    }}
-                    className="bg-[#a855f7] hover:bg-[#8b5cf6] text-black font-black px-6 py-2.5 rounded text-xs transition cursor-pointer uppercase tracking-widest shadow-lg border border-[#c084fc]/30"
-                  >
-                    DIAL BBS NODE
-                  </button>
-                </div>
-              )}
-
-              {bbsDialing && (
-                <div className="bg-black/90 p-4 border border-[#a855f7]/40 rounded h-64 flex flex-col justify-between text-xs font-mono">
-                  <div className="space-y-1 text-[#4ade80] max-h-52 overflow-y-auto pr-1">
-                    <p className="text-[#a855f7] font-bold">&gt;&gt;&gt; DIALING IN PROGRESS...</p>
-                    {bbsTerminalLogs.map((log, index) => (
-                      <p key={index} className="leading-snug">
-                        ● {log}
-                      </p>
-                    ))}
-                    <span className="w-2 h-3.5 bg-[#4ade80] animate-pulse inline-block" />
-                  </div>
-                  <div className="text-center text-[10px] text-[#71717a] font-bold">
-                    ESTABLISHING MODEM HANDSHAKE (PLEASE STAND BY...)
-                  </div>
-                </div>
-              )}
-
-              {bbsDialed && (
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 animate-fadeIn">
-                  
-                  {/* BBS Boards Left column */}
-                  <div className="md:col-span-4 space-y-3">
-                    <span className="text-[10px] text-[#fb923c] font-bold uppercase tracking-wider block border-b border-[#27272a] pb-1">AVAILABLE BOARDS</span>
-                    
-                    <div className="flex flex-col gap-1.5 font-mono">
-                      {[
-                        { id: "all", name: "[A] ALL SECTOR CHAT" },
-                        { id: "CODERS_CORNER", name: "[C] CODERS CORNER" },
-                        { id: "SCENE_RUMORS", name: "[R] SCENE RUMORS" },
-                        { id: "SWAPPERS_LOUNGE", name: "[S] SWAPPERS LOUNGE" }
-                      ].map((board) => (
-                        <button
-                          key={board.id}
-                          id={`bbs-board-btn-${board.id}`}
-                          onClick={() => {
-                            setBbsFilterBoard(board.id);
-                            setBbsSelectedThreadId(null);
-                          }}
-                          className={`w-full text-left p-1.5 rounded text-[11px] transition cursor-pointer ${
-                            bbsFilterBoard === board.id
-                              ? "bg-[#a855f7]/20 text-[#e9d5ff] font-bold border-l-2 border-[#a855f7]"
-                              : "text-[#c084fc] hover:bg-[#a855f7]/5"
-                          }`}
-                        >
-                          {board.name}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      id="btn-disconnect-bbs"
-                      onClick={() => setBbsDialed(false)}
-                      className="w-full mt-4 bg-red-950/40 hover:bg-red-900/60 text-[#fca5a5] border border-red-900/40 font-bold py-1 px-2.5 rounded text-[10.5px] text-center transition cursor-pointer"
-                    >
-                      [ DISCONNECT / HANG UP ]
-                    </button>
-                  </div>
-
-                  {/* BBS Thread list / conversation Right column */}
-                  <div className="md:col-span-8 bg-black/60 p-3 rounded border border-[#a855f7]/20 text-xs self-start">
-                    
-                    {/* Thread List view */}
-                    {bbsSelectedThreadId === null ? (
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between border-b border-[#27272a] pb-1.5 text-[10px] text-[#c084fc]">
-                          <span>BULLETIN TOPICS ({bbsFilterBoard.toUpperCase()})</span>
-                          <span>THREADS: {bbsThreads.filter(t => bbsFilterBoard === "all" || t.board === bbsFilterBoard).length}</span>
-                        </div>
-
-                        <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                          {bbsThreads
-                            .filter((t) => bbsFilterBoard === "all" || t.board === bbsFilterBoard)
-                            .map((th) => {
-                              const actorChar = characters[th.actorId];
-                              return (
-                                <button
-                                  key={th.id}
-                                  id={`bbs-thread-row-${th.id}`}
-                                  onClick={() => setBbsSelectedThreadId(th.id)}
-                                  className="w-full text-left p-2 bg-[#09090b]/80 hover:bg-[#a855f7]/10 rounded border border-[#27272a] hover:border-[#a855f7]/30 transition flex flex-col justify-between gap-1.5 cursor-pointer"
-                                >
-                                  <div className="flex items-center justify-between w-full gap-2">
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <button
-                                        id={`btn-toggle-follow-row-${th.id}`}
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          toggleFollowBbsThread(th.id);
-                                        }}
-                                        className={`p-1.5 rounded transition flex-shrink-0 cursor-pointer ${
-                                          th.followed
-                                            ? "text-amber-400 hover:text-amber-500 bg-amber-400/10 border border-amber-400/50"
-                                            : "text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 border border-transparent"
-                                        }`}
-                                        title={th.followed ? "Unfollow Thread" : "Follow Thread"}
-                                      >
-                                        <Bell className={`w-3.5 h-3.5 ${th.followed ? "fill-amber-400" : ""}`} />
-                                      </button>
-                                      <span className="font-bold text-white uppercase text-[11px] tracking-tight truncate">{th.topic}</span>
-                                    </div>
-                                    <span className="text-[9px] bg-[#a855f7]/20 text-[#d8b4fe] px-1.5 py-0.5 rounded uppercase font-sans font-bold flex-shrink-0">{th.board.replace("_", " ")}</span>
-                                  </div>
-                                  <div className="flex flex-wrap items-center justify-between gap-1.5 w-full text-[9px] text-[#c084fc]/80 font-mono mt-1 border-t border-zinc-800/40 pt-1.5">
-                                    <span>POSTER: <strong className="text-white font-bold">{actorChar?.handle || "SCENER"}</strong></span>
-                                    <span>TYPE: <span className={`font-semibold uppercase ${
-                                      th.infoType === "rumor" ? "text-amber-400 font-bold" :
-                                      th.infoType === "leak" ? "text-rose-500 font-extrabold" :
-                                      th.infoType === "technical_discovery" ? "text-[#4ade80]" :
-                                      th.infoType === "demo_announcement" ? "text-[#d8b4fe]" :
-                                      th.infoType === "party_gossip" ? "text-yellow-300" :
-                                      th.infoType === "tool_release" ? "text-cyan-400" : "text-zinc-300"
-                                    }`}>{th.infoType?.replace("_", " ")}</span></span>
-                                    {th.viralSpreadRank >= 2 && (
-                                      <span className={`${
-                                        th.viralSpreadRank === 2 ? "text-yellow-400 bg-yellow-400/10" :
-                                        th.viralSpreadRank === 3 ? "text-orange-400 bg-orange-400/10" : "text-rose-400 bg-rose-400/10"
-                                      } px-1 rounded text-[8px] font-sans font-bold uppercase tracking-wider`}>
-                                        🔥 {th.viralSpreadRank === 2 ? "TRENDING" : th.viralSpreadRank === 3 ? "VIRAL" : "EPIDEMIC"}
-                                      </span>
-                                    )}
-                                    {th.isSuppressed && (
-                                      <span className="text-zinc-400 bg-zinc-900 border border-zinc-800 px-1 rounded text-[8px] font-bold">
-                                        🔇 BURIED
-                                      </span>
-                                    )}
-                                    <span>CRED: <strong className="text-gray-300">{th.credibilityScore}%</strong></span>
-                                    <span className="text-[8px] text-zinc-500">Y{th.year}M{th.month}</span>
-                                    <span>
-                                      {th.interacted ? (
-                                        <span className="text-[#4ade80] font-bold uppercase tracking-wider">[RESOLVED]</span>
-                                      ) : (
-                                        <span className="text-[#fb923c] font-black uppercase tracking-wider animate-pulse">[ACTION REQUIRED]</span>
-                                      )}
-                                    </span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                        </div>
-                      </div>
-                    ) : (() => {
-                      const th = bbsThreads.find(t => t.id === bbsSelectedThreadId);
-                      if (!th) {
-                        setBbsSelectedThreadId(null);
-                        return null;
-                      }
-
-                      const actorChar = characters[th.actorId];
-
-                      return (
-                        <div className="space-y-4">
-                          <button
-                            id="btn-back-bbs"
-                            onClick={() => setBbsSelectedThreadId(null)}
-                            className="bg-[#27272a] hover:bg-[#3f3f46] text-[#d4d4d8] text-[9.5px] py-1 px-2.5 rounded font-bold uppercase transition cursor-pointer"
-                          >
-                            &larr; Return to Thread List
-                          </button>
-
-                          <div className="border-b border-[#a855f7]/20 pb-2 flex items-center justify-between gap-2">
-                            <div>
-                              <h4 className="text-sm font-extrabold text-[#d8b4fe] tracking-tight uppercase">{th.topic}</h4>
-                              <span className="text-[9.5px] text-[#71717a] font-mono block mt-0.5">BOARD: {th.board} | ACTING HOST: {actorChar?.handle}</span>
-                            </div>
-                            <button
-                              id="btn-toggle-follow-detail-view"
-                              onClick={() => toggleFollowBbsThread(th.id)}
-                              className={`py-1 px-2.5 rounded font-bold uppercase transition flex items-center gap-1.5 cursor-pointer text-[10px] ${
-                                th.followed
-                                  ? "bg-amber-500 hover:bg-amber-600 text-black shadow-[0_0_10px_rgba(245,158,11,0.25)]"
-                                  : "bg-[#18181b] hover:bg-[#27272a] text-[#c084fc] border border-[#a855f7]/30"
-                              }`}
-                            >
-                              <Bell className={`w-3.5 h-3.5 ${th.followed ? "fill-black" : ""}`} />
-                              {th.followed ? "FOLLOWING" : "FOLLOW THREAD"}
-                            </button>
-                          </div>
-
-                          {/* INFORMATION INTEL COUPLER METADATA */}
-                          <div className="bg-[#18181b]/90 border border-zinc-800 p-3 rounded-lg space-y-2.5">
-                            <div className="flex items-center justify-between text-[10px] text-[#fb923c] font-mono border-b border-zinc-800 pb-1.5 font-bold uppercase tracking-widest">
-                              <span>📊 BBS INFORMATION ECONOMY TELEMETRY</span>
-                              <span className="text-zinc-500-custom">Node ID: {th.id}</span>
-                            </div>
-
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs text-gray-300">
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Information Type</span>
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase block text-center ${
-                                  th.infoType === "rumor" ? "text-amber-400 bg-amber-500/10" :
-                                  th.infoType === "leak" ? "text-rose-500 bg-rose-500/10 font-black" :
-                                  th.infoType === "technical_discovery" ? "text-green-400 bg-green-500/10" :
-                                  th.infoType === "demo_announcement" ? "text-purple-400 bg-purple-500/10" :
-                                  th.infoType === "party_gossip" ? "text-yellow-400 bg-yellow-500/10" :
-                                  th.infoType === "tool_release" ? "text-cyan-400 bg-cyan-500/10" : "text-zinc-300 bg-zinc-800"
-                                }`}>
-                                  📋 {th.infoType?.replace("_", " ")}
-                                </span>
-                              </div>
-
-                              <div className="space-y-1 col-span-2 sm:col-span-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Source Credibility</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-extrabold text-[#e9d5ff]">{th.credibilityScore}%</span>
-                                  <span className="text-[9.5px] text-zinc-400">
-                                    {th.credibilityScore < 35 ? "Unreliable" :
-                                     th.credibilityScore < 65 ? "Unverified" :
-                                     th.credibilityScore < 85 ? "Verified" : "True Fact"}
-                                  </span>
-                                </div>
-                                <div className="w-full h-1.5 bg-zinc-950 rounded-full overflow-hidden mt-1">
-                                  <div 
-                                    className={`h-full rounded-full ${
-                                      th.credibilityScore < 35 ? "bg-rose-500" :
-                                      th.credibilityScore < 65 ? "bg-amber-500" : "bg-emerald-500"
-                                    }`}
-                                    style={{ width: `${th.credibilityScore}%` }}
-                                  />
-                                </div>
-                              </div>
-
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Propagation Velocity</span>
-                                <div className="flex items-center gap-1">
-                                  <span className="font-bold text-white">{th.propagationSpeed} speed</span>
-                                  <span className="text-[8.5px] text-zinc-400 font-mono">({th.isSuppressed ? "STALLS" : "ACTIVE"})</span>
-                                </div>
-                              </div>
-
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Mutation Frequency</span>
-                                <div className="flex items-center gap-1.5">
-                                  <span className="font-bold text-amber-500">{th.distortionRate}%</span>
-                                  {th.mutationCount && th.mutationCount > 0 ? (
-                                    <span className="text-[8.5px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded uppercase tracking-wider font-bold">
-                                      {th.mutationCount}x Warped
-                                    </span>
-                                  ) : (
-                                    <span className="text-[8.5px] text-zinc-500 font-bold uppercase">Pristine</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            <div className="grid grid-cols-2 gap-2 text-xs text-gray-300 border-t border-zinc-800/50 pt-2">
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Influence Weight</span>
-                                <span className="font-semibold text-teal-400">{th.influenceWeight}% passive drift factor</span>
-                              </div>
-                              <div className="space-y-1">
-                                <span className="text-[9px] text-zinc-500 font-mono block uppercase">Transmission Status</span>
-                                {th.isSuppressed ? (
-                                  <span className="text-zinc-400 bg-zinc-900 border border-zinc-800 px-1.5 py-0.5 rounded text-[9.5px] font-bold inline-block">
-                                    🔇 Suppressed / Archived
-                                  </span>
-                                ) : (
-                                  <span className="text-[#4ade80] bg-green-500/10 px-1.5 py-0.5 rounded text-[9.5px] font-bold inline-block">
-                                    🌐 Active Propagation
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-
-                            {th.originalTopic !== th.topic && (
-                              <div className="p-1 px-2 rounded bg-amber-950/20 border border-amber-800/30 text-[9px] text-amber-300 font-mono leading-normal">
-                                ⚠️ <strong>MUTATED PATHWAY DETECTION:</strong> Topic warped by rumor propagation! Original topic head: <span className="text-white">"{th.originalTopic}"</span>
-                              </div>
-                            )}
-                          </div>
-
-                          {/* Chat Bubbles space */}
-                          <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                            {th.messages.map((m: BBSMessage, idx: number) => {
-                              const isPlayer = m.sender === playerHandle;
-                              return (
-                                <div key={idx} className={`p-2 rounded border leading-relaxed ${
-                                  isPlayer
-                                    ? "bg-[#22d3ee]/10 border-[#22d3ee]/30 text-white ml-6"
-                                    : "bg-[#09090b] border-[#27272a] text-[#d4d4d8] mr-6"
-                                }`}>
-                                  <div className="flex items-center justify-between text-[9.5px] font-bold mb-1">
-                                    <span className={isPlayer ? "text-[#22d3ee] font-black" : "text-[#d8b4fe] font-black"}>
-                                      {isPlayer ? `[YOU] ${m.sender.toUpperCase()}` : `[SCENER] ${m.sender.toUpperCase()}`}
-                                    </span>
-                                    <span className="text-[9px] text-[#71717a] font-mono">BBS NET_RELAY_01</span>
-                                  </div>
-                                  <p className="text-[10.5px] block pl-0.5">{m.text}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-
-                          {/* Action Form if not interacted yet */}
-                          {!th.interacted ? (
-                            <div className="bg-[#09090b] p-3 rounded border border-amber-500/30 text-xs space-y-2.5 animate-fadeIn">
-                              <span className="text-[10px] text-amber-400 font-extrabold tracking-widest block uppercase">DECISION OPTIONS: CHOOSE YOUR FORUM RESPONSE</span>
-                              
-                              <div className="grid grid-cols-1 gap-2">
-                                {th.choices.map((choice: BBSThread["choices"][number], idx: number) => (
-                                  <button
-                                    key={idx}
-                                    id={`bbs-choice-${idx}`}
-                                    onClick={() => {
-                                      // Execute response choice action
-                                      const updatedThreads = bbsThreads.map((t) => {
-                                        if (t.id === th.id) {
-                                          let replyMsg = "";
-                                          if (choice.type === "support") {
-                                            replyMsg = `Thank you, ${playerHandle}! It's rare to see a fellow compiler artist understand the craft so completely. Let's make something historic next month.`;
-                                          } else if (choice.type === "flame") {
-                                            replyMsg = `Who asked you, ${playerHandle}? Why don't you focus on optimizing your own unpeeled register buffers before criticizing my releases?`;
-                                          } else {
-                                            replyMsg = `Recruiting, ${playerHandle}? ${playerGroupName} has original concepts and high disc supply loops. I guess it makes complete sense to talk off-board soon...`;
-                                          }
-
-                                          return {
-                                            ...t,
-                                            interacted: true,
-                                            playerActionTaken: choice.type,
-                                            messages: [
-                                              ...t.messages,
-                                              { sender: playerHandle, text: choice.text },
-                                              { sender: actorChar?.handle || "SCENER", text: replyMsg }
-                                            ]
-                                          };
-                                        }
-                                        return t;
-                                      });
-
-                                      setBbsThreads(updatedThreads);
-
-                                      // Immediately apply statistical feedback
-                                      if (choice.type === "support") {
-                                        setCharacters((prev) => ({
-                                          ...prev,
-                                          [th.actorId]: {
-                                            ...prev[th.actorId],
-                                            burnout: Math.max(prev[th.actorId].burnout - 20, 0),
-                                            motivation: Math.min(prev[th.actorId].motivation + 25, 100),
-                                            friendship: Math.min(prev[th.actorId].friendship + 20, 100)
-                                          }
-                                        }));
-                                      } else if (choice.type === "flame") {
-                                        setCharacters((prev) => ({
-                                          ...prev,
-                                          [th.actorId]: {
-                                            ...prev[th.actorId],
-                                            friendship: Math.max(prev[th.actorId].friendship - 25, 0),
-                                            motivation: Math.max(prev[th.actorId].motivation - 10, 0)
-                                          }
-                                        }));
-                                      } else if (choice.type === "recruit") {
-                                        setCharacters((prev) => ({
-                                          ...prev,
-                                          [th.actorId]: {
-                                            ...prev[th.actorId],
-                                            friendship: Math.min(prev[th.actorId].friendship + 15, 100),
-                                            salaryDemand: Math.max(Math.floor(prev[th.actorId].salaryDemand * 0.7), 10) // Instantly cheapened
-                                          }
-                                        }));
-                                      }
-                                    }}
-                                    className="p-2 w-full text-left bg-black hover:bg-[#a855f7]/15 rounded border border-[#27272a] hover:border-amber-500/50 text-[10.5px] text-[#fb923c] font-semibold transition active:scale-[0.98] cursor-pointer"
-                                  >
-                                    <div className="font-bold flex items-center justify-between">
-                                      <span>{choice.text}</span>
-                                      <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1 rounded uppercase tracking-widest font-sans">{choice.type}</span>
-                                    </div>
-                                    <p className="text-[9.5px] text-[#71717a] mt-0.5 italic">{choice.effectDescription}</p>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="bg-[#18181b] p-3 rounded border border-green-500/20 text-[10.5px] leading-relaxed text-[#4ade80]">
-                              <span className="font-extrabold block text-[10px] uppercase tracking-wider mb-0.5">DRASTIC OUTCOME LOG:</span>
-                              You have replied on this forum thread as <strong>{playerHandle.toUpperCase()}</strong> with a <strong>{th.playerActionTaken?.toUpperCase()}</strong> response. This drama has been successfully submitted and its deep psychological stats updates have registered at original nodes. Any potential split or recruiters discount will register when the next calendar block advances!
-                            </div>
-                          )}
-
-                          {/* Live Stats Notification Overlay within this thread */}
-                          {bbsEffectNotification && (
-                            <div className="bg-[#a855f7]/10 border border-[#a855f7] p-2.5 rounded text-xs text-[#d8b4fe] flex items-center gap-2 animate-bounce">
-                              <AlertCircle className="w-4 h-4 text-amber-400 animate-pulse" />
-                              <div>
-                                <span className="font-extrabold block text-[#e9d5ff]">BULLETIN OUTCOME BROADCASTED</span>
-                                <span className="text-[10px] text-gray-300">{bbsEffectNotification}</span>
-                              </div>
-                            </div>
-                          )}
-
-                          {/* COMPOSE & TRANSMIT ORIGINAL BBS COMMENT */}
-                          <div className="bg-black/80 border border-[#a855f7]/40 rounded p-3 space-y-3">
-                            <div className="flex items-center justify-between border-b border-[#a855f7]/20 pb-1.5 text-[10px] text-[#fb923c] font-mono">
-                              <span className="font-extrabold tracking-widest uppercase">COMPOSE & TRANSMIT ORIGINAL BBS COMMENT</span>
-                              <span className="text-gray-500">{bbsCustomMessage.length}/200 CHARS</span>
-                            </div>
-
-                            {/* Info sheet on keyword influence */}
-                            <div className="bg-[#18181b]/60 p-2 rounded border border-[#27272a] text-[9.5px] text-[#c084fc]/90 leading-normal space-y-1">
-                              <p className="font-bold text-[#e9d5ff]">💡 SEMANTIC COUPLER INTELLIGENCE SYSTEM:</p>
-                              <p>Include scene keywords to influence host <span className="text-white font-semibold">Friendship</span> & <span className="text-white font-semibold">Motivation</span>:</p>
-                              <div className="grid grid-cols-2 gap-1.5 pt-1 text-[9px] font-mono text-gray-400">
-                                <div>🟢 Support keywords: <span className="text-[#4ade80]">"elite", "cool", "rules", "awesome"</span></div>
-                                <div>🔴 Flame keywords: <span className="text-rose-400">"lame", "sucks", "cheat", "fake"</span></div>
-                                <div>⚡ Technical analysis: <span className="text-[#a855f7]">"asm", "assembly", "6502", "raster"</span></div>
-                                <div>🤝 Recruit terms: <span className="text-[#22d3ee]">"join", "crew", "recruit", "group"</span></div>
-                              </div>
-                            </div>
-
-                            {/* Quick Append Tags */}
-                            <div className="flex flex-wrap gap-1 items-center">
-                              <span className="text-[9px] text-[#a855f7] font-bold uppercase mr-1">QUICK JARGON CHIPS:</span>
-                              {[
-                                { text: "6502 assembly rules!", label: "ASM" },
-                                { text: "The vector routines feel totally elite!", label: "Praise" },
-                                { text: "Pre-rendered tables are so lame!", label: "Flame" },
-                                { text: `${playerGroupName} is hiring! Join our swaps.`, label: "Recruit" },
-                                { text: "Much respect to the original active composers.", label: "Support" }
-                              ].map((chip, idx) => (
-                                <button
-                                  key={idx}
-                                  id={`bbs-chip-btn-${idx}`}
-                                  type="button"
-                                  onClick={() => {
-                                    setBbsCustomMessage(prev => {
-                                      const spaced = prev ? prev + " " : "";
-                                      return (spaced + chip.text).substring(0, 200);
-                                    });
-                                  }}
-                                  className="bg-[#27272a] hover:bg-[#a855f7]/20 text-[#c084fc] hover:text-[#e9d5ff] border border-[#3f3f46] hover:border-[#a855f7]/40 px-1.5 py-0.5 rounded text-[9px] font-mono transition"
-                                >
-                                  +{chip.label}
-                                </button>
-                              ))}
-                            </div>
-
-                            {/* Form Input */}
-                            <form
-                              id="form-bbs-custom-post"
-                              onSubmit={(e) => {
-                                e.preventDefault();
-                                if (!bbsCustomMessage.trim()) return;
-                                handlePostCustomBbsMessage(th.id, bbsCustomMessage);
-                              }}
-                              className="relative"
-                            >
-                              <textarea
-                                id="input-bbs-custom-msg"
-                                rows={2}
-                                value={bbsCustomMessage}
-                                onChange={(e) => setBbsCustomMessage(e.target.value.substring(0, 200))}
-                                placeholder={`Type original bulletin commentary here (e.g., 'Your copper splits rule, cycle-perfect asm coding!' or tell them to join ${playerGroupName}...)`}
-                                className="w-full bg-[#09090b] text-white border border-[#a855f7]/40 focus:border-[#a855f7] focus:outline-none focus:ring-1 focus:ring-[#a855f7] p-2 rounded text-[10.5px] font-mono placeholder:text-zinc-600 resize-none"
-                              />
-
-                              <div className="flex items-center justify-between mt-2">
-                                <div className="text-[9px] text-zinc-500 italic">
-                                  Currently logged in as: <strong className="text-[#22d3ee]">{playerHandle}</strong>
-                                </div>
-                                <button
-                                  id="btn-submit-bbs-custom"
-                                  type="submit"
-                                  disabled={!bbsCustomMessage.trim()}
-                                  className={`px-4 py-1.5 font-bold uppercase text-[10px] tracking-wide rounded transition flex items-center gap-1 cursor-pointer ${
-                                    bbsCustomMessage.trim()
-                                      ? "bg-[#a855f7] text-black hover:bg-[#c084fc] active:scale-95"
-                                      : "bg-[#27272a] text-[#71717a] cursor-not-allowed"
-                                  }`}
-                                >
-                                  <MessageSquare className="w-3.5 h-3.5" />
-                                  TRANSMIT PACKET
-                                </button>
-                              </div>
-                            </form>
-                          </div>
-
-                          {/* ACTIVE INFORMATION ECONOMY SYSTEM OPERATIONS INTERVENTION DECK */}
-                          <div className="bg-black/80 border border-amber-500/30 rounded p-3 space-y-2.5">
-                            <div className="flex items-center justify-between border-b border-amber-500/20 pb-1.5 text-[10px] text-amber-500 font-mono">
-                              <span className="font-extrabold tracking-widest uppercase">🛠️ ACTIVE FORUM INFORMATION INTERVENTION DECK</span>
-                              <span className="text-zinc-500 font-bold">NODE UTILITIES</span>
-                            </div>
-
-                            <p className="text-[9px] text-zinc-400 leading-normal">
-                              Deploy structural modifications directly into this node's network pipeline. Shift propagation velocity, inject counter-intel rumors, or utilize sysop authority to bury controversy.
-                            </p>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
-                              {/* 1. HYPE BOOST */}
-                              <button
-                                type="button"
-                                id={`btn-ops-hype-${th.id}`}
-                                disabled={researchPoints < 10 || th.isSuppressed}
-                                onClick={() => handleBoostThread(th.id)}
-                                className={`p-2 rounded border text-left flex flex-col justify-between gap-1 cursor-pointer transition ${
-                                  researchPoints >= 10 && !th.isSuppressed
-                                    ? "bg-cyan-950/20 hover:bg-cyan-950/40 border-cyan-500/20 hover:border-cyan-500 text-cyan-300"
-                                    : "bg-zinc-950/50 border-zinc-900 text-zinc-650 cursor-not-allowed"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between text-[9.5px] font-bold">
-                                  <span>🚀 BOOST PROPAGATION</span>
-                                  <span className="text-[8px] bg-cyan-500/15 px-1 rounded text-cyan-400 font-sans">-10 RES</span>
-                                </div>
-                                <p className="text-[8.5px] text-[#71717a] mt-0.5 leading-tight">
-                                  Increase speed +30, credibility +15, and advance virality tier.
-                                </p>
-                              </button>
-
-                              {/* 2. MUTATION COUNTER INTEL */}
-                              <button
-                                type="button"
-                                id={`btn-ops-mutate-${th.id}`}
-                                disabled={researchPoints < 5}
-                                onClick={() => handleMutateThread(th.id)}
-                                className={`p-2 rounded border text-left flex flex-col justify-between gap-1 cursor-pointer transition ${
-                                  researchPoints >= 5
-                                    ? "bg-amber-950/20 hover:bg-amber-950/40 border-amber-500/20 hover:border-amber-500 text-amber-300"
-                                    : "bg-zinc-950/50 border-zinc-900 text-zinc-650 cursor-not-allowed"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between text-[9.5px] font-bold">
-                                  <span>🧬 MUTATE TOPIC</span>
-                                  <span className="text-[8px] bg-amber-500/15 px-1 rounded text-amber-400 font-sans">-5 RES</span>
-                                </div>
-                                <p className="text-[8.5px] text-[#71717a] mt-0.5 leading-tight">
-                                  Force semantic word mutation, raise distortion +25%, lower credibility.
-                                </p>
-                              </button>
-
-                              {/* 3. MODERATOR SUPPRESSION */}
-                              <button
-                                type="button"
-                                id={`btn-ops-suppress-${th.id}`}
-                                disabled={playerReputation < 15 || th.isSuppressed}
-                                onClick={() => handleSuppressThread(th.id)}
-                                className={`p-2 rounded border text-left flex flex-col justify-between gap-1 cursor-pointer transition ${
-                                  playerReputation >= 15 && !th.isSuppressed
-                                    ? "bg-rose-950/20 hover:bg-rose-950/40 border-rose-500/20 hover:border-rose-500 text-rose-300"
-                                    : "bg-zinc-950/50 border-zinc-900 text-zinc-650 cursor-not-allowed"
-                                }`}
-                              >
-                                <div className="flex items-center justify-between text-[9.5px] font-bold">
-                                  <span>🔇 BURY & SUPPRESS</span>
-                                  <span className="text-[8px] bg-rose-500/15 px-1 rounded text-rose-400 font-sans">-15 REP</span>
-                                </div>
-                                <p className="text-[8.5px] text-[#71717a] mt-0.5 leading-tight">
-                                  Force immediate moderator suppression state, burying transmission.
-                                </p>
-                              </button>
-                            </div>
-                          </div>
-
-                        </div>
-                      );
-                    })()}
-
-                  </div>
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* TAB: DYNAMIC GRAPH SOCIAL SYSTEM VIEW */}
-          {activeTab === "social_graph" && (
-            <div className="space-y-4 animate-fadeIn">
-              <SocialGraphTab
-                nodes={combinedGraphNodes}
-                edges={combinedGraphEdges}
-                storyLogs={graphStoryLogs}
-                characters={characters}
-                playerHandle={playerHandle}
-                playerGroupName={playerGroupName}
-                onInjectRumor={handleInjectRumorOnGraph}
-                onProposeJointCollab={handleProposeJointCollabOnGraph}
-                onTriggerReputationDiffusion={handleManualReputationDiffusion}
-              />
-            </div>
-          )}
-
-          {/* TAB 7: READ ENTIRE SYSTEM SPECIFICATION DOCUMENTS */}
-          {activeTab === "gdd" && (
-            <div className="space-y-4 animate-fadeIn">
-              <GddViewer />
-            </div>
-          )}
-          {/* TAB 8: ECONOMY LEDGER */}
-          {activeTab === "economy" && (
-            <div className="space-y-4 animate-fadeIn">
-              <EconomyPanel loop={simulationLoopRef.current} />
-            </div>
-          )}
-          {/* TAB 9: HALL OF FAME */}
-          {activeTab === "hall_of_fame" && (
-            <div className="space-y-4 animate-fadeIn">
-              <HallOfFamePanel entries={compHallOfFame} />
-            </div>
-          )}
-          {/* TAB 10: STATISTICS */}
-          {activeTab === "statistics" && (
-            <div className="space-y-4 animate-fadeIn">
-              <StatsDashboard
-                stats={compStats}
-                history={compProductionHistory}
-                hallOfFame={compHallOfFame}
-              />
-            </div>
-          )}
-          {/* TAB 11: PRODUCTION TIMELINE */}
-          {activeTab === "timeline" && (
-            <div className="space-y-4 animate-fadeIn">
-              <ProductionTimeline history={compProductionHistory} />
-            </div>
-          )}
+          <React.Suspense fallback={<div className="p-8 text-center text-zinc-500 font-mono text-xs animate-pulse">LOADING...</div>}>
+          {renderTabContent(activeTab)}
+        </React.Suspense>
         </div>
       </main>
 
@@ -5635,6 +4567,26 @@ const ERA_LABELS: Record<string, string> = {
               ))}
               <div className="w-1.5 bg-[#4ade80] h-3.5 animate-pulse inline-block" />
             </div>
+
+            {/* Disk virus warning — shown when the virus scan tripped */}
+            {diskInfected && lastVirusOutcome && (
+              <div className={`rounded px-3 py-2 border text-[10px] font-mono flex items-start gap-2 animate-pulse ${
+                lastVirusOutcome.isBricked
+                  ? 'bg-[#ef4444]/15 border-[#ef4444]/50 text-[#fca5a5]'
+                  : 'bg-[#fb923c]/10 border-[#fb923c]/40 text-[#fdba74]'
+              }`}>
+                <AlertTriangle className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${lastVirusOutcome.isBricked ? 'text-[#ef4444]' : 'text-[#fb923c]'}`} />
+                <div className="leading-relaxed">
+                  <span className="font-bold">
+                    {lastVirusOutcome.isBricked ? 'TOTAL CORRUPTION: ' : 'VIRUS DETECTED: '}
+                  </span>
+                  {lastVirusOutcome.strain?.name ?? 'Unknown virus'} found on disk!
+                  {lastVirusOutcome.isBricked
+                    ? ' The demo is corrupted and unplayable. You will need to compile again on a clean disk.'
+                    : ` Demo quality degraded by -${lastVirusOutcome.scorePenalty} pts.`}
+                </div>
+              </div>
+            )}
 
             {/* Static loader bar */}
             <div className="w-full bg-[#1a1b1e] border border-[#27272a]/80 h-3 rounded overflow-hidden">
@@ -6017,16 +4969,18 @@ const ERA_LABELS: Record<string, string> = {
           awards. Triggered by startCompetition() after party voting
           completes. */}
       {compShowCeremony && compCeremony && (
-        <PartyRankingScreen
-          ceremony={compCeremony}
-          onClose={() => {
-            compCloseCeremony();
-            compRecomputeStats(playerReputation);
-          }}
-          onAnimationComplete={() => {
-            compRecomputeStats(playerReputation);
-          }}
-        />
+        <React.Suspense fallback={<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90"><div className="p-8 text-center text-zinc-500 font-mono text-xs animate-pulse">CEREMONY LOADING...</div></div>}>
+          <PartyRankingScreen
+            ceremony={compCeremony}
+            onClose={() => {
+              compCloseCeremony();
+              compRecomputeStats(playerReputation);
+            }}
+            onAnimationComplete={() => {
+              compRecomputeStats(playerReputation);
+            }}
+          />
+        </React.Suspense>
       )}
 
       {/* Developer Tools — only visible when dev mode is active
@@ -6041,5 +4995,6 @@ const ERA_LABELS: Record<string, string> = {
         </p>
       </footer>
     </div>
+    </SimulationLoopProvider>
   );
 }

@@ -29,6 +29,9 @@ export { PARTY_CALENDAR } from "./partyCalendar";
 export { RIVAL_RELEASES } from "./rivalReleases";
 export type { RivalRelease } from "./rivalReleases";
 
+// ---- Year milestone unlocks (v0.6.0 Phase 1b) ----
+export { YEAR_UNLOCK_MAP, getYearUnlockedTechIds } from "./yearUnlocks";
+
 // ---- Economy seed ----
 export { HARDWARE_CATALOG, HARDWARE_CATALOG_INDEX } from "./hardwareCatalog";
 export type { HardwareItem } from "@packages/types";
@@ -40,6 +43,14 @@ export { SPONSORSHIP_CATALOG } from "./sponsorshipCatalog";
 export type { SponsorshipOffering } from "@packages/types";
 
 // ---- BBS message variety ----
+export {
+  getEffectIdsAvailableAtYear,
+} from "./effectUnlocks";
+
+// ---- Era configuration ----
+export { ERA_BOUNDARIES, eraForYear } from "./eraConfig";
+export type { EraBoundary } from "./eraConfig";
+
 export {
   BBS_BOARDS,
   BBS_SCRIBES,
@@ -56,6 +67,7 @@ export {
   getEra,
   generateFollowedReply,
   generatePersonalityMessage,
+  generateVirusDebateThread,
   colorForHandle,
 } from "./bbsMessages";
 export type {
