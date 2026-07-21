@@ -22,9 +22,11 @@ import {
   getCurrentTick,
   type EventDraft,
 } from "../events/appendEvent";
+import type { RivalActivityEntry, SceneMagazine } from "@packages/types";
 import { eventStore } from "../events/eventStore";
 import { getYearUnlockedTechIds } from "../data/yearUnlocks";
 import { TECHNOLOGY_TREE } from "../data/technologyTree";
+import { simulateRivalGroups, bootstrapRivalGroups } from "../domain/rivalGroups";
 
 export interface SimulationLoopOptions {
   initial: WorldState;
@@ -32,6 +34,115 @@ export interface SimulationLoopOptions {
   intervalMs?: number;
   onTick: (state: WorldState) => void;
 }
+
+// ─── Scene news dispatch from rival activity ─────────────────────────
+
+/**
+ * Thresholds for what counts as "newsworthy" from rival activity.
+ * Productions scoring ≥ this value get a magazine article.
+ */
+const HIGH_SCORE_THRESHOLD = 70;
+
+/**
+ * Scan the rival activity log for dramatic events and return
+ * SceneMagazine articles to publish as news.
+ *
+ * Only the most notable events are surfaced: disbands, splits,
+ * group returns, and high-scoring releases. Routine project starts
+ * and morale changes are filtered out to avoid news-feed spam.
+ */
+function dispatchRivalSceneNews(
+  activityLog: RivalActivityEntry[],
+  year: number,
+  month: number,
+): SceneMagazine[] {
+  const articles: SceneMagazine[] = [];
+  const seenDisbands = new Set<string>();
+  const seenReturns = new Set<string>();
+  const seenReleases = new Set<string>();
+  const seenSplits = new Set<string>();
+
+  // Process entries in reverse (most recent first) to catch the current
+  // month's events. The activity log is sorted newest-first.
+  for (const entry of activityLog) {
+    if (entry.year !== year || entry.month !== month) continue;
+
+    switch (entry.type) {
+      case "disbanded": {
+        if (seenDisbands.has(entry.groupId)) continue;
+        seenDisbands.add(entry.groupId);
+        articles.push({
+          id: `scene_news_disband_${entry.groupId}_${year}_${month}`,
+          title: "SCENE WIRE",
+          year,
+          month,
+          headline: `${entry.groupName.toUpperCase()} DISBANDS!`,
+          body: `After months of inactivity and declining morale, ${entry.groupName} has officially disbanded. Members have scattered to other groups or left the scene entirely. The demoscene loses one of its groups.`,
+          type: "scandal",
+        });
+        break;
+      }
+      case "returned": {
+        if (seenReturns.has(entry.groupId)) continue;
+        seenReturns.add(entry.groupId);
+        articles.push({
+          id: `scene_news_return_${entry.groupId}_${year}_${month}`,
+          title: "SCENE WIRE",
+          year,
+          month,
+          headline: `${entry.groupName.toUpperCase()} RETURNS TO ACTIVITY!`,
+          body: `After a lengthy hiatus, ${entry.groupName} is back in the scene and working on new material.`,
+          type: "editorial",
+        });
+        break;
+      }
+      case "released_production": {
+        if (seenReleases.has(entry.groupId + "_" + (entry.productionName ?? ""))) continue;
+        seenReleases.add(entry.groupId + "_" + (entry.productionName ?? ""));
+
+        // Only surface high-scoring releases as news
+        const scoreMatch = entry.description.match(/score (\d+)/);
+        const score = scoreMatch ? parseInt(scoreMatch[1]!, 10) : 0;
+        if (score < HIGH_SCORE_THRESHOLD) continue;
+
+        const prodName = entry.productionName ?? "NEW PRODUCTION";
+        articles.push({
+          id: `scene_news_release_${entry.groupId}_${year}_${month}_${Math.abs(score)}`,
+          title: "RELEASE ROUNDUP",
+          year,
+          month,
+          headline: `${entry.groupName.toUpperCase()} RELEASES "${prodName.toUpperCase()}" — SCORED ${score}/100!`,
+          body: `${entry.groupName} has released "${prodName}", scoring an impressive ${score}/100 from scene judges. This release is generating considerable buzz on the BBS boards.`,
+          type: "review",
+        });
+        break;
+      }
+      case "member_left": {
+        if (seenSplits.has(entry.groupId)) continue;
+        seenSplits.add(entry.groupId);
+
+        // Extract new group name from the description
+        const splitMatch = entry.description.match(/to form (.+)$/);
+        const newGroup = splitMatch ? splitMatch[1]! : "a new group";
+        articles.push({
+          id: `scene_news_split_${entry.groupId}_${year}_${month}`,
+          title: "SCENE WIRE",
+          year,
+          month,
+          headline: `${entry.groupName.toUpperCase()} SPLITS!`,
+          body: `Internal conflicts have caused a split in ${entry.groupName}! Members have left to form ${newGroup}. The demoscene grapevine is buzzing with speculation about what caused the division.`,
+          type: "scandal",
+        });
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  return articles;
+}
+
 
 export class SimulationLoop {
   private state: WorldState;
@@ -49,6 +160,17 @@ export class SimulationLoop {
     this.intervalMs = opts.intervalMs ?? 1000;
     this.onTick = opts.onTick;
     setCurrentTick(this.state.calendar.year * 12 + this.state.calendar.month);
+
+    // Seed rival group states from the INITIAL_GROUPS data
+    if (Object.keys(this.state.rivals.groups).length === 0) {
+      this.state = {
+        ...this.state,
+        rivals: {
+          ...this.state.rivals,
+          groups: bootstrapRivalGroups(),
+        },
+      };
+    }
   }
 
   /**
@@ -165,6 +287,58 @@ export class SimulationLoop {
         this.state = reduce(this.state, techEvt);
         unlockedSet.add(techId);
       }
+    }
+
+    // ---- Living rival group simulation (v0.6.1) ----
+    // Runs every month regardless of year boundary.
+    const rivalResult = simulateRivalGroups(
+      this.state.rivals.groups,
+      nextY,
+      nextM,
+    );
+
+    // Dispatch rival events through the event pipeline
+    for (const rivalEvt of rivalResult.events) {
+      const stamped = appendEvent(rivalEvt as import("../events/appendEvent").EventDraft);
+      this.state = reduce(this.state, stamped);
+    }
+
+    // Merge updated group states directly into WorldState.
+    // CRITICAL: spread existing groups FIRST (including any new groups
+    // the reducer added, e.g. from RivalGroupFormed events), then
+    // overwrite with the domain's updates. Using `rivalResult.updatedGroups`
+    // alone would discard groups created by events dispatched above.
+    this.state = {
+      ...this.state,
+      rivals: {
+        ...this.state.rivals,
+        groups: { ...this.state.rivals.groups, ...rivalResult.updatedGroups },
+      },
+    };
+
+    // ---- Dispatch scene news from dramatic rival events ----
+    // After the rival tick, scan the activity log for the most dramatic
+    // entries (disbands, splits, returns, high-scoring releases) and
+    // publish them as magazine articles so the player sees them in the
+    // News tab without having to open the History view.
+    // Merge domain activity log (splits, returns) with reducer entries
+    // (disbands, formations) so both sources are covered. Filter the
+    // state log to current month to avoid stale duplicates — the domain
+    // log already only contains this month's entries by construction.
+    const combinedLog = [
+      ...rivalResult.activityLog,
+      ...this.state.rivals.activityLog.filter(
+        (e) => e.year === nextY && e.month === nextM,
+      ),
+    ];
+    const newsArticles = dispatchRivalSceneNews(combinedLog, nextY, nextM);
+    for (const article of newsArticles) {
+      const stamped = appendEvent({
+        type: "NewsArticlePublished",
+        ts: getCurrentTick(),
+        article,
+      });
+      this.state = reduce(this.state, stamped);
     }
 
     this.onTick(this.state);

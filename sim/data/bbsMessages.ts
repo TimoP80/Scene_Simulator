@@ -22,6 +22,7 @@
 
 import {
   SpecialtyType,
+  createBbsMessage,
   type BBSMessage,
   type BBSThread,
   type Character,
@@ -773,7 +774,7 @@ export function generatePersonalityMessage(
   if (pool.length === 0) return null;
   const text = pool[Math.floor(rng() * pool.length)];
   if (!text) return null;
-  return { sender: personality.handle, text, color: personality.color };
+  return createBbsMessage(personality.handle, text, { color: personality.color });
 }
 
 // ============================================================================
@@ -826,12 +827,12 @@ export const SYSOP_REPLIES = [
 // ============================================================================
 
 export const SYSOP_MODERATION_MESSAGES: BBSMessage[] = [
-  { sender: "SYS_OP", text: "[BBS SYSTEM MANUAL ARCHIVE]: Thread buried by area moderator for hearsay and duplicate distribution guidelines violations.", color: "text-zinc-600" },
-  { sender: "SYS_OP", text: "[MODERATION ALERT]: Thread locked pending verification. Do not crosspost until cleared by node administrator.", color: "text-zinc-600" },
-  { sender: "SYS_OP", text: "[ARCHIVE PROTOCOL]: This thread has been moved to the historical scene-buffer for permanent record.", color: "text-zinc-600" },
-  { sender: "SYS_OP", text: "[WARNING]: Do not link unreleased binaries in public threads. Use private courier channels for pre-release distribution.", color: "text-zinc-600" },
-  { sender: "SYS_OP", text: "[BAN NOTICE]: User banned from this board for repeated flame violations. Appeals to node admin only.", color: "text-zinc-600" },
-  { sender: "SYS_OP", text: "[VERIFICATION PENDING]: Sources unconfirmed. Thread demoted to rumor-tier until corroborated by a second node.", color: "text-zinc-600" },
+  createBbsMessage("SYS_OP", "[BBS SYSTEM MANUAL ARCHIVE]: Thread buried by area moderator for hearsay and duplicate distribution guidelines violations.", { color: "text-zinc-600" }),
+  createBbsMessage("SYS_OP", "[MODERATION ALERT]: Thread locked pending verification. Do not crosspost until cleared by node administrator.", { color: "text-zinc-600" }),
+  createBbsMessage("SYS_OP", "[ARCHIVE PROTOCOL]: This thread has been moved to the historical scene-buffer for permanent record.", { color: "text-zinc-600" }),
+  createBbsMessage("SYS_OP", "[WARNING]: Do not link unreleased binaries in public threads. Use private courier channels for pre-release distribution.", { color: "text-zinc-600" }),
+  createBbsMessage("SYS_OP", "[BAN NOTICE]: User banned from this board for repeated flame violations. Appeals to node admin only.", { color: "text-zinc-600" }),
+  createBbsMessage("SYS_OP", "[VERIFICATION PENDING]: Sources unconfirmed. Thread demoted to rumor-tier until corroborated by a second node.", { color: "text-zinc-600" }),
 ];
 
 // ============================================================================
@@ -1313,10 +1314,10 @@ export function generateFollowedReply(
     ?? VOICE_PROFILES[npc.specialty]?.early
     ?? [];
   if (profile.length === 0) {
-    return { sender: npc.handle, text: "Loving this thread. Keep the discussion alive.", color: colorForHandle(npc.handle) };
+    return createBbsMessage(npc.handle, "Loving this thread. Keep the discussion alive.", { color: colorForHandle(npc.handle) });
   }
   const text = profile[Math.floor(Math.random() * profile.length)];
-  return { sender: npc.handle, text, color: colorForHandle(npc.handle) };
+  return createBbsMessage(npc.handle, text, { color: colorForHandle(npc.handle) });
 }
 
 // ============================================================================

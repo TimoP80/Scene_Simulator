@@ -19,3 +19,4 @@ export { default as PartyTab } from "./PartyTab";
 export { default as NewsTab } from "./NewsTab";
 export { default as ScenariosTab } from "./ScenariosTab";
 export { default as BbsTab } from "./BbsTab";
+export { default as HistoryTab } from "./HistoryTab";

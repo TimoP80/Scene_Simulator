@@ -79,7 +79,7 @@ import {
 import DemoScreen from "./components/DemoScreen";
 import ShaderEditor from "./components/ShaderEditor";
 import type { CustomShader } from "@packages/types";
-import { WorkspaceTab, CrewTab, ResearchTab, PartyTab, NewsTab, ScenariosTab, BbsTab } from "./pages";
+import { WorkspaceTab, CrewTab, ResearchTab, PartyTab, NewsTab, ScenariosTab, BbsTab, HistoryTab } from "./pages";
 import { generateRandomSlideShowConfig, generateSlideMetadata } from "./components/SlideShowRenderer";
 import { generateAiSlideImages } from "./ai/imageGenerator";
 import type { AiSlideResult } from "./ai/imageGenerator";
@@ -158,6 +158,7 @@ import {
   Share2,
   Wallet,
   Settings,
+  Clock,
 } from "lucide-react";
 
 function getInitialCognitiveModel(charId: string): CognitiveModel {
@@ -4068,6 +4069,12 @@ const ERA_LABELS: Record<string, string> = {
             getMonthName={getMonthName}
           />
         );
+      case "history":
+        return (
+          <div className="space-y-4 animate-fadeIn">
+            <HistoryTab />
+          </div>
+        );
       case "scenarios":
         return (
           <ScenariosTab
@@ -4423,6 +4430,21 @@ const ERA_LABELS: Record<string, string> = {
               <div className="flex items-center gap-1.5 focus:outline-none">
                 <Terminal className="w-3.5 h-3.5 text-[#a855f7]" />
                 <span>06_BBS_TERM</span>
+              </div>
+            </button>
+
+            <button
+              id="tab-btn-history"
+              onClick={() => setActiveTab("history")}
+              className={`px-3 py-2 text-xs font-extrabold rounded-t transition-all ${
+                activeTab === "history"
+                  ? "bg-[#2d2d30] text-[#facc15] border-t-2 border-[#22d3ee] border-x border-[#3f3f46]"
+                  : "text-[#a1a1aa] hover:text-white hover:bg-[#18181b]/50"
+              }`}
+            >
+              <div className="flex items-center gap-1.5 focus:outline-none">
+                <Clock className="w-3.5 h-3.5 text-[#22d3ee]" />
+                <span>07_HISTORY</span>
               </div>
             </button>
 

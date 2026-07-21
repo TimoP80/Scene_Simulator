@@ -33,3 +33,6 @@ export * from "./technology";
 
 // ---- Amiga disk virus subsystem ----
 export * from "./virus";
+
+// ---- Living rival group simulation (v0.6.1) ----
+export * from "./rivalGroups";

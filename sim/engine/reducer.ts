@@ -17,6 +17,7 @@
 import {
   IncomeSource,
   PlatformId,
+  ProductionType,
   TravelSubscriptionTier,
   type ActiveJob,
   type BBSThread,
@@ -31,6 +32,9 @@ import {
   type SocialEdge,
   type SocialNode,
   type ReputationVector,
+  type RivalGroupState,
+  type RivalProduction,
+  type RivalActivityEntry,
   DEFAULT_REPUTATION_VECTOR,
   applyReputationDelta,
   reputationVectorToLegacy,
@@ -121,6 +125,21 @@ export interface WorldState {
    * `"seed"` would short-circuit against the baked-in seed row — the
    * invariant is preserved end-to-end through replay too.
    */
+  /**
+   * Living state of all rival (AI-controlled) demogroups. Updated each
+   * month by the simulation loop's rival simulation tick. The reducer
+   * handles RivalGroupProductionReleased, RivalGroupFormed, and
+   * RivalGroupDisbanded events to keep this slice in sync.
+   *
+   * `activityLog` is a rolling window of the last 200 entries shown
+   * in the scene news / rival activity feed. Older entries are trimmed
+   * by the reducer on each new insertion.
+   */
+  rivals: {
+    groups: Record<string, RivalGroupState>;
+    productions: RivalProduction[];
+    activityLog: RivalActivityEntry[];
+  };
   economy: {
     ledger: {
       income: IncomeLedgerEntry[];
@@ -188,6 +207,11 @@ export function emptyWorldState(): WorldState {
       lastPlacement: null,
       lastCashPrize: 0,
       lastRepPrize: 0,
+    },
+    rivals: {
+      groups: {},
+      productions: [],
+      activityLog: [],
     },
     economy: {
       // Synthetic $250 starting-allowance row, baked into `emptyWorldState()`
@@ -743,6 +767,181 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
         },
       };
     }
+    // --- Rival group simulation (v0.6.1) ---
+    case "RivalGroupProductionReleased": {
+      const existingGroup = state.rivals.groups[event.groupId];
+      const updatedGroups = existingGroup
+        ? {
+            ...state.rivals.groups,
+            [event.groupId]: {
+              ...existingGroup,
+              releaseCount: existingGroup.releaseCount + 1,
+              lastReleaseYear: Math.floor(event.ts / 12),
+              lastReleaseMonth: (event.ts % 12) || 12,
+              currentProject: null,
+              reputation: Math.min(1000, existingGroup.reputation + Math.round(event.totalScore / 10)),
+            } as RivalGroupState,
+          }
+        : state.rivals.groups;
+
+      const rivalProd: RivalProduction = {
+        id: event.productionId,
+        groupId: event.groupId,
+        groupName: existingGroup?.name ?? event.groupId,
+        name: event.productionName,
+        type: event.productionType as ProductionType,
+        platformId: event.platformId as PlatformId,
+        totalScore: event.totalScore,
+        technicalScore: event.technicalScore,
+        artisticScore: event.artisticScore,
+        musicScore: event.musicScore,
+        graphicsScore: event.graphicsScore,
+        releasedYear: Math.floor(event.ts / 12),
+        releasedMonth: (event.ts % 12) || 12,
+        partyName: event.partyName,
+        placement: event.placement,
+      };
+
+      const logEntry: RivalActivityEntry = {
+        groupId: event.groupId,
+        groupName: existingGroup?.name ?? event.groupId,
+        year: Math.floor(event.ts / 12),
+        month: (event.ts % 12) || 12,
+        type: "released_production",
+        description: `Released "${event.productionName}" (${event.productionType}) — scored ${event.totalScore}/100`,
+        productionId: event.productionId,
+        productionName: event.productionName,
+      };
+
+      // Keep activity log at max 200 entries
+      const updatedLog = [logEntry, ...state.rivals.activityLog].slice(0, 200);
+
+      return {
+        ...state,
+        rivals: {
+          ...state.rivals,
+          groups: updatedGroups,
+          productions: [...state.rivals.productions, rivalProd],
+          activityLog: updatedLog,
+        },
+      };
+    }
+    case "RivalGroupFormed": {
+      // Don't double-register
+      if (state.rivals.groups[event.groupId]) return state;
+
+      // Build personality from the parent group or use defaults
+      const parent = event.parentGroupId ? state.rivals.groups[event.parentGroupId] : undefined;
+      const newGroup: RivalGroupState = {
+        id: event.groupId,
+        name: event.groupName,
+        personality: {
+          ambition: parent ? Math.max(30, parent.personality.ambition + randomSign(10)) : 60,
+          technicalFocus: parent ? clampPct(parent.personality.technicalFocus + randomSign(15)) : 50,
+          artisticFocus: parent ? clampPct(parent.personality.artisticFocus + randomSign(15)) : 50,
+          stability: parent ? Math.max(20, parent.personality.stability - 15) : 50,
+          preferredPlatforms: parent?.personality.preferredPlatforms ?? [],
+          preferredTypes: parent?.personality.preferredTypes ?? [],
+        },
+        activityStatus: "active",
+        currentProject: null,
+        motivation: 70,
+        morale: 70,
+        reputation: parent ? Math.max(100, parent.reputation - 200) : 100,
+        fanbase: parent ? Math.max(50, parent.fanbase - 500) : 100,
+        releaseCount: 0,
+        lastReleaseYear: event.foundingYear,
+        lastReleaseMonth: event.foundingMonth,
+        foundingYear: event.foundingYear,
+        hqLocation: event.hqLocation,
+        motto: event.motto,
+        memberIds: event.memberIds,
+        rivalries: {},
+      };
+
+      // If formed from a parent group split, remove transferred members from parent
+      let updatedGroups = { ...state.rivals.groups, [event.groupId]: newGroup };
+      if (parent && event.parentGroupId) {
+        const parentUpdated = {
+          ...parent,
+          memberIds: parent.memberIds.filter((id) => !event.memberIds.includes(id)),
+          morale: Math.max(10, parent.morale - 20),
+        };
+        updatedGroups[event.parentGroupId] = parentUpdated;
+      }
+
+      const logEntry: RivalActivityEntry = {
+        groupId: event.groupId,
+        groupName: event.groupName,
+        year: event.foundingYear,
+        month: event.foundingMonth,
+        type: "formed",
+        description: event.parentGroupId
+          ? `Split from ${state.rivals.groups[event.parentGroupId]?.name ?? event.parentGroupId} with ${event.memberIds.length} member(s)`
+          : `New group formed: ${event.groupName} (${event.hqLocation})`,
+      };
+
+      const updatedLog = [logEntry, ...state.rivals.activityLog].slice(0, 200);
+
+      return {
+        ...state,
+        rivals: {
+          ...state.rivals,
+          groups: updatedGroups,
+          activityLog: updatedLog,
+        },
+      };
+    }
+    case "RivalGroupDisbanded": {
+      const target = state.rivals.groups[event.groupId];
+      if (!target) return state;
+
+      const updated: RivalGroupState = {
+        ...target,
+        activityStatus: "disbanded",
+        inactiveSinceYear: Math.floor(event.ts / 12),
+        inactiveSinceMonth: (event.ts % 12) || 12,
+        currentProject: null,
+        motivation: 0,
+        morale: 0,
+      };
+
+      // If members have destinations, update parent group memberships
+      let updatedGroups = { ...state.rivals.groups, [event.groupId]: updated };
+      if (event.memberDestinations) {
+        for (const [charId, destGroupId] of Object.entries(event.memberDestinations)) {
+          if (destGroupId && updatedGroups[destGroupId]) {
+            const dest = updatedGroups[destGroupId];
+            if (!dest.memberIds.includes(charId)) {
+              updatedGroups[destGroupId] = {
+                ...dest,
+                memberIds: [...dest.memberIds, charId],
+              };
+            }
+          }
+        }
+      }
+
+      const logEntry: RivalActivityEntry = {
+        groupId: event.groupId,
+        groupName: target.name,
+        year: Math.floor(event.ts / 12),
+        month: (event.ts % 12) || 12,
+        type: "disbanded",
+        description: `${target.name} disbanded: ${event.reason}`,
+      };
+
+      const updatedLog = [logEntry, ...state.rivals.activityLog].slice(0, 200);
+
+      return {
+        ...state,
+        rivals: {
+          ...state.rivals,
+          groups: updatedGroups,
+          activityLog: updatedLog,
+        },
+      };
+    }
     default: {
       // exhaustiveness check
       const _exhaust: never = event;
@@ -750,6 +949,18 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
       return state;
     }
   }
+}
+
+// ─── Helper functions used by the rival group reducer cases ─────────────
+
+function randomSign(max: number): number {
+  // Deterministic variant: return a fixed small value since this is
+  // only used in the (currently unreachable) RivalGroupFormed case.
+  return Math.round(max * 0.3);
+}
+
+function clampPct(value: number): number {
+  return Math.max(0, Math.min(100, value));
 }
 
 /** Helper: reduce over a sequence of events, returning the final state. */

@@ -3,13 +3,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState } from "react";
+import React, { useState, useRef, useMemo, useCallback } from "react";
 import { 
   SocialNode, 
   SocialEdge, 
   SocialEdgeType, 
   SocialNodeType 
 } from "@packages/types";
+import type { RivalGroupState } from "@packages/types";
 import { 
   Users, 
   Share2, 
@@ -28,6 +29,9 @@ import {
   Sliders,
   HelpCircle
 } from "lucide-react";
+import { useSimulationSelector } from "../hooks/useSimulationSelector";
+import GroupTooltip from "./GroupTooltip";
+import GroupDossierPanel from "./GroupDossierPanel";
 
 interface SocialGraphTabProps {
   nodes: SocialNode[];
@@ -61,6 +65,49 @@ export default function SocialGraphTab({
   const [rumorTargetId, setRumorTargetId] = useState<string>("");
   const [actionsError, setActionsError] = useState<string | null>(null);
   const [actionsSuccess, setActionsSuccess] = useState<string | null>(null);
+
+  // ── GroupTooltip + GroupDossier state ──
+  const [hoveredGroupId, setHoveredGroupId] = useState<string | null>(null);
+  const [tooltipPos, setTooltipPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [dossierGroupId, setDossierGroupId] = useState<string | null>(null);
+  const svgContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Rival group name lookup ──
+  const rivalGroups = useSimulationSelector((s) => s.rivals.groups);
+  const groupByName = useMemo(() => {
+    const map = new Map<string, RivalGroupState>();
+    if (!rivalGroups) return map;
+    // Sort names by length descending so "FUTURE CREW" matches before "FUTURE"
+    const entries = Object.entries(rivalGroups).sort(
+      ([, a], [, b]) => b.name.length - a.name.length,
+    );
+    for (const [, grp] of entries) {
+      map.set(grp.name.toUpperCase(), grp);
+    }
+    return map;
+  }, [rivalGroups]);
+
+  // Given a SocialNode label, find the matching rival group (if any)
+  const findGroupByLabel = useCallback(
+    (label: string): RivalGroupState | undefined => {
+      return groupByName.get(label.toUpperCase());
+    },
+    [groupByName],
+  );
+
+  // Update tooltip position relative to the SVG container on mouse move
+  const handleSvgMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (!hoveredGroupId) return;
+      const rect = svgContainerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setTooltipPos({
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      });
+    },
+    [hoveredGroupId],
+  );
 
   // Filter nodes based on user query and categories
   const filteredNodes = nodes.filter((node) => {
@@ -226,6 +273,7 @@ export default function SocialGraphTab({
   };
 
   return (
+    <>
     <div id="social-graph-dash" className="space-y-6 font-mono select-none">
       
       {/* High tech banner summary */}
@@ -346,7 +394,11 @@ export default function SocialGraphTab({
           </div>
 
           {/* SVG canvas workspace */}
-          <div className="w-full h-[410px] bg-[#0c0812]/90 rounded border border-zinc-900 flex items-center justify-center relative select-none">
+          <div
+            ref={svgContainerRef}
+            className="w-full h-[410px] bg-[#0c0812]/90 rounded border border-zinc-900 flex items-center justify-center relative select-none"
+            onMouseMove={handleSvgMouseMove}
+          >
             
             {/* Legend guide right inside map */}
             <div className="absolute bottom-2 left-2 flex flex-wrap gap-x-3 gap-y-1 bg-[#120e21] p-1.5 rounded border border-purple-950/60 text-[8px] max-w-[400px]">
@@ -432,6 +484,8 @@ export default function SocialGraphTab({
 
                 const rating = coord.type === "group" ? 14 : 9.5;
                 const isPlayerNode = coord.id === "player" || coord.id === "player_group";
+                const isGroup = coord.type === "group";
+                const matchedGroup = isGroup ? findGroupByLabel(coord.label) : undefined;
 
                 return (
                   <g
@@ -439,12 +493,26 @@ export default function SocialGraphTab({
                     transform={`translate(${coord.x}, ${coord.y})`}
                     className="cursor-pointer select-none"
                     onClick={() => {
-                      setSelectedNodeId(coord.id);
-                      // Clear forms targets
-                      const neighbors = edges.filter(e => e.source === coord.id || e.target === coord.id);
-                      if (neighbors.length > 0) {
-                        const target = neighbors[0].source === coord.id ? neighbors[0].target : neighbors[0].source;
-                        setRumorTargetId(target);
+                      // If it's a group node with a matching rival, open dossier
+                      if (matchedGroup) {
+                        setDossierGroupId(matchedGroup.id);
+                      } else {
+                        setSelectedNodeId(coord.id);
+                        const neighbors = edges.filter(e => e.source === coord.id || e.target === coord.id);
+                        if (neighbors.length > 0) {
+                          const target = neighbors[0].source === coord.id ? neighbors[0].target : neighbors[0].source;
+                          setRumorTargetId(target);
+                        }
+                      }
+                    }}
+                    onMouseEnter={() => {
+                      if (matchedGroup) {
+                        setHoveredGroupId(matchedGroup.id);
+                      }
+                    }}
+                    onMouseLeave={() => {
+                      if (matchedGroup) {
+                        setHoveredGroupId(null);
                       }
                     }}
                   >
@@ -482,6 +550,24 @@ export default function SocialGraphTab({
                 );
               })}
             </svg>
+
+            {/* GroupTooltip overlay — after SVG so it paints on top */}
+            {hoveredGroupId && rivalGroups && rivalGroups[hoveredGroupId] && (
+              <div
+                className="absolute z-50 pointer-events-none"
+                style={{
+                  left: `${Math.min(tooltipPos.x + 16, 360)}px`,
+                  // Clamp top so the ~260px tooltip doesn't overflow 410px container
+                  top: `${Math.max(Math.min(tooltipPos.y - 80, 150), 4)}px`,
+                }}
+              >
+                <GroupTooltip
+                  group={rivalGroups[hoveredGroupId]!}
+                  className="w-56 p-2.5 rounded-lg bg-[#18181b] border border-[#3f3f46] shadow-2xl shadow-black/50 font-mono text-[10px]"
+                  showDetailsHint
+                />
+              </div>
+            )}
           </div>
 
           {/* Emergent Event Ticker feed underneath layout */}
@@ -712,5 +798,14 @@ export default function SocialGraphTab({
       </div>
 
     </div>
+
+    {/* GroupDossierPanel modal */}
+    {dossierGroupId && (
+      <GroupDossierPanel
+        groupId={dossierGroupId}
+        onClose={() => setDossierGroupId(null)}
+      />
+    )}
+    </>
   );
 }

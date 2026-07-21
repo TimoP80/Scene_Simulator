@@ -256,6 +256,72 @@ export const emit = {
       tier,
       monthlyFee,
     }),
+  // --- Rival group simulation (v0.6.1) ---
+  rivalGroupProductionReleased: (
+    groupId: string,
+    productionName: string,
+    productionType: import("@packages/types").ProductionType,
+    totalScore: number,
+    technicalScore: number,
+    artisticScore: number,
+    musicScore: number,
+    graphicsScore: number,
+    platformId: import("@packages/types").PlatformId,
+    productionId: string,
+    partyName?: string,
+    placement?: number,
+  ) =>
+    appendEvent({
+      type: "RivalGroupProductionReleased",
+      ts: currentTick,
+      groupId,
+      productionName,
+      productionType,
+      totalScore,
+      technicalScore,
+      artisticScore,
+      musicScore,
+      graphicsScore,
+      platformId,
+      productionId,
+      partyName,
+      placement,
+    }),
+  rivalGroupFormed: (
+    groupId: string,
+    groupName: string,
+    memberIds: string[],
+    foundingYear: number,
+    foundingMonth: number,
+    hqLocation: string,
+    motto: string,
+    parentGroupId?: string,
+  ) =>
+    appendEvent({
+      type: "RivalGroupFormed",
+      ts: currentTick,
+      groupId,
+      groupName,
+      memberIds,
+      foundingYear,
+      foundingMonth,
+      hqLocation,
+      motto,
+      parentGroupId,
+    }),
+  rivalGroupDisbanded: (
+    groupId: string,
+    reason: string,
+    memberDestinations?: Record<string, string | null>,
+  ) =>
+    appendEvent({
+      type: "RivalGroupDisbanded",
+      ts: currentTick,
+      groupId,
+      reason,
+      memberDestinations,
+    }),
+
   // NOTE: HardwareCategory / IncomeSource / ExpenseCategory / TravelSubscriptionTier
   // are imported above so the emit.* builders are typed strongly.
   // NOTE: emit.edgeAdded intentionally NOT exposed today (no current caller).

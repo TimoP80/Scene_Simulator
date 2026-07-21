@@ -21,3 +21,4 @@ export * from "./economy";
 export * from "./competition";
 export * from "./reputation";
 export * from "./shader";
+export * from "./rival";

@@ -314,6 +314,62 @@ export interface TravelSubscriptionChangedEvent extends BaseEvent {
   monthlyFee: number;
 }
 
+// --- Rival group simulation (v0.6.1) ---------------------------------------
+
+/**
+ * A rival (AI-controlled) demogroup has released a new production.
+ * The payload carries the production metadata for the UI log and
+ * for any downstream projections (scene news, social graph, rival
+ * history).
+ */
+export interface RivalGroupProductionReleasedEvent extends BaseEvent {
+  type: "RivalGroupProductionReleased";
+  groupId: string;
+  productionName: string;
+  productionType: import("@packages/types").ProductionType;
+  totalScore: number;
+  technicalScore: number;
+  artisticScore: number;
+  musicScore: number;
+  graphicsScore: number;
+  platformId: import("@packages/types").PlatformId;
+  productionId: string;
+  /** The party where this was presented (optional). */
+  partyName?: string;
+  /** Placement at that party (optional). */
+  placement?: number;
+}
+
+/**
+ * A new rival group has formed — either from a split of an existing
+ * group or as a completely new entity (rare). The reducer seeds a
+ * RivalGroupState record for it.
+ */
+export interface RivalGroupFormedEvent extends BaseEvent {
+  type: "RivalGroupFormed";
+  groupId: string;
+  groupName: string;
+  memberIds: string[];
+  foundingYear: number;
+  foundingMonth: number;
+  hqLocation: string;
+  motto: string;
+  /** Reference to the parent group if this was a split. */
+  parentGroupId?: string;
+}
+
+/**
+ * A rival group has disbanded. The reducer removes its `activityStatus`
+ * but preserves the record so the log can reference it.
+ */
+export interface RivalGroupDisbandedEvent extends BaseEvent {
+  type: "RivalGroupDisbanded";
+  groupId: string;
+  reason: string;
+  /** If members scattered to other groups, record the target ids. */
+  memberDestinations?: Record<string, string | null>;
+}
+
 // --- Discriminated union ----------------------------------------------------
 
 export type SimEvent =
@@ -349,7 +405,10 @@ export type SimEvent =
   | SoftwarePurchasedEvent
   | PartyPrizeAwardedEvent
   | ReputationVectorChangedEvent
-  | TravelSubscriptionChangedEvent;
+  | TravelSubscriptionChangedEvent
+  | RivalGroupProductionReleasedEvent
+  | RivalGroupFormedEvent
+  | RivalGroupDisbandedEvent;
 
 /** Narrow event types for a given `type` discriminator. */
 export type SimEventOf<T extends SimEvent["type"]> = Extract<SimEvent, { type: T }>;

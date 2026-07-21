@@ -7,6 +7,120 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-21
+
+### Added
+- **Living rival group simulation (Phase 2)** — AI groups now autonomously
+  produce monthly activity: releases, recruitment, splits, retirements, and
+  disbanding. Each group has a persistent `GroupPersonality` with 10 traits
+  (innovation, technicalSkill, artisticFocus, musicFocus, productivity,
+  competitiveness, organization, riskTaking, socialActivity, oldschoolSpirit)
+  that drive release frequency, effect selection, competition strategy, and
+  reputation growth. The simulation runs every calendar month and logs all
+  events to `rivals.activityLog` for the History tab.
+- **External shock system** — Random group-level events (coder burnout,
+  musician leaves, hardware crash, party disappointment, creative breakthrough,
+  internal conflict, member poached) apply deterministic morale/motivation/
+  progress/reputation deltas. Failure spirals compound when morale drops
+  below configurable threshold. Split probability rises with internal
+  pressure; disband requires sustained failure with no recovery path.
+- **Historical Timeline (`HistoryTab.tsx` + `HistoricalTimeline.tsx`)** —
+  Scrollable world history view combining `rivals.activityLog` (releases,
+  splits, disbands, formations) and `press.newsLog` (scene news, party
+  results). Filterable by event type (ALL, RELEASES, SPLITS, DISBANDS,
+  FORMATIONS, NEWS) and sorted chronologically. Era markers split the
+  timeline into visual decades (1985–1989, 1990–1994, etc.). GroupTooltip
+  integration on hover over any rival activity entry shows morale,
+  motivation, member count, and current project status.
+- **GroupTooltip (`GroupTooltip.tsx`)** — Hover card showing rival group
+  stats: morale bar (color-coded green/yellow/red), motivation bar, member
+  count, current project name and activity state, and a "view dossier" hint.
+  Wired into NewsTab, BBSThreadView, SocialGraphTab, and HistoryTab.
+- **GroupDossierPanel (`GroupDossierPanel.tsx`)** — Full-page modal with
+  expanded rival group intelligence: full personality traits (10 axes with
+  visual bars), production history (releases list), rivalry heatmap, and
+  morale sparkline. Opens on click from any GroupTooltip instance.
+- **Scene news dispatch** — Monthly `DramaticRivalEventDetected` event that
+  surfaces the most significant rival activity (split, disband, legendary
+  release) as an in-game pop-up notification, auto-inserting it into the
+  news feed so players don't need to check the History tab to know when
+  something big happens.
+- **`createBbsMessage` factory function** — Centralized message factory in
+  `@packages/types` that always returns a properly-typed `BBSMessage` with
+  the canonical `sender` field. All BBS message creation sites migrated to
+  use it, preventing future `handle` vs `sender` field drift at the type
+  level.
+- **`CustomBBSMessage` interface** — Extends `BBSMessage` with `id`,
+  `timestamp`, `isPlayer` for the custom BBS post form. The creation path
+  uses the extended interface; the render path uses the base `BBSMessage`
+  type — a clean separation that prevents the render loop from depending on
+  non-standard fields.
+- **`BBSThreadView` component** — Extracted from the inline IIFE in
+  BbsTab.tsx (~400 lines). Fixes a stale closure where the choice button
+  handler captured `bbsThreads` from the render closure instead of using
+  the functional state-update pattern. Now uses `onSetBbsThreads((prev) =>
+  prev.map(...))` throughout.
+- **`useBbsThreadMutations` hook** — Consolidates 6 individual setter
+  callbacks (onSetBbsThreads, onSetBbsCustomMessage, onSetBbsEffectNotification,
+  onSetPlayerReputation, onSetResearchPoints, onSetCharacters) into a single
+  `BbsThreadMutations` object with 10 ergonomic methods: `mutateThread`,
+  `mutateCharacter`, `adjustReputation` (with [0,1000] clamping),
+  `addResearchPoints`, `showNotification` (with auto-clear after 3s),
+  `setCustomMessage`, and raw functional updaters. Reduces the BBSThreadView
+  prop surface from 20 props to 9 (55% reduction).
+
+### Changed
+- **`package.json`** — bumped `0.6.1` → `0.7.0`.
+- **`src/pages/BbsTab.tsx`** — BBSThreadView call site reduced from 20
+  props to 9: `session`, `ui`, `ai`, `mutations` grouped objects replace
+  12 individual props. Uses `useBbsThreadMutations` hook and `useMemo`
+  for stable object references. Removed dead `handle: playerHandle` field
+  from custom BBS messages.
+- **`src/components/BBSThreadView.tsx`** — Props interface rewritten to 9
+  grouped items (was 20). All internal handlers migrated to `mutations.*`
+  methods. Choice onClick handler uses `mutations.mutateThread`,
+  `mutations.mutateCharacter`, `mutations.adjustReputation`,
+  `mutations.addResearchPoints`. AI button uses `ai.state.*` and
+  `ai.onGenerateReply`. Disabled states read `session.researchPoints` and
+  `session.reputation`. Removed unused `characters` prop.
+- **`sim/domain/rivalGroups.ts`** — Monte Carlo tuning results applied:
+  failure spiral threshold raised to 30 (from 25), return base probability
+  lowered to 0.02 (from 0.03). 40-year audit passes with ~4 disbands,
+  ~390 releases, stable splits per career.
+- **BBS message creation fully typed** — All message-creation sites in
+  `bbsMessages.ts` and `BbsTab.tsx` now use `createBbsMessage()` factory.
+  Seed thread messages remain type-safe via `BBSThread.messages: BBSMessage[]`.
+- **Group data object consolidation** — `PlayerSession`, `ThreadUIState`,
+  and `AiInterface` interfaces defined in BBSThreadView for ergonomic
+  grouped prop passing.
+
+### Fixed
+- **BBS custom post blank screen** — `handlePostCustomBbsMessage` created
+  message objects with `handle: playerHandle` but the rendering pipeline
+  reads `m.sender`. This caused `m.sender.toUpperCase()` to throw
+  `TypeError: Cannot read properties of undefined` → React crash → blank
+  screen. Fixed by adding `sender: playerHandle` alongside `handle`.
+- **Stale closure in BBS choice handler** — The choice button handler
+  captured `bbsThreads` from the render closure. Fixed by extracting the
+  thread-view IIFE into `BBSThreadView` component and using functional
+  state-update pattern (`(prev) => prev.map(...)`) throughout.
+- **SocialGraphTab tooltip bottom clipping** — The GroupTooltip positioned
+  `top: Math.max(y - 80, 4)` clamped the top but not the bottom edge,
+  so the ~260px tooltip overflowed the 410px container near the bottom.
+  Fixed with `Math.max(Math.min(y - 80, 150), 4)` clamp.
+- **Dead `handle` field removed** — The custom BBS message object had
+  `handle: playerHandle` alongside `sender: playerHandle`. Audit confirmed
+  zero readers of `m.handle` anywhere in the codebase — safe to remove.
+
+### Added (cont.)
+- **New files:**
+  - `src/hooks/useBbsThreadMutations.ts` — Consolidated mutation hook
+  - `src/components/BBSThreadView.tsx` — Extracted thread-view component
+  - `src/components/GroupTooltip.tsx` — Rival group hover card
+  - `src/components/GroupDossierPanel.tsx` — Rival group dossier modal
+  - `src/components/HistoricalTimeline.tsx` — World history timeline
+  - `src/pages/HistoryTab.tsx` — History tab page component
+
 ## [0.6.1] - 2026-07-20
 
 ### Added
