@@ -675,6 +675,7 @@ export function compileShader(code: string): ShaderFn | string {
           }
           case "for": {
             execStmt(s.init);
+            let forLoopCount = 0;
             while (true) {
               const cond = evalExpr(s.cond);
               if (typeof cond === "number" && cond === 0) break;
@@ -683,21 +684,19 @@ export function compileShader(code: string): ShaderFn | string {
               // Execute increment
               if (s.incr) evalExpr(s.incr);
               // Safety limit: max 10000 iterations per execution
-              const limitCheck = (env.$loopCount as number) ?? 0;
-              if (limitCheck > 10000) break;
-              env.$loopCount = ((env.$loopCount as number) ?? 0) + 1;
+              forLoopCount++;
+              if (forLoopCount > 10000) break;
             }
-            delete env.$loopCount;
             break;
           }
           case "while": {
-            let limit = 0;
+            let whileLoopCount = 0;
             while (true) {
               const cond = evalExpr(s.cond);
               if (typeof cond === "number" && cond === 0) break;
               for (const st of s.body) execStmt(st);
-              limit++;
-              if (limit > 10000) break;
+              whileLoopCount++;
+              if (whileLoopCount > 10000) break;
             }
             break;
           }

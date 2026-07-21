@@ -172,6 +172,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 import App from "../../src/App";
+import AppBootstrapper from "../../src/components/AppBootstrapper";
 import { DevModeProvider } from "../../src/devtools/DevModeContext";
 
 // Resolve src/main.tsx relative to THIS test file, not process.cwd(),
@@ -229,7 +230,9 @@ function unmount(): void {
 }
 
 /**
- * Mount `<App />` with or without a DevModeProvider. Mirrors
+ * Mount `<App />` via `<AppBootstrapper />` (which provides the
+ * `SimulationLoopProvider` that App's `useSimulationSelector`
+ * requires) with or without a DevModeProvider. Mirrors
  * `src/main.tsx`'s wrap order but omits `<StrictMode>` (see file
  * header).
  */
@@ -243,9 +246,12 @@ async function mountApp(options: {
   // Assign before render so the beforeExit safety net can clean
   // up if render throws.
   mountedRoot = root;
+  // AppBootstrapper internally provides SimulationLoopProvider
+  // which App's useSimulationSelector needs. This mirrors the
+  // main.tsx mount order: DevModeProvider > AppBootstrapper.
   const tree = options.withProvider
-    ? React.createElement(DevModeProvider, null, React.createElement(App))
-    : React.createElement(App);
+    ? React.createElement(DevModeProvider, null, React.createElement(AppBootstrapper))
+    : React.createElement(AppBootstrapper);
   // flushSync forces a synchronous render + flushes all pending
   // effects in one call. This is the cleanest way to mount the
   // App tree in a happy-dom + React 19 test env: `act()` requires
@@ -342,7 +348,7 @@ await check("src/main.tsx mounts <App /> inside <DevModeProvider> (the actual v0
   // sibling that just happens to appear after it in the file.
   const main = readFileSync(MAIN_TSX_PATH, "utf8");
   const wrapMatch = main.match(
-    /<DevModeProvider[^>]*>(?:(?!<\/DevModeProvider>)[\s\S])*<App\s*\/>/,
+    /<DevModeProvider[^>]*>(?:(?!<\/DevModeProvider>)[\s\S])*<AppBootstrapper\s*\/>/,
   );
   assert.ok(
     wrapMatch,

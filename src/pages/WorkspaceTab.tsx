@@ -85,7 +85,7 @@ export interface WorkspaceTabProps {
   customShaders?: Record<string, import("@packages/types").CustomShader>;
   selectedShaderIds?: string[];
   onToggleShader?: (id: string) => void;
-  onOpenShaderEditor?: () => void;
+  onOpenShaderEditor?: (shaderId?: string) => void;
 
   /* ── Release archive state ── */
   myReleases: Record<string, Production>;

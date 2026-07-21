@@ -8,20 +8,38 @@
  *
  * USAGE:
  *   App.tsx owns the open/close state:
- *     <LogoGeneratorModal open={showLogoGen} onClose={() => setShowLogoGen(false)} />
+ *     <LogoGeneratorModal onClose={() => modal.close()} />
  */
 
-import React, { useEffect } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Cpu } from "lucide-react";
+import { X, Cpu, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 
 interface LogoGeneratorModalProps {
   onClose: () => void;
 }
 
+// Compute the correct logo-generator URL for DEV + Electron file:// modes.
+function logoGenUrl(): string {
+  // In Vite dev mode, public/ assets are served from the root:
+  //   http://localhost:3000/logo-generator/index.html
+  // In Electron production, the app loads from a file:// or custom protocol,
+  // so we compute the path relative to the current page's location.
+  const base = window.location.href.replace(/\/[^/]*$/, "") || ".";
+  return `${base}/logo-generator/index.html`;
+}
+
+const LOADING_TIMEOUT_MS = 15_000; // 15 s before rendering an error state
+
 export default function LogoGeneratorModal({
   onClose,
 }: LogoGeneratorModalProps) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [iframeKey, setIframeKey] = useState(0); // bump to force-reload
+  const srcRef = useRef(logoGenUrl());
+
   // ESC to close
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -33,6 +51,44 @@ export default function LogoGeneratorModal({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // Loading timeout — if the iframe doesn't fire onLoad within 15 s, show error
+  useEffect(() => {
+    if (loading) {
+      timeoutRef.current = setTimeout(() => {
+        setError("Logo generator is taking longer than expected to load.");
+      }, LOADING_TIMEOUT_MS);
+    }
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [loading]);
+
+  const handleIframeLoad = useCallback(() => {
+    setLoading(false);
+    setError(null);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const handleIframeError = useCallback(() => {
+    setLoading(false);
+    setError("Failed to load the logo generator. Check the console for details.");
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const handleRetry = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setIframeKey((k) => k + 1);
+    // Re-compute the src in case the URL context changed
+    srcRef.current = logoGenUrl();
+  }, []);
 
   return createPortal(
     <div
@@ -51,6 +107,22 @@ export default function LogoGeneratorModal({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {loading && (
+            <span className="text-[9px] text-[#22d3ee] flex items-center gap-1">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              LOADING
+            </span>
+          )}
+          {error && (
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="text-[9px] text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/30"
+            >
+              <RefreshCw className="w-3 h-3" />
+              RETRY
+            </button>
+          )}
           <span className="text-[9px] text-[#71717a] tracking-widest">
             ESC = CLOSE
           </span>
@@ -67,11 +139,57 @@ export default function LogoGeneratorModal({
 
       {/* ── Iframe — full remaining height ── */}
       <div className="flex-1 relative bg-[#05050f]">
+        {/* Loading overlay */}
+        {loading && !error && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#05050f]">
+            <Loader2 className="w-8 h-8 text-[#22d3ee] animate-spin mb-3" />
+            <p className="text-[11px] text-[#71717a] tracking-widest uppercase">
+              Loading Logo Generator…
+            </p>
+            <p className="text-[9px] text-[#52525b] mt-1">
+              SCENEGEN · Canvas2D + Three.js + WebGL
+            </p>
+          </div>
+        )}
+
+        {/* Error overlay */}
+        {error && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-[#05050f] p-6">
+            <AlertTriangle className="w-10 h-10 text-amber-400 mb-3" />
+            <p className="text-[12px] text-amber-400 font-bold tracking-widest uppercase mb-1">
+              Failed to Load
+            </p>
+            <p className="text-[10px] text-[#a1a1aa] text-center max-w-md mb-4">
+              {error}
+            </p>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="flex items-center gap-2 px-4 py-2 rounded bg-[#a855f7] hover:bg-[#c084fc] text-black font-extrabold text-[11px] uppercase tracking-widest transition active:scale-95"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="mt-2 text-[9px] text-[#71717a] hover:text-[#a1a1aa] uppercase tracking-widest transition"
+            >
+              Close
+            </button>
+          </div>
+        )}
+
         <iframe
-          src="/logo-generator/index.html"
-          className="absolute inset-0 w-full h-full border-0"
+          key={iframeKey}
+          src={srcRef.current}
+          className={`absolute inset-0 w-full h-full border-0 ${
+            error ? "invisible" : ""
+          }`}
           title="Logo Generator"
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"
+          onLoad={handleIframeLoad}
+          onError={handleIframeError}
         />
       </div>
 

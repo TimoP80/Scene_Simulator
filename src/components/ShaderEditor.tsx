@@ -51,6 +51,8 @@ interface ShaderEditorProps {
   onToggleShader: (id: string) => void;
   /** Close the editor modal. */
   onClose: () => void;
+  /** If set, select this shader on mount instead of the first one. */
+  initialShaderId?: string;
 }
 
 export default function ShaderEditor({
@@ -60,6 +62,7 @@ export default function ShaderEditor({
   selectedShaderIds,
   onToggleShader,
   onClose,
+  initialShaderId,
 }: ShaderEditorProps) {
   const [activeShaderId, setActiveShaderId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState("");
@@ -80,12 +83,15 @@ export default function ShaderEditor({
     [shaders]
   );
 
-  // Select first shader by default
+  // Select shader on mount: initialShaderId wins, otherwise first in list
   useEffect(() => {
-    if (!activeShaderId && shaderList.length > 0) {
+    if (activeShaderId) return;
+    if (initialShaderId && shaders[initialShaderId]) {
+      selectShader(initialShaderId);
+    } else if (shaderList.length > 0) {
       selectShader(shaderList[0].id);
     }
-  }, [shaderList]);
+  }, [shaderList, initialShaderId]);
 
   const selectShader = useCallback((id: string) => {
     const shader = shaders[id];

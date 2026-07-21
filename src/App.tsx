@@ -487,6 +487,23 @@ export default function App() {
   // button) and the floating Now-Playing bar.
   const modal = useModal();
 
+  // Global hotkey: L opens the Logo Generator from anywhere during
+  // gameplay (gated on showMainMenu being false so it does nothing
+  // on the title / main-menu screen). Skips when the player is
+  // typing into an input field, same as the dev-mode hotkey.
+  useEffect(() => {
+    if (showMainMenu) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "l" && e.key !== "L") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      e.preventDefault();
+      modal.open("logoGen");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showMainMenu, modal]);
+
   // Subscribe to the player engine so the MainMenu's track-count badge
   // stays in sync with the playlist.
   const playerState = useTrackerPlayer();
@@ -1018,6 +1035,10 @@ export default function App() {
   // --------- CUSTOM SHADER STATE ---------
   const [customShaders, setCustomShaders] = useState<Record<string, CustomShader>>({});
   const [selectedCustomShaderIds, setSelectedCustomShaderIds] = useState<string[]>([]);
+  // Which shader to pre-select when opening the editor (set by the EDIT
+  // button on individual shader cards). Reset to null after opening so
+  // a subsequent open-to-list doesn't re-select an old shader.
+  const [editingShaderId, setEditingShaderId] = useState<string | null>(null);
   // (uses `modal` hook declared above)
 
   const handleSaveShader = useCallback((shader: CustomShader) => {
@@ -1040,6 +1061,12 @@ export default function App() {
         : [...prev, id]
     );
   }, []);
+
+  // Open the shader editor, optionally pre-selecting a specific shader.
+  const handleOpenShaderEditor = useCallback((shaderId?: string) => {
+    setEditingShaderId(shaderId ?? null);
+    modal.open("shader");
+  }, [modal]);
 
   // Merge standard effects with custom shader IDs for CRT rendering
   const mergedActiveEffects = useMemo(
@@ -1068,6 +1095,23 @@ export default function App() {
       setGallerySelectedPlatformId(activePlatform);
     }
   }, [modal.activeModal, activePlatform]);
+
+  // Auto-deselect effects incompatible with the active platform.
+  // When the player switches from C64 to PC_CORE_DUO, C64-only effects
+  // (raster_bars, sine_scroller, etc.) stay in studioSelectedEffects
+  // even though the filtered grid hides them. Without this cleanup,
+  // the compile-time validation catches the mismatch and shows an
+  // alert that confuses the player (the effects aren't visible in the
+  // grid but still block compilation).
+  useEffect(() => {
+    setStudioSelectedEffects((prev) =>
+      prev.filter((id) => {
+        const eff = DEMO_EFFECTS.find((e) => e.id === id);
+        if (!eff) return false;
+        return eff.compatiblePlatforms.includes(activePlatform);
+      })
+    );
+  }, [activePlatform]);
 
   // --------- SCENARIO EMULATOR LOADS ---------
   const loadScenario = (preset: "1985_8bit" | "1991_16bit" | "1998_pc3d") => {
@@ -1647,6 +1691,38 @@ const ERA_LABELS: Record<string, string> = {
 
     if (combinedRamDemand > activeRigConfig.ramLimitKb) {
       window.alert(`OUT OF MEMORY ERROR: Combined buffers exceed available computer system RAM (${combinedRamDemand}KB / ${activeRigConfig.ramLimitKb}KB). Reduce effect scope or perform executable file compression optimizations!`);
+      return;
+    }
+
+    // Active-platform effect compatibility check — warn if any selected
+    // effect cannot run on the currently active rig. Uses
+    // compatiblePlatforms (not minPlatform) so the check matches the
+    // Studio's effect-grid gate.
+    const platformIncompatibleEffects = studioSelectedEffects
+      .map((id) => DEMO_EFFECTS.find((e) => e.id === id))
+      .filter((e): e is DemoEffect => e !== undefined)
+      .filter((e) => !e.compatiblePlatforms.includes(activePlatform));
+
+    if (platformIncompatibleEffects.length > 0) {
+      const names = platformIncompatibleEffects
+        .map((e) => e.name)
+        .join(", ");
+      const suggestions = platformIncompatibleEffects
+        .map((eff) => {
+          const compatOwned = ownedRigs.filter((r) =>
+            eff.compatiblePlatforms.includes(r),
+          );
+          const rigNames = compatOwned
+            .map((r) => HISTORICAL_PLATFORMS[r]?.name ?? r)
+            .join(" or ");
+          return `${eff.name} → works on: ${rigNames || "a different rig"}`;
+        })
+        .join("; ");
+      window.alert(
+        `HARDWARE INCOMPATIBILITY — ${names} cannot run on ${
+          activeRigConfig.name
+        } (${activePlatform}).\n\n${suggestions}\n\nSwitch your active platform in the WORKSTATION desk or remove these effects from the demo.`,
+      );
       return;
     }
 
@@ -3940,6 +4016,16 @@ const ERA_LABELS: Record<string, string> = {
         {modal.isOpen("playlist") && <PlaylistManager onClose={modal.close} />}
         {modal.isOpen("settings") && <SettingsModal onClose={modal.close} />}
         {modal.isOpen("logoGen") && <LogoGeneratorModal onClose={modal.close} />}
+        {modal.isOpen("shader") && (
+          <ShaderEditor              shaders={customShaders}
+            onSaveShader={handleSaveShader}
+            onDeleteShader={handleDeleteShader}
+            selectedShaderIds={selectedCustomShaderIds}
+            onToggleShader={handleToggleShader}
+            onClose={modal.close}
+            initialShaderId={editingShaderId ?? undefined}
+          />
+        )}
       </>
 
     );
@@ -3997,7 +4083,7 @@ const ERA_LABELS: Record<string, string> = {
             customShaders={customShaders}
             selectedShaderIds={selectedCustomShaderIds}
             onToggleShader={handleToggleShader}
-            onOpenShaderEditor={modal.openShader}
+            onOpenShaderEditor={handleOpenShaderEditor}
             myReleases={myReleases}
             productionSummaries={productionSummaries}
             setCrtActiveEffects={setCrtActiveEffects}
@@ -4955,10 +5041,12 @@ const ERA_LABELS: Record<string, string> = {
           score breakdown, triggered synergies, awards, and
           competition predictions. Portal-rendered to document.body
           so it sits above the floating music player. */}
-      <DemoSummaryModal
-        summary={lastDemoSummary}
-        onClose={modal.close}
-      />
+      {modal.isOpen("demoSummary") && (
+        <DemoSummaryModal
+          summary={lastDemoSummary}
+          onClose={() => { modal.close(); setLastDemoSummary(null); }}
+        />
+      )}
 
       {modal.isOpen("settings") && <SettingsModal onClose={modal.close} />}
 

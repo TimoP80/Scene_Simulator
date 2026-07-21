@@ -1,7 +1,7 @@
 {
-  "name": "react-example",
+  "name": "demoscene-simulator",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.7.1",
   "type": "module",
   "main": "dist-electron/main.cjs",
   "description": "A demoscene life-sim spanning 1985-2005. Recruit sceners, research effects, compile demos, and compete at parties.",

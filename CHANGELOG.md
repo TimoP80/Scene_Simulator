@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-07-21
+
+### Changed
+- **`package.json`** — project name renamed from `react-example` to
+  `demoscene-simulator`; version bumped `0.7.0` → `0.7.1`.
+
+### Fixed
+- **DevMenu.tsx missing `History` import** — The `TABS` array used
+  `History` as the icon for the Event Log tab but the symbol was not
+  imported from `lucide-react`, causing a `ReferenceError: History is
+  not defined` runtime crash when loading dev tools.
+- **Shader engine shared `$loopCount` env variable** — Both `for` and
+  `while` loop handlers used `env.$loopCount` (a shared environment
+  variable) to enforce the 10,000-iteration safety limit. If one loop
+  was nested inside another (e.g. the default plasma shader's
+  `for y... { for x... }`), both loops read and wrote the same key.
+  Replaced with local `forLoopCount` / `whileLoopCount` variables.
+- **DemoSummaryModal missing modal system gate** — The modal was
+  rendered unconditionally (only gated internally by `summary !==
+  null`) while every other modal followed the `{modal.isOpen("name")
+  && <Component />}` pattern. Wrapped in `modal.isOpen("demoSummary")`.
+- **Platform switch auto-deselect** — Switching the active platform
+  (e.g. C64 → PC_CORE_DUO) left previously-selected effects in
+  `studioSelectedEffects` even though the effect grid filtered them
+  out. The compile-time validation then fired an incompatibility
+  alert referencing effects the player couldn't see. Added a
+  `useEffect` that filters `studioSelectedEffects` by
+  `compatiblePlatforms.includes(activePlatform)` on every platform
+  change.
+- **devToolsToggle smoke test regression** — The test mounted `<App />`
+  directly, but App.tsx now uses `useSimulationSelector` (which
+  requires `SimulationLoopProvider`). Updated the mount to use
+  `<AppBootstrapper />` and fixed the static main.tsx regex.
+
 ## [0.7.0] - 2026-07-21
 
 ### Added
@@ -24,6 +58,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   progress/reputation deltas. Failure spirals compound when morale drops
   below configurable threshold. Split probability rises with internal
   pressure; disband requires sustained failure with no recovery path.
+- **Keyboard shortcut `L` for Logo Generator** — Global hotkey that opens
+  the Logo Generator from any tab during gameplay. Gated on `showMainMenu`
+  (silent on title screen) and skips when the player is typing into an
+  `INPUT`/`TEXTAREA` field. Follows the same `useEffect` + `keydown`
+  listener pattern as the existing Ctrl/Cmd+Shift+D dev-mode toggle.
+- **Compatible rigs badge on effect cards** — Each effect card in the
+  Studio effect grid now shows which owned rigs can run it, as compact
+  color-coded badges between the four-pill stats readout and the error
+  badges. Green badges indicate the currently active rig; cyan badges
+  indicate owned compatible rigs that are not the active one. Tooltip
+  provides additional context ("Works on your: ... (active rig is
+  compatible)" or "(switch to a compatible rig)"). Uses
+  `compatiblePlatforms` (not `minPlatform`) to compute the intersection.
+- **Compile-time platform compatibility validation** — New check in
+  `triggerAssembleCompiler` that fires after the existing name/budget
+  validations but before compilation begins. If any selected effect
+  cannot run on the active platform, it blocks compilation with a
+  `window.alert` naming the incompatible effects and suggesting which
+  owned rigs would work instead ("Voxel Heightfield Landscapes → works
+  on: 486 DX2 or Pentium"). Three layers of defense-in-depth: Studio
+  UI (checkbox gate), compile-time validation (safety net), scoring
+  engine (score penalty).
 - **Historical Timeline (`HistoryTab.tsx` + `HistoricalTimeline.tsx`)** —
   Scrollable world history view combining `rivals.activityLog` (releases,
   splits, disbands, formations) and `press.newsLog` (scene news, party
@@ -87,6 +143,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   failure spiral threshold raised to 30 (from 25), return base probability
   lowered to 0.02 (from 0.03). 40-year audit passes with ~4 disbands,
   ~390 releases, stable splits per career.
+- **`src/components/DemoStudio.tsx`** — Effect `isPlatformCompatible`
+  check changed from `ownedRigs.includes(eff.minPlatform)` (exact
+  minimum platform match) to `eff.compatiblePlatforms.some((p) =>
+  ownedRigs.includes(p))` (intersection of owned rigs × the effect's
+  complete compatibility list). This fixes a bug where effects were
+  blocked when the player owned a more advanced platform than the
+  minimum (e.g. PC_PENTIUM instead of PC_486) even though the effect
+  listed both platforms in its `compatiblePlatforms` array. Compatible
+  rigs badge added to every effect card.
 - **BBS message creation fully typed** — All message-creation sites in
   `bbsMessages.ts` and `BbsTab.tsx` now use `createBbsMessage()` factory.
   Seed thread messages remain type-safe via `BBSThread.messages: BBSMessage[]`.
@@ -111,6 +176,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Dead `handle` field removed** — The custom BBS message object had
   `handle: playerHandle` alongside `sender: playerHandle`. Audit confirmed
   zero readers of `m.handle` anywhere in the codebase — safe to remove.
+- **Shader Editor modal not rendering** — The ShaderEditor component was
+  imported and its "CUSTOM SHADERS" button was wired in the DemoStudio
+  toolbar, but the JSX guard `{modal.isOpen("shader") && <ShaderEditor
+  ... />}` was missing from App.tsx. Clicking the button set `activeModal
+  = "shader"` but nothing rendered because no code listened for that
+  value. Added the missing modal alongside the other gameplay modals
+  (playlist, settings, logo generator).
 
 ### Added (cont.)
 - **New files:**

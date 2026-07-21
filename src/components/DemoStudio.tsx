@@ -184,8 +184,8 @@ export interface DemoStudioProps {
   selectedShaderIds?: string[];
   /** Toggle a shader effect on/off. */
   onToggleShader?: (id: string) => void;
-  /** Open the shader editor modal. */
-  onOpenShaderEditor?: () => void;
+  /** Open the shader editor modal, optionally pre-selecting a shader. */
+  onOpenShaderEditor?: (shaderId?: string) => void;
 
   /* ─── (11) Compile orchestration ─── */
   /**
@@ -767,7 +767,7 @@ export default function DemoStudio({
               {onOpenShaderEditor && (
                 <button
                   type="button"
-                  onClick={onOpenShaderEditor}
+                  onClick={() => onOpenShaderEditor()}
                   className="flex items-center gap-1 bg-[#a855f7]/10 hover:bg-[#a855f7]/25 text-[#c084fc] border border-[#a855f7]/30 hover:border-[#a855f7] rounded px-2.5 py-1 text-[9.5px] font-mono font-bold transition-all uppercase cursor-pointer"
                 >
                   <Sparkles className="w-3 h-3" />
@@ -785,14 +785,39 @@ export default function DemoStudio({
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            {DEMO_EFFECTS.map((eff) => {
-              const isUnlocked = isEffectUnlocked(eff.id, unlockedTechs);
-              const isPlatformCompatible = ownedRigs.includes(eff.minPlatform);
-              const isEraAndPlatformCompatible =
-                studioCompatibleEffects.has(eff.id);
+        {(function() {
+          const availableEffects = DEMO_EFFECTS.filter((eff) => {
+            const isUnlocked = isEffectUnlocked(eff.id, unlockedTechs);
+            const isPlatformCompatible = eff.compatiblePlatforms.some((p) => ownedRigs.includes(p));
+            const isEraAndPlatformCompatible =
+              studioCompatibleEffects.has(eff.id);
+            return isUnlocked && isPlatformCompatible && isEraAndPlatformCompatible;
+          });
+          const hasCustomShaders = Object.keys(customShaders).length > 0;
+          if (availableEffects.length === 0 && !hasCustomShaders) {
+            return (
+              <div className="col-span-full text-center py-10 text-[10px] text-[#71717a] italic border border-dashed border-[#27272a] rounded">
+                No effects compatible with{' '}
+                <span className="text-[#22d3ee] not-italic">{HISTORICAL_PLATFORMS[activePlatform]?.name ?? activePlatform}</span>
+                {' '}in {currentYear}. Switch platforms or research more technologies.
+              </div>
+            );
+          }
+          return availableEffects.map((eff) => {
+          const isUnlocked = isEffectUnlocked(eff.id, unlockedTechs);
+          const isPlatformCompatible = eff.compatiblePlatforms.some((p) => ownedRigs.includes(p));
+          const isEraAndPlatformCompatible =
+            studioCompatibleEffects.has(eff.id);
               const isSelectable =
                 isUnlocked && isPlatformCompatible && isEraAndPlatformCompatible;
               const isChecked = selectedEffects.includes(eff.id);
+              // Which owned rigs can run this effect?
+              const compatRigs = ownedRigs.filter((r) =>
+                eff.compatiblePlatforms.includes(r),
+              );
+              const compatRigNames = compatRigs.map(
+                (r) => HISTORICAL_PLATFORMS[r]?.name ?? r,
+              );
               return (
                 <div
                   key={eff.id}
@@ -850,6 +875,29 @@ export default function DemoStudio({
                     </span>
                   </div>
 
+                  {/* Compatible owned rigs badge — shows which rigs can run this effect */}
+                  {compatRigNames.length > 0 && (
+                    <div
+                      className="mt-1.5 flex flex-wrap gap-x-1 gap-y-0.5 text-[8px]"
+                      title={`Works on your: ${compatRigNames.join(", ")}${isPlatformCompatible && eff.compatiblePlatforms.includes(activePlatform) ? " (active rig is compatible)" : isPlatformCompatible ? " (switch to a compatible rig)" : ""}`}
+                    >
+                      {compatRigNames.map((name) => (
+                        <span
+                          key={name}
+                          className={`px-1 py-0.5 rounded border font-mono font-bold ${
+                            eff.compatiblePlatforms.includes(activePlatform) &&
+                            ownedRigs.includes(activePlatform) &&
+                            compatRigs.includes(activePlatform)
+                              ? "bg-[#4ade80]/10 text-[#4ade80] border-[#4ade80]/25"
+                              : "bg-[#22d3ee]/8 text-[#22d3ee] border-[#22d3ee]/20"
+                          }`}
+                        >
+                          {name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
                   {!isUnlocked && (
                     <span className="text-[9px] text-[#ef4444] bg-[#ef4444]/15 px-1 py-0.5 rounded text-center mt-1.5 border border-[#ef4444]/20 font-bold uppercase">
                       RESEARCH REQUIRED
@@ -878,7 +926,7 @@ export default function DemoStudio({
                   )}
                 </div>
               );
-            })}
+            })})()}
 
             {/* Custom shader cards — rendered alongside standard effects */}
             {Object.values(customShaders).map((shader) => {
@@ -924,7 +972,7 @@ export default function DemoStudio({
                   </div>
                   <button
                     type="button"
-                    onClick={onOpenShaderEditor}
+                    onClick={() => onOpenShaderEditor?.(shader.id)}
                     className="mt-1.5 px-2 py-0.5 rounded bg-[#18181b] border border-[#3f3f46] text-[#71717a] hover:text-[#c084fc] hover:border-[#a855f7]/40 text-[8px] font-mono font-bold uppercase transition cursor-pointer"
                   >
                     EDIT IN SHADER EDITOR

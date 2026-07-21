@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Users,
   Calendar,
+  History,
   Sparkles,
   FlaskConical,
   Newspaper,
