@@ -92,6 +92,7 @@ import DemoStudio from "./components/DemoStudio";
 import MusicPlayer from "./components/MusicPlayer";
 import PlaylistManager from "./components/PlaylistManager";
 import DemoSummaryModal from "./components/DemoSummary";
+import MonthlySummaryModal from "./components/MonthlySummaryModal";
 import { useTrackerPlayer } from "./hooks/useTrackerPlayer";
 import { useDevMode } from "./devtools/DevModeContext";
 import { DevMenu } from "./devtools/DevMenu";
@@ -526,6 +527,9 @@ export default function App() {
 
   // Player releases archives
   const [myReleases, setMyReleases] = useState<Record<string, Production>>({});
+
+  // Download tracking per production — used by the BBS advertise flow.
+  const [productionDownloads, setProductionDownloads] = useState<Record<string, number>>({});
 
   // Chronological Scene Magazine / News Feed logs
   const [newsLog, setNewsLog] = useState<SceneMagazine[]>([
@@ -3289,6 +3293,9 @@ const ERA_LABELS: Record<string, string> = {
 
     // Auto save to local storage
     triggerAutoSave(nextM, nextY);
+
+    // Open monthly summary so the player sees what happened
+    modal.open("monthlySummary");
   };
 
   // --------- BBS CUSTOM MESSAGE POSTING & SEMANTIC ANALYSIS ---------
@@ -3610,6 +3617,7 @@ const ERA_LABELS: Record<string, string> = {
         hiredCrewIds,
         myReleases,
         productionSummaries,
+        productionDownloads,
         researchPoints,
         playerHandle,
         playerGroupName,
@@ -3690,6 +3698,7 @@ const ERA_LABELS: Record<string, string> = {
       setHiredCrewIds(data.hiredCrewIds ?? []);
       setMyReleases(data.myReleases ?? {});
       setProductionSummaries(data.productionSummaries ?? {});
+      setProductionDownloads(data.productionDownloads ?? {});
       setResearchPoints(data.researchPoints ?? 30);
       setPlayerHandle(data.playerHandle ?? "AssemblyKid");
       setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
@@ -4182,9 +4191,13 @@ const ERA_LABELS: Record<string, string> = {
             playerGroupName={playerGroupName}
             playerReputation={playerReputation}
             researchPoints={researchPoints}
+            currentYear={currentYear}
+            currentMonth={currentMonth}
             groups={groupsMap}
             characters={characters}
             hiredCrewIds={hiredCrewIds}
+            myReleases={myReleases}
+            productionDownloads={productionDownloads}
             setBbsDialed={setBbsDialed}
             setBbsDialing={setBbsDialing}
             setBbsFilterBoard={setBbsFilterBoard}
@@ -4196,6 +4209,7 @@ const ERA_LABELS: Record<string, string> = {
             setPlayerReputation={setPlayerReputation}
             setCharacters={setCharacters}
             setResearchPoints={setResearchPoints}
+            setProductionDownloads={setProductionDownloads}
             toggleFollowBbsThread={toggleFollowBbsThread}
           />
         );
@@ -5051,6 +5065,20 @@ const ERA_LABELS: Record<string, string> = {
       {modal.isOpen("settings") && <SettingsModal onClose={modal.close} />}
 
       {modal.isOpen("logoGen") && <LogoGeneratorModal onClose={modal.close} />}
+
+      {modal.isOpen("monthlySummary") && (
+        <MonthlySummaryModal
+          newsLog={newsLog}
+          currentYear={currentYear}
+          currentMonth={currentMonth}
+          playerMoney={playerMoney}
+          playerReputation={playerReputation}
+          researchPoints={researchPoints}
+          playerHandle={playerHandle}
+          playerGroupName={playerGroupName}
+          onClose={modal.close}
+        />
+      )}
 
       {/* v0.5.0 Competition ceremony overlay — full-screen animated
           ranking ceremony with judges, audience reactions, scene

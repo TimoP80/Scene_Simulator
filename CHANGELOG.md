@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-07-21
+
+### Added
+- **MonthlySummaryModal** — A new retro-styled modal overlay that appears after
+  every calendar month advance, showing the player a concise report of what
+  happened: the 8 most recent scene news headlines, rival group activity
+  aggregates (releases, formations, disbands, splits), player stat snapshot
+  (money, reputation, research points), and a party indicator if a scene party
+  or competition is detected in the upcoming month. Reads rival activity from
+  the event-sourced `WorldState` via `useSimulationSelector` so it stays in
+  sync with the simulation engine. Closes with a "Continue" button that
+  transitions to the new month.
+- **BBS NPC reply seeding** — Player-created BBS threads now automatically
+  receive 1–3 replies from the existing 9 BBS personalities (ByteWizard,
+  RasterRat, ChipTuneKid, SysOp42, CrashOverride, DemosceneHistorian,
+  FlameAlchemist, CopperGhost, PulseWave). Replies are era-appropriate
+  (matching the current game year) and board-appropriate (per a new
+  `BOARD_TO_CATEGORY` mapping, e.g. CODERS_CORNER → TECHNICAL_DISCUSSIONS,
+  SCENE_RUMORS → SCENE_GOSSIP). 30% chance of an additional SysOp moderation
+  message for atmosphere. Duplicate senders are deduplicated.
+
+### Fixed
+- **Platform switch auto-deselect stale closure** — `currentYear` and
+  `currentMonth` were missing from `useCallback` dependency arrays in
+  `handleCreateThread` and `handleAdvertiseProduction`, causing threads
+  created after time advances to use stale dates.
+
 ## [0.7.1] - 2026-07-21
 
 ### Changed

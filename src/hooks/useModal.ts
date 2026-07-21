@@ -45,7 +45,8 @@ export type ModalId =
   | "demoSummary"
   | "effectGallery"
   | "shader"
-  | "compilingOverlay";
+  | "compilingOverlay"
+  | "monthlySummary";
 
 export function useModal() {
   const [activeModal, setActiveModal] = useState<ModalId | null>(null);

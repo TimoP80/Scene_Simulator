@@ -1,10 +1,10 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
-import { Terminal, PhoneCall, Bell } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Terminal, PhoneCall, Bell, PlusCircle, Megaphone, Download, MessageSquare } from 'lucide-react';
 import { useTextGenerator } from '../hooks/useTextGenerator';
 import { useBbsThreadMutations } from '../hooks/useBbsThreadMutations';
 import BBSThreadView from '../components/BBSThreadView';
-import type { Group, Character, BBSThread, CustomBBSMessage } from '@packages/types';
-import { colorForHandle, generateFollowedReply, getSeedThreads } from '@sim/data/bbsMessages';
+import type { Group, Character, BBSThread, CustomBBSMessage, Production } from '@packages/types';
+import { colorForHandle, generateFollowedReply, generatePersonalityMessage, getEra, getSeedThreads, SYSOP_MODERATION_MESSAGES, type BBSCategory } from '@sim/data/bbsMessages';
 
 interface BbsTabProps {
   bbsDialed: boolean;
@@ -19,9 +19,13 @@ interface BbsTabProps {
   playerGroupName: string;
   playerReputation: number;
   researchPoints: number;
+  currentYear: number;
+  currentMonth: number;
   groups: Record<string, Group>;
   characters: Record<string, Character>;
   hiredCrewIds: string[];
+  myReleases: Record<string, Production>;
+  productionDownloads: Record<string, number>;
   setBbsDialed: (v: boolean) => void;
   setBbsDialing: (v: boolean) => void;
   setBbsFilterBoard: (v: string) => void;
@@ -34,11 +38,46 @@ interface BbsTabProps {
   toggleFollowBbsThread: (threadId: string) => void;
   setCharacters: (chars: Record<string, Character> | ((prev: Record<string, Character>) => Record<string, Character>)) => void;
   setResearchPoints: (rp: number | ((prev: number) => number)) => void;
+  setProductionDownloads: (v: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => void;
 }
 
-export default function BbsTab(props: BbsTabProps) {
-  const { bbsDialed, bbsDialing, bbsFilterBoard, bbsSelectedThreadId, bbsThreads, bbsCustomMessage, bbsEffectNotification, bbsTerminalLogs, playerHandle, playerGroupName, playerReputation, researchPoints, groups, characters, hiredCrewIds, setBbsDialed, setBbsDialing, setBbsFilterBoard, setBbsSelectedThreadId, setBbsThreads, setBbsCustomMessage, setBbsEffectNotification, setBbsTerminalLogs, setPlayerReputation, toggleFollowBbsThread, setCharacters, setResearchPoints } = props;
+const BBS_BOARD_OPTIONS = [
+  { id: "CODERS_CORNER", name: "Coders Corner" },
+  { id: "SCENE_RUMORS", name: "Scene Rumors" },
+  { id: "SWAPPERS_LOUNGE", name: "Swappers Lounge" },
+  { id: "PIXEL_PERFECTION", name: "Pixel Perfection" },
+  { id: "TOOL_RELEASES", name: "Tool Releases" },
+  { id: "LEAKS", name: "Leaks" },
+  { id: "TRACKER_TUNES", name: "Tracker Tunes" },
+];
 
+const DEFAULT_NEW_THREAD_BOARD = "CODERS_CORNER";
+
+// Maps BBS boards to personality interest categories so NPC replies feel topical
+const BOARD_TO_CATEGORY: Record<string, BBSCategory> = {
+  CODERS_CORNER: "TECHNICAL_DISCUSSIONS",
+  SCENE_RUMORS: "SCENE_GOSSIP",
+  SWAPPERS_LOUNGE: "FRIENDLY_RIVALRY",
+  PIXEL_PERFECTION: "TECHNICAL_DISCUSSIONS",
+  TOOL_RELEASES: "TECHNICAL_DISCUSSIONS",
+  LEAKS: "SCENE_GOSSIP",
+  TRACKER_TUNES: "COMPETITION_ANNOUNCEMENTS",
+};
+
+export default function BbsTab(props: BbsTabProps) {
+  const { bbsDialed, bbsDialing, bbsFilterBoard, bbsSelectedThreadId, bbsThreads, bbsCustomMessage, bbsEffectNotification, bbsTerminalLogs, playerHandle, playerGroupName, playerReputation, researchPoints, currentYear, currentMonth, groups, characters, hiredCrewIds, myReleases, productionDownloads, setBbsDialed, setBbsDialing, setBbsFilterBoard, setBbsSelectedThreadId, setBbsThreads, setBbsCustomMessage, setBbsEffectNotification, setBbsTerminalLogs, setPlayerReputation, toggleFollowBbsThread, setCharacters, setResearchPoints, setProductionDownloads } = props;
+
+  // ---- Local state for new thread creation ----
+  const [showNewThreadForm, setShowNewThreadForm] = useState(false);
+  const [newThreadBoard, setNewThreadBoard] = useState(DEFAULT_NEW_THREAD_BOARD);
+  const [newThreadTopic, setNewThreadTopic] = useState("");
+  const [newThreadMessage, setNewThreadMessage] = useState("");
+
+  // ---- Local state for advertise production ----
+  const [showAdvertisePanel, setShowAdvertisePanel] = useState(false);
+  const [selectedAdvertProdId, setSelectedAdvertProdId] = useState<string>("");
+
+  const productionList = useMemo(() => Object.values(myReleases), [myReleases]);
 
   // ---- AI text generation hook ----
   const aiGen = useTextGenerator();
@@ -137,6 +176,121 @@ export default function BbsTab(props: BbsTabProps) {
     setBbsEffectNotification(`<< YOUR MESSAGE POSTED TO "${threadId.toUpperCase()}" >>`);
     setTimeout(() => setBbsEffectNotification(null), 5000);
   };
+
+  // ---- New thread handler ----
+  const handleCreateThread = useCallback(() => {
+    const topic = newThreadTopic.trim();
+    const message = newThreadMessage.trim();
+    if (!topic || !message) return;
+
+    const threadId = `thread_player_${Date.now()}`;
+
+    // Seed 1-3 NPC replies from personalities matching this board
+    const era = getEra(currentYear);
+    const category = BOARD_TO_CATEGORY[newThreadBoard];
+    const npcReplies: BBSMessage[] = [];
+    const replyCount = Math.floor(Math.random() * 3) + 1; // 1–3 replies
+    for (let i = 0; i < replyCount; i++) {
+      const reply = generatePersonalityMessage(category, era);
+      if (reply && !npcReplies.some((r) => r.sender === reply.sender)) {
+        npcReplies.push(reply);
+      }
+    }
+    // 30% chance a SysOp moderation message appears for atmosphere
+    if (Math.random() < 0.3 && SYSOP_MODERATION_MESSAGES.length > 0) {
+      const m = SYSOP_MODERATION_MESSAGES[Math.floor(Math.random() * SYSOP_MODERATION_MESSAGES.length)];
+      if (m) npcReplies.push(m);
+    }
+
+    const newThread: BBSThread = {
+      id: threadId,
+      board: newThreadBoard,
+      topic: topic.toUpperCase(),
+      year: currentYear,
+      month: currentMonth,
+      actorId: "player",
+      messages: [
+        { sender: playerHandle, text: message },
+        ...npcReplies,
+      ],
+      interacted: false,
+      playerActionTaken: null,
+      dramaFinished: false,
+      choices: [],
+      infoType: "technical_discovery",
+      credibilityScore: 50,
+      propagationSpeed: 30,
+      distortionRate: 10,
+      influenceWeight: 40,
+      viralSpreadRank: 1,
+      isSuppressed: false,
+      originalTopic: topic.toUpperCase(),
+      mutationCount: 0,
+    };
+
+    setBbsThreads((prev) => [newThread, ...prev]);
+    setBbsFilterBoard("all");
+    setBbsSelectedThreadId(threadId);
+    setShowNewThreadForm(false);
+    setNewThreadTopic("");
+    setNewThreadMessage("");
+    setNewThreadBoard(DEFAULT_NEW_THREAD_BOARD);
+    setBbsEffectNotification(`<< NEW THREAD "${topic.toUpperCase()}" POSTED >>`);
+    setTimeout(() => setBbsEffectNotification(null), 4000);
+  }, [newThreadTopic, newThreadMessage, newThreadBoard, playerHandle, currentYear, currentMonth, setBbsThreads, setBbsFilterBoard, setBbsSelectedThreadId, setBbsEffectNotification]);
+
+  // ---- Advertise production handler ----
+  const handleAdvertiseProduction = useCallback(() => {
+    if (!selectedAdvertProdId) return;
+    const prod = myReleases[selectedAdvertProdId];
+    if (!prod) return;
+
+    const threadId = `thread_ad_${Date.now()}`;
+    const adText = `${playerGroupName} proudly presents our latest release: "${prod.name}" (${prod.type}) for ${prod.platform}. Scored ${prod.totalScore}/100! Grab it from the usual nodes.`;
+
+    const newThread: BBSThread = {
+      id: threadId,
+      board: "SWAPPERS_LOUNGE",
+      topic: `RELEASE: ${prod.name} BY ${playerGroupName.toUpperCase()}`,
+      year: currentYear,
+      month: currentMonth,
+      actorId: "player",
+      messages: [
+        { sender: playerHandle, text: adText },
+      ],
+      interacted: false,
+      playerActionTaken: null,
+      dramaFinished: false,
+      choices: [],
+      infoType: "demo_announcement",
+      credibilityScore: 65,
+      propagationSpeed: 50,
+      distortionRate: 10,
+      influenceWeight: 60,
+      viralSpreadRank: 1,
+      isSuppressed: false,
+      originalTopic: `RELEASE: ${prod.name} BY ${playerGroupName.toUpperCase()}`,
+      mutationCount: 0,
+    };
+
+    // Deduct research points
+    setResearchPoints((prev) => prev - 5);
+
+    // Create the thread and add random downloads
+    const downloadsGained = Math.floor(Math.random() * 150) + 50;
+    setBbsThreads((prev) => [newThread, ...prev]);
+    setProductionDownloads((prev) => ({
+      ...prev,
+      [selectedAdvertProdId]: (prev[selectedAdvertProdId] || 0) + downloadsGained,
+    }));
+    setPlayerReputation((prev) => Math.min(prev + 5, 1000));
+    setBbsFilterBoard("all");
+    setBbsSelectedThreadId(threadId);
+    setShowAdvertisePanel(false);
+    setSelectedAdvertProdId("");
+    setBbsEffectNotification(`<< "${prod.name}" ADVERTISED — ${downloadsGained} DOWNLOADS! >>`);
+    setTimeout(() => setBbsEffectNotification(null), 5000);
+  }, [selectedAdvertProdId, myReleases, playerHandle, playerGroupName, setBbsThreads, setProductionDownloads, setPlayerReputation, setBbsFilterBoard, setBbsSelectedThreadId, setBbsEffectNotification]);
 
   return (
     <>
@@ -268,17 +422,187 @@ export default function BbsTab(props: BbsTabProps) {
                             <span>THREADS: {bbsThreads.filter(t => bbsFilterBoard === "all" || t.board === bbsFilterBoard).length}</span>
                           </div>
 
+                          {/* Action buttons: New Thread + Advertise */}
+                          {!showNewThreadForm && !showAdvertisePanel && (
+                            <div className="flex gap-2 pb-1">
+                              <button
+                                id="btn-new-thread"
+                                onClick={() => {
+                                  setShowNewThreadForm(true);
+                                  setShowAdvertisePanel(false);
+                                }}
+                                className="flex items-center gap-1 bg-[#22d3ee]/10 hover:bg-[#22d3ee]/20 text-[#22d3ee] border border-[#22d3ee]/30 px-2 py-1 rounded text-[9.5px] font-bold uppercase transition cursor-pointer"
+                              >
+                                <PlusCircle className="w-3 h-3" /> New Thread
+                              </button>
+                              {productionList.length > 0 && (
+                                <button
+                                  id="btn-advertise-prod"
+                                  onClick={() => {
+                                    setShowAdvertisePanel(true);
+                                    setShowNewThreadForm(false);
+                                  }}
+                                  className="flex items-center gap-1 bg-[#4ade80]/10 hover:bg-[#4ade80]/20 text-[#4ade80] border border-[#4ade80]/30 px-2 py-1 rounded text-[9.5px] font-bold uppercase transition cursor-pointer"
+                                >
+                                  <Megaphone className="w-3 h-3" /> Advertise Prod
+                                </button>
+                              )}
+                            </div>
+                          )}
+
+                          {/* NEW THREAD FORM */}
+                          {showNewThreadForm && (
+                            <div className="bg-[#18181b] border border-[#22d3ee]/40 rounded p-3 space-y-2.5 animate-fadeIn">
+                              <div className="flex items-center justify-between pb-1 border-b border-[#22d3ee]/20">
+                                <span className="text-[10px] text-[#22d3ee] font-extrabold uppercase tracking-wider flex items-center gap-1">
+                                  <PlusCircle className="w-3.5 h-3.5" /> Compose New Thread
+                                </span>
+                                <button
+                                  onClick={() => setShowNewThreadForm(false)}
+                                  className="text-[9px] text-zinc-500 hover:text-zinc-300 transition cursor-pointer uppercase font-bold"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              {/* Board selector */}
+                              <div>
+                                <label className="text-[8.5px] text-zinc-500 uppercase tracking-wider block mb-1">Board</label>
+                                <select
+                                  value={newThreadBoard}
+                                  onChange={(e) => setNewThreadBoard(e.target.value)}
+                                  className="w-full bg-[#09090b] text-white border border-[#3f3f46] rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#22d3ee]/60"
+                                >
+                                  {BBS_BOARD_OPTIONS.map((b) => (
+                                    <option key={b.id} value={b.id}>{b.name}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Topic input */}
+                              <div>
+                                <label className="text-[8.5px] text-zinc-500 uppercase tracking-wider block mb-1">Topic / Subject</label>
+                                <input
+                                  id="input-new-thread-topic"
+                                  type="text"
+                                  value={newThreadTopic}
+                                  onChange={(e) => setNewThreadTopic(e.target.value.substring(0, 80))}
+                                  placeholder="Enter thread topic..."
+                                  className="w-full bg-[#09090b] text-white border border-[#3f3f46] rounded px-2 py-1 text-[10px] font-mono placeholder:text-zinc-700 focus:outline-none focus:border-[#22d3ee]/60"
+                                  maxLength={80}
+                                />
+                              </div>
+
+                              {/* First message */}
+                              <div>
+                                <label className="text-[8.5px] text-zinc-500 uppercase tracking-wider block mb-1">First Message</label>
+                                <textarea
+                                  id="input-new-thread-msg"
+                                  rows={3}
+                                  value={newThreadMessage}
+                                  onChange={(e) => setNewThreadMessage(e.target.value.substring(0, 500))}
+                                  placeholder="Write your opening post..."
+                                  className="w-full bg-[#09090b] text-white border border-[#3f3f46] rounded px-2 py-1 text-[10px] font-mono placeholder:text-zinc-700 resize-none focus:outline-none focus:border-[#22d3ee]/60"
+                                  maxLength={500}
+                                />
+                              </div>
+
+                              <div className="flex justify-end">
+                                <button
+                                  id="btn-submit-new-thread"
+                                  onClick={handleCreateThread}
+                                  disabled={!newThreadTopic.trim() || !newThreadMessage.trim()}
+                                  className={`px-3 py-1.5 rounded text-[9.5px] font-bold uppercase tracking-wider transition flex items-center gap-1 cursor-pointer ${
+                                    newThreadTopic.trim() && newThreadMessage.trim()
+                                      ? "bg-[#22d3ee] text-black hover:bg-[#67e8f9] active:scale-95"
+                                      : "bg-[#27272a] text-[#71717a] cursor-not-allowed"
+                                  }`}
+                                >
+                                  <MessageSquare className="w-3 h-3" /> Post Thread
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* ADVERTISE PRODUCTION PANEL */}
+                          {showAdvertisePanel && (
+                            <div className="bg-[#18181b] border border-[#4ade80]/40 rounded p-3 space-y-2.5 animate-fadeIn">
+                              <div className="flex items-center justify-between pb-1 border-b border-[#4ade80]/20">
+                                <span className="text-[10px] text-[#4ade80] font-extrabold uppercase tracking-wider flex items-center gap-1">
+                                  <Megaphone className="w-3.5 h-3.5" /> Advertise Production
+                                </span>
+                                <button
+                                  onClick={() => setShowAdvertisePanel(false)}
+                                  className="text-[9px] text-zinc-500 hover:text-zinc-300 transition cursor-pointer uppercase font-bold"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+
+                              <p className="text-[9px] text-zinc-400 leading-relaxed">
+                                Post a release announcement on the SWAPPERS_LOUNGE board. Your production will gain downloads and a small reputation boost. Costs 5 research points.
+                              </p>
+
+                              <div>
+                                <label className="text-[8.5px] text-zinc-500 uppercase tracking-wider block mb-1">Select Production</label>
+                                <select
+                                  value={selectedAdvertProdId}
+                                  onChange={(e) => setSelectedAdvertProdId(e.target.value)}
+                                  className="w-full bg-[#09090b] text-white border border-[#3f3f46] rounded px-2 py-1 text-[10px] font-mono focus:outline-none focus:border-[#4ade80]/60"
+                                >
+                                  <option value="">-- Select a production --</option>
+                                  {productionList.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} ({p.type}) — {p.totalScore}/100 — {(productionDownloads[p.id] || 0)} DLs
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {selectedAdvertProdId && (
+                                <div className="bg-[#09090b] border border-zinc-800 rounded p-2 text-[9px] text-zinc-400 space-y-1">
+                                  <p className="text-white font-bold text-[10px]">{myReleases[selectedAdvertProdId]?.name}</p>
+                                  <p>Platform: {myReleases[selectedAdvertProdId]?.platform}</p>
+                                  <p>Score: {myReleases[selectedAdvertProdId]?.totalScore}/100</p>
+                                  <p className="text-[#4ade80]">
+                                    <Download className="w-3 h-3 inline mr-0.5" />
+                                    Current downloads: {productionDownloads[selectedAdvertProdId] || 0}
+                                  </p>
+                                </div>
+                              )}
+
+                              <div className="flex justify-end">
+                                <button
+                                  id="btn-submit-advertise"
+                                  onClick={handleAdvertiseProduction}
+                                  disabled={!selectedAdvertProdId || researchPoints < 5}
+                                  className={`px-3 py-1.5 rounded text-[9.5px] font-bold uppercase tracking-wider transition flex items-center gap-1 cursor-pointer ${
+                                    selectedAdvertProdId && researchPoints >= 5
+                                      ? "bg-[#4ade80] text-black hover:bg-[#6ee7b7] active:scale-95"
+                                      : "bg-[#27272a] text-[#71717a] cursor-not-allowed"
+                                  }`}
+                                >
+                                  <Megaphone className="w-3 h-3" /> Advertise (-5 RP)
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Thread list */}
                           <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
                             {bbsThreads
                               .filter((t) => bbsFilterBoard === "all" || t.board === bbsFilterBoard)
                               .map((th) => {
                                 const actorChar = characters[th.actorId];
+                                const isAdThread = th.id.startsWith("thread_ad_");
                                 return (
                                   <button
                                     key={th.id}
                                     id={`bbs-thread-row-${th.id}`}
                                     onClick={() => setBbsSelectedThreadId(th.id)}
-                                    className="w-full text-left p-2 bg-[#09090b]/80 hover:bg-[#a855f7]/10 rounded border border-[#27272a] hover:border-[#a855f7]/30 transition flex flex-col justify-between gap-1.5 cursor-pointer"
+                                    className={`w-full text-left p-2 bg-[#09090b]/80 hover:bg-[#a855f7]/10 rounded border border-[#27272a] hover:border-[#a855f7]/30 transition flex flex-col justify-between gap-1.5 cursor-pointer ${
+                                      isAdThread ? "border-l-2 border-l-[#4ade80]/60" : ""
+                                    }`}
                                   >
                                     <div className="flex items-center justify-between w-full gap-2">
                                       <div className="flex items-center gap-2 min-w-0">
@@ -300,10 +624,16 @@ export default function BbsTab(props: BbsTabProps) {
                                         </button>
                                         <span className="font-bold text-white uppercase text-[11px] tracking-tight truncate">{th.topic}</span>
                                       </div>
-                                      <span className="text-[9px] bg-[#a855f7]/20 text-[#d8b4fe] px-1.5 py-0.5 rounded uppercase font-sans font-bold flex-shrink-0">{th.board.replace("_", " ")}</span>
+                                      <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-sans font-bold flex-shrink-0 ${
+                                        isAdThread
+                                          ? "bg-[#4ade80]/20 text-[#4ade80]"
+                                          : "bg-[#a855f7]/20 text-[#d8b4fe]"
+                                      }`}>
+                                        {isAdThread ? "AD" : th.board.replace("_", " ")}
+                                      </span>
                                     </div>
                                     <div className="flex flex-wrap items-center justify-between gap-1.5 w-full text-[9px] text-[#c084fc]/80 font-mono mt-1 border-t border-zinc-800/40 pt-1.5">
-                                      <span>POSTER: <strong className="text-white font-bold">{actorChar?.handle || "SCENER"}</strong></span>
+                                      <span>POSTER: <strong className="text-white font-bold">{actorChar?.handle || (th.actorId === "player" ? playerHandle : "SCENER")}</strong></span>
                                       <span>TYPE: <span className={`font-semibold uppercase ${
                                         th.infoType === "rumor" ? "text-amber-400 font-bold" :
                                         th.infoType === "leak" ? "text-rose-500 font-extrabold" :
@@ -347,18 +677,34 @@ export default function BbsTab(props: BbsTabProps) {
                           return null;
                         }
                         const actorChar = characters[th.actorId];
+                        const isAdThread = th.id.startsWith("thread_ad_");
                         return (
-                          <BBSThreadView
-                            thread={th}
-                            actorChar={actorChar}
-                            session={session}
-                            ui={ui}
-                            ai={ai}
-                            mutations={mutations}
-                            onBack={() => setBbsSelectedThreadId(null)}
-                            onToggleFollow={toggleFollowBbsThread}
-                            handlePostCustomMessage={handlePostCustomBbsMessage}
-                          />
+                          <div className="space-y-3">
+                            <BBSThreadView
+                              thread={th}
+                              actorChar={actorChar}
+                              session={session}
+                              ui={ui}
+                              ai={ai}
+                              mutations={mutations}
+                              onBack={() => setBbsSelectedThreadId(null)}
+                              onToggleFollow={toggleFollowBbsThread}
+                              handlePostCustomMessage={handlePostCustomBbsMessage}
+                            />
+                            {/* Show download count for advertisement threads */}
+                            {isAdThread && (
+                              (() => {
+                                const totalDls = Object.values(productionDownloads).reduce((s, v) => s + v, 0);
+                                if (totalDls === 0) return null;
+                                return (
+                                  <div className="bg-[#4ade80]/10 border border-[#4ade80]/30 rounded p-2 text-[10px] text-[#4ade80] flex items-center gap-2">
+                                    <Download className="w-4 h-4" />
+                                    <span className="font-bold">{totalDls} total downloads across all productions</span>
+                                  </div>
+                                );
+                              })()
+                            )}
+                          </div>
                         );
                       })()}
 
