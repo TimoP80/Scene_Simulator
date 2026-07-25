@@ -53,6 +53,54 @@ export const DEMO_DURATIONS: DemoDuration[] = [
 ];
 
 /**
+ * Scene mood / narrative role — tells the "story arc" of a multi-scene
+ * production. A varied sequence of moods (Intro → Buildup → Main →
+ * Climax → Outro → Credits) earns a scene-variety scoring bonus.
+ */
+export type SceneRole =
+  | "intro"
+  | "buildup"
+  | "main"
+  | "climax"
+  | "outro"
+  | "credits";
+
+/** All scene roles in narrative order. */
+export const SCENE_ROLES: SceneRole[] = [
+  "intro",
+  "buildup",
+  "main",
+  "climax",
+  "outro",
+  "credits",
+];
+
+/**
+ * Production mood / atmosphere — an orthogonal dimension to artistic
+ * direction. While the direction describes *how* the production is
+ * approached (technically, artistically), the mood describes the
+ * emotional and visual *tone*. Moods affect scoring through music and
+ * graphics multipliers.
+ */
+export type ProductionMood =
+  | "Dark Cyberpunk"
+  | "Neon Retro"
+  | "Colorful Abstract"
+  | "Monochrome Minimal"
+  | "Nature Organic"
+  | "Surreal Dreamlike";
+
+/** All production moods in display order. */
+export const PRODUCTION_MOODS: ProductionMood[] = [
+  "Dark Cyberpunk",
+  "Neon Retro",
+  "Colorful Abstract",
+  "Monochrome Minimal",
+  "Nature Organic",
+  "Surreal Dreamlike",
+];
+
+/**
  * Catalog metadata for a single visual effect. The legacy fields
  * (cpuCost, ramCostKb, difficulty, originality, audienceAppeal) are
  * retained so existing DEMO_EFFECTS entries compile unchanged; the new
@@ -150,6 +198,48 @@ export interface DemoScene {
   transition: SceneTransition;
   /** Duration bucket override (falls back to production duration). */
   durationOverride?: DemoDuration;
+  /**
+   * Scene mood / narrative role — the function this scene serves in
+   * the overall production arc. When scenes have a varied sequence of
+   * moods, the scoring engine awards a scene-variety bonus.
+   */
+  sceneRole?: SceneRole;
+}
+
+/**
+ * A named, saved blueprint for the Demo Studio — captures every
+ * configurable field so the player can restore a favourite setup
+ * in any playthrough. Stored in localStorage and persisted across
+ * sessions.
+ */
+export interface ProductionBlueprint {
+  /** Unique human-readable name the player chose (e.g. "4K Racer"). */
+  name: string;
+  /** ISO timestamp when this blueprint was created/last-updated. */
+  updatedAt: string;
+
+  /* ─── Production metadata ─── */
+  productionTitle: string;
+  competitionType: ProductionType;
+  activePlatform: PlatformId;
+  duration: DemoDuration;
+  optimizationFocus: OptimizationFocus;
+  artisticDirection: ArtisticDirection;
+  productionMood: ProductionMood;
+  musicTrackStoredName: string;
+
+  /* ─── Effects ─── */
+  selectedEffects: string[];
+
+  /* ─── Effort percentages ─── */
+  effortCoding: number;
+  effortArt: number;
+  effortMusic: number;
+  effortOptimization: number;
+
+  /* ─── Scenes (multi-scene productions) ─── */
+  sceneCount: number;
+  demoScenes: DemoScene[];
 }
 
 /**
@@ -310,6 +400,8 @@ export interface Production {
    * expanded studio). Older saves will not have this; the UI falls
    * back to "Technical Showcase" when undefined. */
   artisticDirection?: ArtisticDirection;
+  /** Optional: production mood / atmosphere (v0.7.0+). */
+  mood?: ProductionMood;
   /** Optional: optimization focus the player picked before compiling. */
   optimizationFocus?: OptimizationFocus;
   /** Optional: demo duration bucket the player picked. */
@@ -371,10 +463,39 @@ export interface ScoreBreakdown {
     productionTypeModifier: number;
     /** Bonus from multi-scene structure. */
     sceneVarietyBonus: number;
+    /** Modifier from the production mood. */
+    moodModifier: number;
   };
   /** IDs of synergy pairs that fired (for the UI "Synergies" section). */
   synergiesTriggered: string[];
 }
+
+/**
+ * Tasks that can be assigned to specific crew members during production.
+ */
+export type ProductionTaskType = "programming" | "graphics" | "music" | "optimization";
+
+/** All production tasks in display order. */
+export const PRODUCTION_TASK_TYPES: ProductionTaskType[] = [
+  "programming",
+  "graphics",
+  "music",
+  "optimization",
+];
+
+/**
+ * Maps each production task to the crew member IDs assigned to it.
+ * An empty array means the task is handled by the whole crew (current default).
+ */
+export type TaskAssignments = Record<ProductionTaskType, string[]>;
+
+/** Default: no specific assignments — all tasks use the full crew average. */
+export const DEFAULT_TASK_ASSIGNMENTS: TaskAssignments = {
+  programming: [],
+  graphics: [],
+  music: [],
+  optimization: [],
+};
 
 /**
  * One competitive prediction: the player production vs the judging
@@ -427,6 +548,7 @@ export interface DemoCreationInput {
   duration: DemoDuration;
   optimizationFocus: OptimizationFocus;
   artisticDirection: ArtisticDirection;
+  mood: ProductionMood;
   effects: string[];
   musicTrackStoredName: string;
   /** Allocated effort percentages — must sum to 100. */

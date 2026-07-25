@@ -31,12 +31,14 @@ import type {
   DemoSummary,
   JudgingProfile,
   PlatformId,
+  ProductionMood,
   ProductionType,
   ScoreBreakdown,
 } from "@packages/types";
-import { EraId, PRODUCTION_TYPE_CONFIGS } from "@packages/types";
+import { EraId, PRODUCTION_TYPE_CONFIGS, SCENE_ROLES } from "@packages/types";
 import { ARTISTIC_DIRECTION_DEFS } from "../data/artisticDirections";
 import { EFFECT_SYNERGIES } from "../data/effectSynergies";
+import { PRODUCTION_MOOD_DEFS } from "../data/productionMoods";
 import {
   JUDGING_PROFILES,
   judgingProfileForParty,
@@ -175,7 +177,8 @@ function applyProductionTypeModifiers(
 
 // ---------------------------------------------------------------------------
 // Stage 3b: scene variety bonus — multi-scene productions get a bonus for
-// each unique scene transition and per-scene effect variety.
+// each unique scene transition, per-scene effect variety, AND scene role
+// diversity (Intro → Buildup → Main → Climax → Outro → Credits).
 // ---------------------------------------------------------------------------
 
 function applySceneVarietyBonus(
@@ -209,7 +212,23 @@ function applySceneVarietyBonus(
       ? clamp(Math.round((scenesWithEffects / scenes.length) * 8))
       : 0;
 
-  const total = sceneCountBonus + transitionVariety + distributionBonus;
+  // Scene role variety bonus: using different narrative roles across
+  // scenes is rewarded. A progression (Intro → Main → Climax → Outro)
+  // scores higher than all scenes at "main".
+  const roles = scenes.map((s) => s.sceneRole).filter(Boolean);
+  const uniqueRoles = new Set(roles);
+  const roleVarietyBonus = roles.length > 1
+    ? clamp(Math.round((uniqueRoles.size / SCENE_ROLES.length) * 12))
+    : 0;
+
+  // Bonus for having a coherent narrative arc: Intro → Climax → Outro
+  // sequence gets extra credit.
+  const hasIntro = roles.includes("intro");
+  const hasClimax = roles.includes("climax");
+  const hasOutro = roles.includes("outro");
+  const arcBonus = (hasIntro && hasClimax && hasOutro) ? 3 : 0;
+
+  const total = sceneCountBonus + transitionVariety + distributionBonus + roleVarietyBonus + arcBonus;
 
   return {
     score: {
@@ -305,6 +324,41 @@ function applyArtisticDirection(
     )
   );
   return { score, directionModifier };
+}
+
+// ---------------------------------------------------------------------------
+// Stage 4b: production mood modifiers — an orthogonal dimension to
+// artistic direction that affects graphics, music, originality, and
+// audience appeal.
+// ---------------------------------------------------------------------------
+
+function applyProductionMood(
+  score: ScoreBreakdown,
+  mood: ProductionMood
+): { score: ScoreBreakdown; moodModifier: number } {
+  const def = PRODUCTION_MOOD_DEFS[mood];
+  if (!def) return { score, moodModifier: 50 };
+
+  const m = def.scoreMultipliers;
+  const updated: ScoreBreakdown = {
+    ...score,
+    graphics: clamp(Math.round(score.graphics * m.graphics)),
+    music: clamp(Math.round(score.music * m.music)),
+    originality: clamp(Math.round(score.originality * m.originality)),
+    audienceAppeal: clamp(Math.round(score.audienceAppeal * m.audienceAppeal)),
+  };
+
+  // Mood modifier: 0-100 magnitude showing how much the mood shifted scores
+  const moodModifier = clamp(
+    50 + Math.round(
+      ((m.graphics - 1) * 20) +
+      ((m.music - 1) * 20) +
+      ((m.originality - 1) * 20) +
+      ((m.audienceAppeal - 1) * 10)
+    )
+  );
+
+  return { score: updated, moodModifier };
 }
 
 // ---------------------------------------------------------------------------
@@ -476,6 +530,7 @@ function sumCategories(partial: Partial<ScoreBreakdown>): ScoreBreakdown {
       developmentTimeFactor: 0,
       productionTypeModifier: 0,
       sceneVarietyBonus: 0,
+      moodModifier: 0,
     },
     synergiesTriggered: s.synergiesTriggered ?? [],
   };
@@ -717,6 +772,7 @@ export function generateDemoSummary(args: {
       developmentTimeFactor: 0,
       productionTypeModifier: 0,
       sceneVarietyBonus: 0,
+      moodModifier: 0,
     },
     synergiesTriggered: [],
   };
@@ -748,6 +804,11 @@ export function generateDemoSummary(args: {
   const dir = applyArtisticDirection(working, creation.artisticDirection, effects);
   working = dir.score;
   working.factors.directionModifier = dir.directionModifier;
+
+  // 4b: production mood
+  const mood = applyProductionMood(working, creation.mood);
+  working = mood.score;
+  working.factors.moodModifier = mood.moodModifier;
 
   // 5: optimization focus
   const opt = applyOptimizationFocus(working, creation.optimizationFocus);

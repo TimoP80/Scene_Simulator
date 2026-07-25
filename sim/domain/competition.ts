@@ -700,7 +700,7 @@ export function generateRivalEntries(
           effectContributions: { visualImpact: 0, complexity: 0, originality: 0 },
           synergyBonus: 0, directionModifier: 0, optimizationModifier: 0,
           musicModuleBonus: 0, platformFit: 0, developmentTimeFactor: 0,
-          productionTypeModifier: 0, sceneVarietyBonus: 0,
+          productionTypeModifier: 0, sceneVarietyBonus: 0, moodModifier: 0,
         },
         synergiesTriggered: [],
       },

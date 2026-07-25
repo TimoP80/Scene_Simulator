@@ -16,11 +16,13 @@ import React from "react";
 import { PlatformId } from "@packages/types";
 import { HISTORICAL_PLATFORMS } from "@sim/data";
 import type { DemoScene, Production, DemoSummary } from "@packages/types";
-import type { DemoDuration, OptimizationFocus, ArtisticDirection } from "@packages/types";
+import type { DemoDuration, OptimizationFocus, ArtisticDirection, ProductionMood } from "@packages/types";
 import type { ProductionType } from "@packages/types";
 
 import DemoStudio from "../components/DemoStudio";
-import { Cpu, HardDrive, Trophy } from "lucide-react";
+import TaskAssignmentPanel from "../components/TaskAssignmentPanel";
+import { Cpu, HardDrive, Trophy, UserCheck } from "lucide-react";
+import type { Character, TaskAssignments, ProductionTaskType } from "@packages/types";
 
 export interface WorkspaceTabProps {
   /* ── Rig / platform state ── */
@@ -40,6 +42,8 @@ export interface WorkspaceTabProps {
   setStudioOptimizationFocus: (v: OptimizationFocus) => void;
   studioArtisticDirection: ArtisticDirection;
   setStudioArtisticDirection: (v: ArtisticDirection) => void;
+  productionMood: ProductionMood;
+  setProductionMood: (v: ProductionMood) => void;
   studioMusicTrackStoredName: string;
   setStudioMusicTrackStoredName: (v: string) => void;
   studioSelectedEffects: string[];
@@ -95,6 +99,21 @@ export interface WorkspaceTabProps {
   setCrtGroupName: (name: string) => void;
   setLastDemoSummary: (s: DemoSummary | null) => void;
   setShowDemoSummary: (v: boolean) => void;
+
+  /* ── Crew task assignment ── */
+  hiredCrew: Character[];
+  taskAssignments: TaskAssignments;
+  onAssignTask: (task: ProductionTaskType, memberId: string) => void;
+  onClearTask: (task: ProductionTaskType) => void;
+
+  /* ── Blueprint save/load ── */
+  blueprints: import("@packages/types").ProductionBlueprint[];
+  onSaveCurrentAsBlueprint: (name: string) => void;
+  onLoadBlueprint: (name: string) => void;
+  onDeleteBlueprint: (name: string) => void;
+
+  /* ── Full Studio modal trigger ── */
+  onOpenDemoStudio?: () => void;
 }
 
 export default function WorkspaceTab({
@@ -114,6 +133,8 @@ export default function WorkspaceTab({
   setStudioOptimizationFocus,
   studioArtisticDirection,
   setStudioArtisticDirection,
+  productionMood,
+  setProductionMood,
   studioMusicTrackStoredName,
   setStudioMusicTrackStoredName,
   studioSelectedEffects,
@@ -160,6 +181,18 @@ export default function WorkspaceTab({
   setCrtGroupName,
   setLastDemoSummary,
   setShowDemoSummary,
+  /* task assignments */
+  hiredCrew,
+  taskAssignments,
+  onAssignTask,
+  onClearTask,
+  /* full studio modal */
+  onOpenDemoStudio,
+  /* blueprints */
+  blueprints,
+  onSaveCurrentAsBlueprint,
+  onLoadBlueprint,
+  onDeleteBlueprint,
 }: WorkspaceTabProps) {
   const activeRigConfig = HISTORICAL_PLATFORMS[activePlatform];
   const releaseList = Object.values(myReleases) as Production[];
@@ -239,8 +272,35 @@ export default function WorkspaceTab({
         </div>
       </div>
 
-      {/* ═══ DemoStudio (production editor) ═══ */}
-      <DemoStudio
+      {/* ═══ Demo Studio Section ═══ */}
+      <div className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">
+        <div className="flex items-center justify-between border-b border-[#27272a] pb-2 mb-3">
+          <div className="flex items-center gap-2">
+            <HardDrive className="text-[#22d3ee] w-4 h-4" />
+            <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">DEMO PRODUCTION STUDIO</h3>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenDemoStudio}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-gradient-to-r from-[#facc15]/20 to-[#22d3ee]/20 border border-[#facc15]/40 hover:border-[#facc15] text-[#facc15] hover:text-[#facc15] text-[10px] font-extrabold tracking-wider transition-all cursor-pointer hover:shadow-[0_0_15px_rgba(250,204,21,0.15)] active:scale-95"
+          >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+            <span>ENTER FULL STUDIO</span>
+          </button>
+        </div>
+
+        {/* Crew Task Assignment Panel */}
+          <TaskAssignmentPanel
+            crewMembers={hiredCrew}
+            assignments={taskAssignments}
+            onAssign={onAssignTask}
+            onClearTask={onClearTask}
+          />
+
+          <DemoStudio
         productionTitle={studioDemoName}
         onTitleChange={setStudioDemoName}
         competitionType={studioProdType}
@@ -251,9 +311,10 @@ export default function WorkspaceTab({
         duration={studioDuration}
         onDurationChange={setStudioDuration}
         optimizationFocus={studioOptimizationFocus}
-        onOptimizationFocusChange={setStudioOptimizationFocus}
-        artisticDirection={studioArtisticDirection}
-        onArtisticDirectionChange={setStudioArtisticDirection}
+        onOptimizationFocusChange={setStudioOptimizationFocus}            artisticDirection={studioArtisticDirection}
+            onArtisticDirectionChange={setStudioArtisticDirection}
+            productionMood={productionMood}
+            onProductionMoodChange={setProductionMood}
         musicTrackStoredName={studioMusicTrackStoredName}
         onMusicTrackStoredNameChange={setStudioMusicTrackStoredName}
         selectedEffects={studioSelectedEffects}
@@ -285,7 +346,12 @@ export default function WorkspaceTab({
         onOpenPlaylist={() => setShowPlaylistModal(true)}
         onOpenEffectGallery={() => setShowEffectGallery(true)}
         onCompile={triggerAssembleCompiler}
+        blueprints={blueprints}
+        onSaveCurrentAsBlueprint={onSaveCurrentAsBlueprint}
+        onLoadBlueprint={onLoadBlueprint}
+        onDeleteBlueprint={onDeleteBlueprint}
       />
+      </div>
 
       {/* ═══ Compiled releases archive ═══ */}
       <div className="bg-[#18181b] p-4 rounded border border-[#27272a] shadow-lg">

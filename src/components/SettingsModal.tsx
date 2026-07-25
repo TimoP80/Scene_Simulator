@@ -31,8 +31,13 @@ import {
   CheckCircle2,
   Cpu,
   AlertTriangle,
+  Bookmark,
+  ToggleLeft,
+  ToggleRight,
+  Edit3,
 } from "lucide-react";
 import { isElectronHost } from "../electronApi";
+import { getAutoSavePrefs, setAutoSavePrefs } from "../utils/autoSavePrefs";
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -52,6 +57,17 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // ── Auto-save blueprint preferences ──
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(() => getAutoSavePrefs().enabled);
+  const [autoSaveName, setAutoSaveName] = useState(() => getAutoSavePrefs().name);
+  const [autoSaveInput, setAutoSaveInput] = useState(() => getAutoSavePrefs().name);
+  const [autoSaveDirty, setAutoSaveDirty] = useState(false);
+  const [autoSaveSaved, setAutoSaveSaved] = useState(false);
+
+  const persistAutoSave = useCallback((enabled: boolean, name: string) => {
+    setAutoSavePrefs({ enabled, name });
+  }, []);
 
   // ESC to close
   useEffect(() => {
@@ -322,6 +338,93 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
               )}
             </div>
           </form>
+
+          {/* ═══ Auto-Save Blueprint Section ═══ */}
+          <div className="flex flex-col gap-2.5 p-3 rounded border border-[#a855f7]/40 bg-[#a855f7]/8">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Bookmark className="w-3.5 h-3.5 text-[#a855f7]" />
+                <span className="text-[10px] tracking-[0.3em] text-[#a1a1aa] uppercase font-bold">
+                  Auto-Save Blueprint
+                </span>
+              </div>
+              <button
+                type="button"
+                id="settings-toggle-autosave"
+                onClick={() => {
+                  const next = !autoSaveEnabled;
+                  setAutoSaveEnabled(next);
+                  persistAutoSave(next, autoSaveName);
+                  setAutoSaveSaved(true);
+                  setTimeout(() => setAutoSaveSaved(false), 2000);
+                }}
+                className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono font-bold tracking-widest uppercase transition
+                  ${autoSaveEnabled
+                    ? "bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/50"
+                    : "bg-[#27272a] text-[#71717a] border border-[#3f3f46]"
+                  }`}
+              >
+                {autoSaveEnabled ? (
+                  <><ToggleRight className="w-3.5 h-3.5" /> ON</>
+                ) : (
+                  <><ToggleLeft className="w-3.5 h-3.5" /> OFF</>
+                )}
+              </button>
+            </div>
+
+            <p className="text-[10px] text-[#a1a1aa] leading-relaxed">
+              When enabled, every successful compile automatically snapshots
+              the current studio configuration as a named blueprint — giving
+              you a permanent restore point you can load at any time.
+            </p>
+
+            {/* Blueprint name input */}
+            <div className="flex items-center gap-2 mt-0.5">
+              <Edit3 className="w-3 h-3 text-[#71717a] shrink-0" />
+              <input
+                type="text"
+                id="settings-autosave-name"
+                value={autoSaveInput}
+                onChange={(e) => {
+                  setAutoSaveInput(e.target.value);
+                  setAutoSaveDirty(true);
+                  setAutoSaveSaved(false);
+                }}
+                placeholder="⬡ Last Compiled"
+                className="flex-1 bg-[#09090b] border border-[#3f3f46] focus:border-[#a855f7] focus:outline-none focus:shadow-[0_0_8px_rgba(168,85,247,0.55)] text-[#c084fc] text-[11px] font-mono px-2.5 py-1.5 rounded placeholder-[#3f3f46]"
+              />
+              <button
+                type="button"
+                id="settings-save-autosave-name"
+                disabled={!autoSaveDirty || !autoSaveInput.trim()}
+                onClick={() => {
+                  const trimmed = autoSaveInput.trim();
+                  if (!trimmed) return;
+                  setAutoSaveName(trimmed);
+                  persistAutoSave(autoSaveEnabled, trimmed);
+                  setAutoSaveDirty(false);
+                  setAutoSaveSaved(true);
+                  setTimeout(() => setAutoSaveSaved(false), 2000);
+                }}
+                className={`px-2.5 py-1.5 rounded text-[10px] font-mono font-bold tracking-widest uppercase transition
+                  ${autoSaveDirty && autoSaveInput.trim()
+                    ? "bg-[#a855f7]/20 text-[#c084fc] border border-[#a855f7]/50 hover:bg-[#a855f7]/30"
+                    : "bg-[#27272a] text-[#52525b] border border-[#3f3f46] cursor-not-allowed"
+                  }`}
+              >
+                SAVE
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 text-[9px] text-[#71717a]">
+              <span className={`inline-block w-1.5 h-1.5 rounded-full transition-colors ${autoSaveSaved ? "bg-[#4ade80]" : "bg-transparent"}`} />
+              <span>
+                {autoSaveSaved
+                  ? "Preferences saved."
+                  : `Blueprint name: "${autoSaveName}"`}
+              </span>
+            </div>
+          </div>
 
           {/* Help text */}
           <div className="p-3 rounded border border-[#27272a] bg-[#18181b]/40">

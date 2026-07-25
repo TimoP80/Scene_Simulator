@@ -46,7 +46,8 @@ export type ModalId =
   | "effectGallery"
   | "shader"
   | "compilingOverlay"
-  | "monthlySummary";
+  | "monthlySummary"
+  | "demoStudio";
 
 export function useModal() {
   const [activeModal, setActiveModal] = useState<ModalId | null>(null);
@@ -77,6 +78,10 @@ export function useModal() {
     () => setActiveModal("compilingOverlay"),
     [],
   );
+  const openDemoStudio = useCallback(
+    () => setActiveModal("demoStudio"),
+    [],
+  );
 
   return {
     /** Current modal name, or null when closed. */
@@ -101,5 +106,7 @@ export function useModal() {
     openShader,
     /** Convenience: open("compilingOverlay") */
     openCompilingOverlay,
+    /** Convenience: open("demoStudio") */
+    openDemoStudio,
   } as const;
 }

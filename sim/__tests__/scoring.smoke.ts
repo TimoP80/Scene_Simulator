@@ -162,6 +162,7 @@ function runPipeline(opts: {
       duration: opts.duration,
       optimizationFocus: opts.focus,
       artisticDirection: opts.direction,
+      mood: "Neon Retro",
       effects: [...opts.effects],
       musicTrackStoredName: opts.musicModule?.format
         ? `fixture.${opts.musicModule.format.toLowerCase()}`
@@ -642,6 +643,7 @@ console.log("\nScenario 9: weightedScore reference table (fixed breakdown, every
       musicModuleBonus: 0, platformFit: 80, developmentTimeFactor: 60,
       productionTypeModifier: 50,
       sceneVarietyBonus: 0,
+      moodModifier: 0,
     },
     synergiesTriggered: [],
   };

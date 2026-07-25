@@ -63,16 +63,21 @@ import {
   DEMO_DURATIONS,
   SCENE_TRANSITIONS,
   PRODUCTION_TYPE_CONFIGS,
+  PRODUCTION_MOODS,
+  SCENE_ROLES,
   type PlatformId,
   type DemoDuration,
   type DemoScene,
+  type SceneRole,
   type SceneTransition,
   type OptimizationFocus,
   type ArtisticDirection,
+  type ProductionMood,
 } from "@packages/types";
+import { PRODUCTION_MOOD_DEFS } from "@sim/data/productionMoods";
 import { useTrackerPlayer } from "../hooks/useTrackerPlayer";
 import DemoBudgetMeter from "./DemoBudgetMeter";
-import type { CustomShader } from "@packages/types";
+import type { CustomShader, ProductionBlueprint } from "@packages/types";
 
 /**
  * DemoStudio props — every studio surface state + its setter (or a
@@ -109,6 +114,11 @@ export interface DemoStudioProps {
 
   artisticDirection: ArtisticDirection;
   onArtisticDirectionChange: (v: ArtisticDirection) => void;
+
+  /* ─── (3b) Production mood ─── */
+  /** The emotional/visual tone of the production — orthogonal to artistic direction. */
+  productionMood: ProductionMood;
+  onProductionMoodChange: (v: ProductionMood) => void;
 
   /** `""` means no track picked. Format: `userData/music/<sha>.<ext>`. */
   musicTrackStoredName: string;
@@ -187,7 +197,17 @@ export interface DemoStudioProps {
   /** Open the shader editor modal, optionally pre-selecting a shader. */
   onOpenShaderEditor?: (shaderId?: string) => void;
 
-  /* ─── (11) Compile orchestration ─── */
+  /* ─── (11) Blueprint save/load ─── */
+  /** Current list of saved blueprints (for display). */
+  blueprints: ProductionBlueprint[];
+  /** Save the current studio configuration as a new blueprint. */
+  onSaveCurrentAsBlueprint: (name: string) => void;
+  /** Load a saved blueprint into the studio (sets all state). */
+  onLoadBlueprint: (name: string) => void;
+  /** Delete a blueprint by name. */
+  onDeleteBlueprint: (name: string) => void;
+
+  /* ─── (12) Compile orchestration ─── */
   /**
    * App.tsx's `triggerAssembleCompiler(e)` — DOM-event handler. The
    * parent owns validation + budget hard-stops + the interval-driven
@@ -262,6 +282,27 @@ const SceneEditorCard: React.FC<SceneEditorCardProps> = ({
           />
         </div>
         <div className="flex items-center gap-2">
+          {/* Scene role selector */}
+          <div className="flex items-center gap-1">
+            <select
+              value={scene.sceneRole ?? ""}
+              onChange={(e) =>
+                onChange({
+                  ...scene,
+                  sceneRole: (e.target.value || undefined) as SceneRole | undefined,
+                })
+              }
+              className="bg-[#09090b] border border-[#3f3f46] rounded px-1.5 py-0.5 text-[#a1a1aa] text-[8px] focus:outline-none focus:border-[#a855f7] font-bold cursor-pointer"
+              title="Set this scene's narrative role — varied roles earn a scoring bonus"
+            >
+              <option value="">ROLE</option>
+              {SCENE_ROLES.map((role) => (
+                <option key={role} value={role}>
+                  {role.toUpperCase()}
+                </option>
+              ))}
+            </select>
+          </div>
           <span className="text-[8.5px] text-[#71717a] font-mono">
             {effCount} eff
           </span>
@@ -329,6 +370,8 @@ export default function DemoStudio({
   onOptimizationFocusChange,
   artisticDirection,
   onArtisticDirectionChange,
+  productionMood,
+  onProductionMoodChange,
   musicTrackStoredName,
   onMusicTrackStoredNameChange,
   selectedEffects,
@@ -359,6 +402,10 @@ export default function DemoStudio({
   aiImagesProgress,
   onOpenPlaylist,
   onOpenEffectGallery,
+  blueprints,
+  onSaveCurrentAsBlueprint,
+  onLoadBlueprint,
+  onDeleteBlueprint,
   onCompile,
   customShaders = {},
   selectedShaderIds = [],
@@ -369,6 +416,10 @@ export default function DemoStudio({
   // when tracks are imported or removed via the overlay modal.
   const trackerState = useTrackerPlayer();
   const trackerPlaylist = trackerState.playlist;
+
+  // Blueprint save dialog state
+  const [showBpSave, setShowBpSave] = React.useState(false);
+  const [bpSaveName, setBpSaveName] = React.useState("");
 
   // Era+platform compatibility set — drives the per-card disabled
   // hint chip (RESEARCH REQUIRED / INCOMPATIBLE / REQUIRES RIG).
@@ -462,6 +513,92 @@ export default function DemoStudio({
             </div>
           </div>
         )}
+
+        {/* Blueprint save/load panel — collapsed by default */}
+        <details className="bg-[#09090b]/40 border border-[#a855f7]/20 p-3 rounded group">
+          <summary className="flex items-center gap-2 text-[8px] text-[#a855f7] font-extrabold tracking-widest uppercase cursor-pointer select-none hover:text-[#c084fc] transition-colors">
+            <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <path d="M9 3v18" />
+            </svg>
+            PRODUCTION BLUEPRINTS ({blueprints.length})
+          </summary>
+          <div className="mt-2 space-y-2">
+            {/* Save as blueprint */}
+            <div className="flex items-center gap-1.5">
+              <input
+                type="text"
+                value={bpSaveName}
+                onChange={(e) => setBpSaveName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && bpSaveName.trim()) {
+                    onSaveCurrentAsBlueprint(bpSaveName.trim());
+                    setBpSaveName("");
+                  }
+                }}
+                className="flex-1 bg-[#09090b] border border-[#3f3f46] rounded px-2 py-1 text-[10px] text-white focus:outline-none focus:border-[#a855f7] placeholder:text-[#52525b]"
+                placeholder="Name this blueprint..."
+              />
+              <button
+                type="button"
+                disabled={!bpSaveName.trim()}
+                onClick={() => {
+                  onSaveCurrentAsBlueprint(bpSaveName.trim());
+                  setBpSaveName("");
+                }}
+                className="px-2.5 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#a855f7]/10 hover:bg-[#a855f7]/25 text-[#c084fc] border-[#a855f7]/30 hover:border-[#a855f7] disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                SAVE
+              </button>
+            </div>
+
+            {/* Load / delete list */}
+            {blueprints.length === 0 && (
+              <p className="text-[8px] text-[#52525b] italic">
+                No blueprints saved yet. Configure your studio and save a blueprint to reuse it later.
+              </p>
+            )}
+            <div className="space-y-1 max-h-[200px] overflow-y-auto">
+              {blueprints.map((bp) => (
+                <div
+                  key={bp.name}
+                  className="flex items-center justify-between bg-[#09090b]/60 border border-[#27272a] rounded px-2 py-1.5 hover:border-[#a855f7]/40 transition-colors group/bp"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <svg className="w-3 h-3 shrink-0 text-[#a855f7]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                      <polyline points="14 2 14 8 20 8" />
+                      <line x1="16" y1="13" x2="8" y2="13" />
+                      <line x1="16" y1="17" x2="8" y2="17" />
+                    </svg>
+                    <span className="text-[9px] text-[#d4d4d8] font-bold truncate">{bp.name}</span>
+                    <span className="text-[7px] text-[#52525b] font-mono shrink-0">
+                      {bp.competitionType} · {bp.selectedEffects.length} eff · {bp.sceneCount} sc
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => onLoadBlueprint(bp.name)}
+                      className="px-1.5 py-0.5 rounded text-[7px] font-bold border cursor-pointer transition-colors bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 text-[#22d3ee] border-[#22d3ee]/30 hover:border-[#22d3ee]"
+                      title={`Load "${bp.name}"`}
+                    >
+                      LOAD
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onDeleteBlueprint(bp.name)}
+                      className="px-1.5 py-0.5 rounded text-[7px] font-bold border cursor-pointer transition-colors bg-transparent hover:bg-[#ef4444]/15 text-[#52525b] hover:text-[#ef4444] border-transparent hover:border-[#ef4444]/40"
+                      title={`Delete "${bp.name}"`}
+                    >
+                      DEL
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </details>
 
         {/* Random ArtSlide + AI generation buttons — slideshow tools */}
         {competitionType === ProductionType.ArtSlide && (
@@ -575,8 +712,98 @@ export default function DemoStudio({
           </div>
         </div>
 
+        {/* Demo Templates — quick-setup presets */}
+        <div className="flex flex-wrap gap-1.5 bg-[#09090b]/40 border border-[#a855f7]/20 p-3 rounded">
+          <span className="text-[8px] text-[#a855f7] font-extrabold tracking-widest uppercase w-full mb-0.5">
+            DEMO TEMPLATES
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              onTitleChange("VOXEL FRONTIER");
+              onCompetitionTypeChange(ProductionType.Demo);
+              onDurationChange("Long");
+              onOptimizationFocusChange("Visual Quality");
+              onArtisticDirectionChange("Technical Showcase");
+              onProductionMoodChange("Dark Cyberpunk");
+              setEffortCoding(45);
+              setEffortArt(25);
+              setEffortMusic(15);
+              setEffortOptimization(15);
+            }}
+            className="px-2 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#a855f7]/10 hover:bg-[#a855f7]/25 text-[#c084fc] border-[#a855f7]/30 hover:border-[#a855f7]"
+          >
+            ⚡ TECHNICAL BEAST
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onTitleChange("NEON DREAMS");
+              onCompetitionTypeChange(ProductionType.Demo);
+              onDurationChange("Medium");
+              onOptimizationFocusChange("Balanced");
+              onArtisticDirectionChange("Artistic");
+              onProductionMoodChange("Neon Retro");
+              setEffortCoding(25);
+              setEffortArt(45);
+              setEffortMusic(20);
+              setEffortOptimization(10);
+            }}
+            className="px-2 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#ec4899]/10 hover:bg-[#ec4899]/25 text-[#f9a8d4] border-[#ec4899]/30 hover:border-[#ec4899]"
+          >
+            🎨 VISUAL SPECTACLE
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onTitleChange("ZERO BITS");
+              onCompetitionTypeChange(ProductionType.Intro4k);
+              onDurationChange("Short");
+              onOptimizationFocusChange("Speed");
+              onArtisticDirectionChange("Experimental");
+              onProductionMoodChange("Surreal Dreamlike");
+              setEffortCoding(55);
+              setEffortArt(15);
+              setEffortMusic(10);
+              setEffortOptimization(20);
+            }}
+            className="px-2 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#22d3ee]/10 hover:bg-[#22d3ee]/25 text-[#22d3ee] border-[#22d3ee]/30 hover:border-[#22d3ee]"
+          >
+            🚀 SIZE-CODED CHALLENGE
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onTitleChange("PIXEL MELODIES");
+              onCompetitionTypeChange(ProductionType.MusicDisk);
+              onDurationChange("Medium");
+              onOptimizationFocusChange("Balanced");
+              onArtisticDirectionChange("Music-Driven");
+              onProductionMoodChange("Nature Organic");
+              setEffortCoding(15);
+              setEffortArt(15);
+              setEffortMusic(55);
+              setEffortOptimization(15);
+            }}
+            className="px-2 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#4ade80]/10 hover:bg-[#4ade80]/25 text-[#4ade80] border-[#4ade80]/30 hover:border-[#4ade80]"
+          >
+            🎵 MUSIC DRIVEN
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onTitleChange("SILICON SUNSET");
+              onCompetitionTypeChange(ProductionType.ArtSlide);
+              onRandomSlideShow();
+            }}
+            className="px-2 py-1 rounded text-[8px] font-bold border cursor-pointer transition-colors bg-[#facc15]/10 hover:bg-[#facc15]/25 text-[#facc15] border-[#facc15]/30 hover:border-[#facc15]"
+          >
+            📷 SLIDE GALLERY
+          </button>
+        </div>
+
         {/* (2) Target platform + (3) v2 expanded controls */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 bg-[#09090b]/40 border border-[#27272a] p-3 rounded">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-7 gap-3 bg-[#09090b]/40 border border-[#27272a] p-3 rounded">
           <div>
             <label
               htmlFor="studio-target-platform"
@@ -665,6 +892,33 @@ export default function DemoStudio({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label
+              htmlFor="studio-production-mood"
+              className="block text-[10px] text-[#a1a1aa] font-bold mb-1 uppercase tracking-tight"
+              title={PRODUCTION_MOOD_DEFS[productionMood]?.description ?? ""}
+            >
+              PRODUCTION MOOD
+            </label>
+            <select
+              id="studio-production-mood"
+              value={productionMood}
+              onChange={(e) => onProductionMoodChange(e.target.value as ProductionMood)}
+              className="w-full bg-[#09090b] border border-[#3f3f46] rounded px-2 py-1.5 text-white text-xs focus:outline-none focus:border-[#a855f7] font-bold cursor-pointer"
+            >
+              {PRODUCTION_MOODS.map((m) => (
+                <option key={m} value={m}>
+                  {m.toUpperCase()}
+                </option>
+              ))}
+            </select>
+            {/* Mood flavor text */}
+            {PRODUCTION_MOOD_DEFS[productionMood] && (
+              <p className="text-[7px] text-[#71717a] mt-0.5 italic leading-tight">
+                {PRODUCTION_MOOD_DEFS[productionMood].flavor}
+              </p>
+            )}
           </div>
           {/* Scene count selector — visible for productions that support multi-scene */}
           {typeConfig?.supportsScenes && (

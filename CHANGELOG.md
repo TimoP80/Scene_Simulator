@@ -7,7 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.3] - 2026-07-22
+
+### Added
+- **Auto-save blueprint toggle + custom name** — The auto-save blueprint feature
+  (which snapshots the studio config after every compile) is now configurable
+  via the Settings panel. Players can toggle auto-save ON/OFF and rename the
+  auto-saved blueprint slot to anything they like. A new localStorage-backed
+  preferences store (`src/utils/autoSavePrefs.ts`) persists the toggle state
+  and custom name across sessions. The toggle controls whether a blueprint is
+  saved at all; the name controls what it's called in the blueprints list.
+  Settings were added to `src/components/SettingsModal.tsx` with a purple
+  themed section, toggle button, and inline name editor with SAVE button.
+
+### Changed
+- **`package.json`** — bumped `0.7.2` → `0.7.3`.
+
 ## [0.7.2] - 2026-07-21
+
+### Added
+- **MonthlySummaryModal** — A new retro-styled modal overlay that appears after
 
 ### Added
 - **MonthlySummaryModal** — A new retro-styled modal overlay that appears after

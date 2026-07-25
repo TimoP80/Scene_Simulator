@@ -41,8 +41,12 @@ import {PlatformId,
   BBSInfoType,
   BBSMessage,
   PRODUCTION_TYPE_CONFIGS,
+  PRODUCTION_TASK_TYPES,
+  DEFAULT_TASK_ASSIGNMENTS,
   type DemoScene,
   type SceneTransition,
+  type TaskAssignments,
+  type ProductionTaskType,
 } from "@packages/types";
 import {
   HISTORICAL_PLATFORMS,
@@ -89,6 +93,17 @@ import SettingsModal from "./components/SettingsModal";
 import LogoGeneratorModal from "./components/LogoGeneratorModal";
 import DemoBudgetMeter from "./components/DemoBudgetMeter";
 import DemoStudio from "./components/DemoStudio";
+import { DemoStudioModal } from "./components/demo-studio";
+import {
+  listBlueprints,
+  saveBlueprint,
+  loadBlueprint as bpLoad,
+  deleteBlueprint as bpDelete,
+} from "./utils/blueprintStorage";
+import {
+  getAutoSavePrefs,
+  isAutoSaveEnabled,
+} from "./utils/autoSavePrefs";
 import MusicPlayer from "./components/MusicPlayer";
 import PlaylistManager from "./components/PlaylistManager";
 import DemoSummaryModal from "./components/DemoSummary";
@@ -531,6 +546,12 @@ export default function App() {
   // Download tracking per production — used by the BBS advertise flow.
   const [productionDownloads, setProductionDownloads] = useState<Record<string, number>>({});
 
+  // Task assignment: which crew members handle which production tasks.
+  // Empty arrays mean "use the full crew average" (current default behaviour).
+  const [taskAssignments, setTaskAssignments] = useState<TaskAssignments>(
+    DEFAULT_TASK_ASSIGNMENTS
+  );
+
   // Chronological Scene Magazine / News Feed logs
   const [newsLog, setNewsLog] = useState<SceneMagazine[]>([
     {
@@ -764,11 +785,74 @@ export default function App() {
   // Optional tracker track from the user's playlist (storedName, or "").
   const [studioMusicTrackStoredName, setStudioMusicTrackStoredName] = useState<string>("");
 
+  // ---- Production mood ----
+  const [productionMood, setProductionMood] = useState<import("@packages/types").ProductionMood>("Neon Retro");
+
   // ---- Multi-scene state ----
   const [studioSceneCount, setStudioSceneCount] = useState<number>(3);
   const [studioScenes, setStudioScenes] = useState<DemoScene[]>(() =>
     generateDefaultScenes(3, studioSelectedEffects)
   );
+
+  // ---- Blueprint list (synced with localStorage on mount) ----
+  const [blueprints, setBlueprints] = useState<import("@packages/types").ProductionBlueprint[]>(listBlueprints);
+
+  const handleSaveBlueprint = useCallback((name: string) => {
+    const scenes: import("@packages/types").DemoScene[] = studioScenes.map((s) => ({ ...s }));
+    const bp: import("@packages/types").ProductionBlueprint = {
+      name,
+      updatedAt: new Date().toISOString(),
+      productionTitle: studioDemoName,
+      competitionType: studioProdType,
+      activePlatform,
+      duration: studioDuration,
+      optimizationFocus: studioOptimizationFocus,
+      artisticDirection: studioArtisticDirection,
+      productionMood,
+      musicTrackStoredName: studioMusicTrackStoredName,
+      selectedEffects: [...studioSelectedEffects],
+      effortCoding,
+      effortArt,
+      effortMusic,
+      effortOptimization,
+      sceneCount: studioSceneCount,
+      demoScenes: scenes,
+    };
+    saveBlueprint(bp);
+    setBlueprints(listBlueprints());
+  }, [
+    studioDemoName, studioProdType, activePlatform, studioDuration,
+    studioOptimizationFocus, studioArtisticDirection, productionMood,
+    studioMusicTrackStoredName, studioSelectedEffects,
+    effortCoding, effortArt, effortMusic, effortOptimization,
+    studioSceneCount, studioScenes,
+  ]);
+
+  const handleLoadBlueprint = useCallback((name: string) => {
+    const bp = bpLoad(name);
+    if (!bp) return;
+    setStudioDemoName(bp.productionTitle);
+    setStudioProdType(bp.competitionType);
+    setActivePlatform(bp.activePlatform);
+    setStudioDuration(bp.duration);
+    setStudioOptimizationFocus(bp.optimizationFocus);
+    setStudioArtisticDirection(bp.artisticDirection);
+    setProductionMood(bp.productionMood);
+    setStudioMusicTrackStoredName(bp.musicTrackStoredName);
+    setStudioSelectedEffects([...bp.selectedEffects]);
+    setEffortCoding(bp.effortCoding);
+    setEffortArt(bp.effortArt);
+    setEffortMusic(bp.effortMusic);
+    setEffortOptimization(bp.effortOptimization);
+    setStudioSceneCount(bp.sceneCount);
+    setStudioScenes(bp.demoScenes.map((s) => ({ ...s })));
+  }, []);
+
+  const handleDeleteBlueprint = useCallback((name: string) => {
+    bpDelete(name);
+    setBlueprints(listBlueprints());
+  }, []);
+
   // Post-compile summary modal state.
   // (uses `modal` hook declared above)
   const [lastDemoSummary, setLastDemoSummary] = useState<DemoSummary | null>(null);
@@ -1064,6 +1148,21 @@ export default function App() {
         ? prev.filter((sid) => sid !== id)
         : [...prev, id]
     );
+  }, []);
+
+  // --------- CREW TASK ASSIGNMENT ---------
+  const handleAssignTask = useCallback((task: ProductionTaskType, memberId: string) => {
+    setTaskAssignments((prev) => {
+      const current = prev[task] ?? [];
+      const next = current.includes(memberId)
+        ? current.filter((id) => id !== memberId)
+        : [...current, memberId];
+      return { ...prev, [task]: next };
+    });
+  }, []);
+
+  const handleClearTask = useCallback((task: ProductionTaskType) => {
+    setTaskAssignments((prev) => ({ ...prev, [task]: [] }));
   }, []);
 
   // Open the shader editor, optionally pre-selecting a specific shader.
@@ -1623,9 +1722,42 @@ const ERA_LABELS: Record<string, string> = {
     return sum + (found ? found.ramCostKb : 0);
   }, 0);
 
-  const totalCrewCodingSkill = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.coding, 45); // Player solo default coding skill is 45
-  const totalCrewArtSkill = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.graphics, 35);
-  const totalCrewMusicSkill = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.music, 40);
+  // Compute per-task crew skills. When the player has assigned specific
+  // members to a task, use only those members' skills. Otherwise fall
+  // back to the full crew average (the original behaviour).
+  const computeTaskSkill = (task: ProductionTaskType): number => {
+    const assigned = taskAssignments[task];
+    const candidateIds =
+      assigned && assigned.length > 0
+        ? assigned.filter((id) => hiredCrewIds.includes(id))
+        : hiredCrewIds;
+    const defaults: Record<ProductionTaskType, number> = {
+      programming: 45,
+      graphics: 35,
+      music: 40,
+      optimization: 35,
+    };
+    const skillKey: Record<ProductionTaskType, keyof Character["skills"]> = {
+      programming: "coding",
+      graphics: "graphics",
+      music: "music",
+      optimization: "organization",
+    };
+    if (candidateIds.length === 0) return defaults[task];
+    const total = candidateIds.reduce(
+      (sum, id) => sum + (characters[id]?.skills?.[skillKey[task]] ?? defaults[task]),
+      0,
+    );
+    return Math.round(total / candidateIds.length);
+  };
+
+  // Optimization task boosts the programming skill (tight code = better
+  // cycle counting). This makes optimization crew assignments matter.
+  const totalCrewCodingSkill = Math.min(100,
+    computeTaskSkill("programming") + Math.round(computeTaskSkill("optimization") * 0.3)
+  );
+  const totalCrewArtSkill = computeTaskSkill("graphics");
+  const totalCrewMusicSkill = computeTaskSkill("music");
 
   // ---- Compatible-effects gating (era + platform) ----
   // Returns a Set of effect ids the player can legally use on the
@@ -1839,6 +1971,7 @@ const ERA_LABELS: Record<string, string> = {
         duration: studioDuration,
         optimizationFocus: studioOptimizationFocus,
         artisticDirection: studioArtisticDirection,
+        mood: productionMood,
         effects: [...studioSelectedEffects],
         musicTrackStoredName: studioMusicTrackStoredName,
         effort: {
@@ -1976,6 +2109,37 @@ const ERA_LABELS: Record<string, string> = {
     }));
 
     setLastCompiledRelease(newProd);
+
+    // ── Auto-save blueprint (if enabled) ──
+    // Snapshot the current studio config as a named blueprint so the
+    // player can always restore their last-compiled config. The setting
+    // can be toggled on/off and the blueprint name customised via Settings.
+    if (isAutoSaveEnabled()) {
+      const prefs = getAutoSavePrefs();
+      const autoScenes = studioScenes.map((s) => ({ ...s }));
+      saveBlueprint({
+        name: prefs.name,
+        updatedAt: new Date().toISOString(),
+        productionTitle: studioDemoName,
+        competitionType: studioProdType,
+        activePlatform,
+        duration: studioDuration,
+        optimizationFocus: studioOptimizationFocus,
+        artisticDirection: studioArtisticDirection,
+        productionMood,
+        musicTrackStoredName: studioMusicTrackStoredName,
+        selectedEffects: [...studioSelectedEffects],
+        effortCoding,
+        effortArt,
+        effortMusic,
+        effortOptimization,
+        sceneCount: studioSceneCount,
+        demoScenes: autoScenes,
+      });
+      setBlueprints(listBlueprints());
+      setSaveNotice(`"${prefs.name}" blueprint auto-saved`);
+      setTimeout(() => setSaveNotice(""), 2500);
+    }
 
     // Add dynamically compiled demo to the Social Graph nodes & edges
     setGraphNodes((prevNodes) => {
@@ -3068,6 +3232,42 @@ const ERA_LABELS: Record<string, string> = {
         return updatedTh;
       });
 
+      // ----- NPC reply chains on non-followed threads -----
+      // Pick 2-4 random non-followed threads and add 1-2 NPC replies
+      // each, so the board feels alive even without player interaction.
+      const npcHandles = Object.keys(characters).filter(
+        (id) => characters[id]?.handle
+      );
+      const enlivenCandidates = mapped.filter(
+        (th) =>
+          !th.followed &&
+          !th.isSuppressed &&
+          th.messages.length < 50
+      );
+      // Shuffle and pick 2-4
+      for (
+        let i = 0;
+        i < Math.min(2 + Math.floor(Math.random() * 3), enlivenCandidates.length);
+        i++
+      ) {
+        const swap = Math.floor(Math.random() * (i + 1));
+        [enlivenCandidates[i], enlivenCandidates[swap]] = [
+          enlivenCandidates[swap],
+          enlivenCandidates[i],
+        ];
+        const th = enlivenCandidates[i];
+        if (!th) continue;
+        const replyCount = 1 + (Math.random() > 0.5 ? 1 : 0);
+        for (let r = 0; r < replyCount; r++) {
+          const npcId =
+            npcHandles[Math.floor(Math.random() * npcHandles.length)];
+          const npc = characters[npcId];
+          if (!npc) continue;
+          const reply = generateFollowedReply(npc, nextY, th.board as BBSBoard);
+          th.messages.push(reply);
+        }
+      }
+
       // Inject notifications into news feed if any
       if (notificationsToInject.length > 0) {
         setNewsLog((prevNews) => [...notificationsToInject, ...prevNews]);
@@ -3622,7 +3822,8 @@ const ERA_LABELS: Record<string, string> = {
         playerHandle,
         playerGroupName,
         bbsDialed,
-        bbsThreads
+        bbsThreads,
+        taskAssignments
       };
       localStorage.setItem("demoscene_sim_autosave", JSON.stringify(stateObj));
       setSaveNotice("Progress auto-saved securely.");
@@ -3702,6 +3903,7 @@ const ERA_LABELS: Record<string, string> = {
       setResearchPoints(data.researchPoints ?? 30);
       setPlayerHandle(data.playerHandle ?? "AssemblyKid");
       setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
+      setTaskAssignments(data.taskAssignments ?? DEFAULT_TASK_ASSIGNMENTS);
       setBbsDialed(data.bbsDialed ?? false);
       if (data.bbsThreads) {
         setBbsThreads(data.bbsThreads);
@@ -3969,6 +4171,7 @@ const ERA_LABELS: Record<string, string> = {
         setResearchPoints(data.researchPoints ?? 30);
         setPlayerHandle(data.playerHandle ?? "AssemblyKid");
         setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
+        setTaskAssignments(data.taskAssignments ?? DEFAULT_TASK_ASSIGNMENTS);
 
         const nlist = { ...INITIAL_NPCS };
         (data.hiredCrewIds ?? []).forEach((cId: string) => {
@@ -4060,10 +4263,11 @@ const ERA_LABELS: Record<string, string> = {
             setStudioOptimizationFocus={setStudioOptimizationFocus}
             studioArtisticDirection={studioArtisticDirection}
             setStudioArtisticDirection={setStudioArtisticDirection}
-            studioMusicTrackStoredName={studioMusicTrackStoredName}
-            setStudioMusicTrackStoredName={setStudioMusicTrackStoredName}
-            studioSelectedEffects={studioSelectedEffects}
-            toggleSelectEffect={toggleSelectEffect}
+            studioMusicTrackStoredName={studioMusicTrackStoredName}              setStudioMusicTrackStoredName={setStudioMusicTrackStoredName}
+              productionMood={productionMood}
+              setProductionMood={setProductionMood}
+              studioSelectedEffects={studioSelectedEffects}
+              toggleSelectEffect={toggleSelectEffect}
             currentYear={currentYear}
             unlockedTechs={unlockedTechs}
             combinedCpuDemand={combinedCpuDemand}
@@ -4100,6 +4304,15 @@ const ERA_LABELS: Record<string, string> = {
             setCrtGroupName={setCrtGroupName}
             setLastDemoSummary={setLastDemoSummary}
             setShowDemoSummary={modal.openDemoSummary}
+            hiredCrew={hiredCrewIds.map((id) => characters[id]).filter(Boolean)}
+            taskAssignments={taskAssignments}
+            onAssignTask={handleAssignTask}
+            onClearTask={handleClearTask}
+            onOpenDemoStudio={modal.openDemoStudio}
+            blueprints={blueprints}
+            onSaveCurrentAsBlueprint={handleSaveBlueprint}
+            onLoadBlueprint={handleLoadBlueprint}
+            onDeleteBlueprint={handleDeleteBlueprint}
           />
         );
       case "crew":
@@ -5077,6 +5290,74 @@ const ERA_LABELS: Record<string, string> = {
           playerHandle={playerHandle}
           playerGroupName={playerGroupName}
           onClose={modal.close}
+        />
+      )}
+
+      {/* ═══ Demo Studio Modal — full production workspace ═══ */}
+      {modal.isOpen("demoStudio") && (
+        <DemoStudioModal
+          isOpen={modal.isOpen("demoStudio")}
+          onClose={modal.close}
+          productionTitle={studioDemoName}
+          onTitleChange={setStudioDemoName}
+          competitionType={studioProdType}
+          onCompetitionTypeChange={setStudioProdType}
+          activePlatform={activePlatform}
+          setActivePlatform={setActivePlatform}
+          ownedRigs={ownedRigs}
+          duration={studioDuration}
+          onDurationChange={setStudioDuration}
+          optimizationFocus={studioOptimizationFocus}
+          onOptimizationFocusChange={setStudioOptimizationFocus}            artisticDirection={studioArtisticDirection}
+            onArtisticDirectionChange={setStudioArtisticDirection}
+            productionMood={productionMood}
+            onProductionMoodChange={setProductionMood}
+          musicTrackStoredName={studioMusicTrackStoredName}
+          onMusicTrackStoredNameChange={setStudioMusicTrackStoredName}
+          selectedEffects={studioSelectedEffects}
+          onToggleSelectEffect={toggleSelectEffect}
+          currentYear={currentYear}
+          unlockedTechs={unlockedTechs}
+          combinedCpuDemand={combinedCpuDemand}
+          combinedRamDemand={combinedRamDemand}
+          platformCpuLimit={(HISTORICAL_PLATFORMS[activePlatform]?.cpuLimit ?? 20000)}
+          platformRamLimitKb={(HISTORICAL_PLATFORMS[activePlatform]?.ramLimitKb ?? 512)}
+          effortCoding={effortCoding}
+          effortArt={effortArt}
+          effortMusic={effortMusic}
+          effortOptimization={effortOptimization}
+          setEffortCoding={setEffortCoding}
+          setEffortArt={setEffortArt}
+          setEffortMusic={setEffortMusic}
+          setEffortOptimization={setEffortOptimization}
+          sceneCount={studioSceneCount}
+          onSceneCountChange={handleSceneCountChange}
+          demoScenes={studioScenes}
+          onSceneChange={handleSceneChange}
+          onSetScenes={setStudioScenes}
+          onRandomSlideShow={handleRandomSlideShow}
+          useAiImages={useAiImages}
+          onToggleAiImages={handleToggleAiImages}
+          aiImagesLoading={aiImagesLoading}
+          aiImagesError={aiImagesError}
+          aiImagesProgress={aiImagesProgress}
+          onOpenPlaylist={modal.openPlaylist}
+          onOpenEffectGallery={modal.openEffectGallery}
+          customShaders={customShaders}
+          selectedShaderIds={selectedCustomShaderIds}
+          onToggleShader={handleToggleShader}
+          onOpenShaderEditor={handleOpenShaderEditor}
+          onCompile={triggerAssembleCompiler}
+          blueprints={blueprints}
+          onSaveCurrentAsBlueprint={handleSaveBlueprint}
+          onLoadBlueprint={handleLoadBlueprint}
+          onDeleteBlueprint={handleDeleteBlueprint}
+          hiredCrew={hiredCrewIds.map((id) => characters[id]).filter(Boolean)}
+          taskAssignments={taskAssignments}
+          onAssignTask={handleAssignTask}
+          onClearTask={handleClearTask}
+          totalEffects={DEMO_EFFECTS.length}
+          platformName={HISTORICAL_PLATFORMS[activePlatform]?.name ?? activePlatform}
         />
       )}
 
