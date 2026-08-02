@@ -15,7 +15,8 @@
  *   - `requiresCrewSkill` ∈ { coding, graphics, music, organization }
  *   - `npcProviderId` (when present) resolves against `INITIAL_NPCS`
  *   - `availableFromYear ≤ availableToYear` (window sanity)
- *   - `availableFromYear` ∈ [1985, 2005]
+ *   - `availableFromYear` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX] (derived
+ *     from `ERA_BOUNDARIES` in `sim/data/eraConfig.ts`)
  *   - `name`, `description` are non-empty strings
  *   - reads are idempotent
  *
@@ -24,6 +25,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { JOB_TEMPLATES } from "@sim/data/jobTemplates";
 import { INITIAL_NPCS } from "@sim/data/initialNpcs";
 
@@ -133,13 +135,13 @@ check("jobTemplates: every durationMonths is a positive integer", () => {
   assert.equal(bad.length, 0, bad.join("; "));
 });
 
-check("jobTemplates: availableFromYear ∈ [1985, 2005]", () => {
+check(`jobTemplates: availableFromYear ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}]`, () => {
   const bad: string[] = [];
   for (const j of JOBS) {
     if (
       !Number.isInteger(j.availableFromYear) ||
-      j.availableFromYear < 1985 ||
-      j.availableFromYear > 2005
+      j.availableFromYear < SIM_WINDOW_MIN ||
+      j.availableFromYear > SIM_WINDOW_MAX
     ) {
       bad.push(`${j.id}.from=${j.availableFromYear}`);
     }
@@ -147,13 +149,13 @@ check("jobTemplates: availableFromYear ∈ [1985, 2005]", () => {
   assert.equal(bad.length, 0, bad.join("; "));
 });
 
-check("jobTemplates: availableToYear ∈ [1985, 2005] (symmetric)", () => {
+check(`jobTemplates: availableToYear ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}] (symmetric)`, () => {
   const bad: string[] = [];
   for (const j of JOBS) {
     if (
       !Number.isInteger(j.availableToYear) ||
-      j.availableToYear < 1985 ||
-      j.availableToYear > 2005
+      j.availableToYear < SIM_WINDOW_MIN ||
+      j.availableToYear > SIM_WINDOW_MAX
     ) {
       bad.push(`${j.id}.to=${j.availableToYear}`);
     }

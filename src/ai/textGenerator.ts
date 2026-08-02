@@ -16,6 +16,7 @@
  *   - `judge_comment`    — A judge's comment on a demo production
  *   - `news_article`     — A short disk-magazine style news article
  *   - `npc_dialogue`     — An NPC dialogue line given their personality
+ *   - `partygoer_dialogue` — A living-partygoer line (full profile + event + relationship context)
  *   - `interview_answer` — An interview answer about a production
  *   - `scene_event`      — A living-world scene event description
  *
@@ -37,6 +38,7 @@ export type TextGenType =
   | "judge_comment"
   | "news_article"
   | "npc_dialogue"
+  | "partygoer_dialogue"
   | "interview_answer"
   | "scene_event";
 
@@ -75,12 +77,22 @@ function buildPrompt(request: TextGenRequest): string {
   switch (request.type) {
     case "bbs_reply": {
       const { board, topic, senderHandle, senderSpecialty, era, previousMessages, playerHandle } = request.context;
+      // Era-appropriate jargon per the BBS era model (early/mid/late/modern —
+      // see getEra in sim/data/bbsMessages.ts). Keeps AI replies period-accurate
+      // for a 2024 thread (compute shaders, raymarching) vs a 1987 one (SID, raster).
+      const ERA_JARGON: Record<string, string> = {
+        early: "SID chips, raster interrupts, sprites, 6502 cycle counting",
+        mid: "copper lists, blitter abuse, 68000, MOD trackers, bitplanes",
+        late: "3Dfx, OpenGL, MMX/SSE, Voodoo cards, GUS trackers",
+        modern: "compute shaders, raymarching, Vulkan/WebGPU, GPU particles, AI-assisted tooling",
+      };
+      const jargon = ERA_JARGON[era ?? ""] ?? "copper, raster, tracker, blitter, SID";
       return [
         `You are ${senderHandle}, a ${senderSpecialty || "demoscene"} enthusiast in the ${era || "1980s"} demoscene on the BBS board "${board}".`,
         `The thread topic is: "${topic}"`,
         previousMessages ? `Previous messages:\n${previousMessages}` : "",
         playerHandle ? `${playerHandle} has just joined the discussion.` : "",
-        `Write a short BBS-style reply (2-4 sentences) in the voice of a ${era || "retro"} demoscener. Use period-appropriate jargon (copper, raster, tracker, blitter, SID, etc.). Be opinionated but authentic. Do NOT include any hashtags, emoji, or modern slang.`,
+        `Write a short BBS-style reply (2-4 sentences) in the voice of a ${era || "retro"} demoscener. Use period-appropriate jargon from this era's vocabulary: ${jargon}. Be opinionated but authentic. Do NOT include any hashtags, emoji, or modern slang.`,
       ].filter(Boolean).join("\n");
     }
 
@@ -117,6 +129,26 @@ function buildPrompt(request: TextGenRequest): string {
         targetName ? `Speaking to: ${targetName}` : "",
         playerReputation ? `The person you're addressing has a reputation of ${playerReputation}/100 in the scene.` : "",
         `Write 2-3 sentences of dialogue in the voice of your character. Use technical demoscene language appropriate to your specialty. Be concise and authentic to the demoscene subculture.`,
+      ].filter(Boolean).join("\n");
+    }
+
+    case "partygoer_dialogue": {
+      const {
+        partygoerHandle, partygoerRole, partygoerPersonality, partygoerProject,
+        relationship, playerHandle, event, location, phase, timeOfDay,
+        playerReputation, conversationHistory, partyName,
+      } = request.context;
+      return [
+        `You are ${partygoerHandle || "a scener"}, a ${partygoerRole || "partygoer"} attending the demoscene party "${partyName || "Assembly"}".`,
+        `Your personality: ${partygoerPersonality || "friendly"}.`,
+        `You are currently working on: ${partygoerProject || "a demo"}.`,
+        `Where you are right now: ${location || "the compo hall"} (${timeOfDay || "evening"}).`,
+        `The party phase: ${phase || "between compos"}.`,
+        event ? `A notable event just happened: ${event}` : "",
+        `The person speaking to you is ${playerHandle || "a scener"} with a scene reputation of ${playerReputation || "0"}/1000.`,
+        relationship ? `Your relationship with them: ${relationship}` : "",
+        conversationHistory ? `Your previous conversation with them:\n${conversationHistory}` : "",
+        `Respond in 1-4 sentences, in-character, using authentic demoscene vocabulary for your role (coder: shaders/asm/SDFs; musician: trackers/MODs; graphician: pixel art/palettes). Do NOT mention you are an AI. Keep it concise and natural for a party atmosphere.`,
       ].filter(Boolean).join("\n");
     }
 

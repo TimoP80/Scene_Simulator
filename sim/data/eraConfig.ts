@@ -27,6 +27,16 @@ export const ERA_BOUNDARIES: EraBoundary[] = [
 ];
 
 /**
+ * Canonical simulation window — derived from `ERA_BOUNDARIES` so the
+ * world timeline can never drift from the era table. Import these in
+ * smokes that pin content year ranges (partyCalendar, platforms,
+ * jobTemplates, rivalReleases, softwareCatalog) instead of hardcoding
+ * window bounds by hand — extending an era updates every pin in one place.
+ */
+export const SIM_WINDOW_MIN = Math.min(...ERA_BOUNDARIES.map((b) => b.fromYear));
+export const SIM_WINDOW_MAX = Math.max(...ERA_BOUNDARIES.map((b) => b.toYear));
+
+/**
  * Map a calendar year to its corresponding EraId.
  */
 export function eraForYear(year: number): EraId {

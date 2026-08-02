@@ -7,6 +7,272 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-08-02
+
+### Added
+- **Party Attendance Mode** — a brand-new game mode that simulates spending
+  an entire weekend (Friday 16:00 → Sunday 21:00) at a living demoparty.
+  Explore 14 venues (entrance, main hall, seating, compo hall, stage,
+  cafeteria, sleeping hall, showers, retro exhibition, merch shop, outdoor
+  area, quiet workspace, organizer desk, info point), each with its own
+  ambiance and ambient chatter. The weekend runs on a 16-block schedule
+  (registration, opening ceremony, concerts, seminars, workshops, compos,
+  prize ceremony, farewell) that fires live as time advances. Manage seven
+  player needs (sleep, hunger, thirst, hygiene, energy, motivation, stress)
+  that decay hourly and throttle productivity. Build a production in a
+  workspace (code → optimize → test → package), enter any of 10 competition
+  categories (PC Demo, 64k, 4k, Shader Showdown, Graphics, Music, Executable
+  Music, Fast Compo, Game Dev, Wild) before hard deadlines — late entries
+  are rejected — and watch each compo resolve a placement. Survive 13
+  deterministic random events (coffee spills, computer crashes, network
+  outages, famous sceners, fire alarms, pizza deliveries). When the party
+  ends, read a personalized trip report: productions completed, competitions
+  entered, awards won, friendships, reputation gained, hours coded and slept,
+  coffees consumed. Pure engine in `sim/domain/partyAttendance.ts` (seeded
+  PRNG, no React/LLM), content in `sim/data/partyAttendance.ts`, driven by
+  the new `usePartyAttendanceMode` hook + `PartyAttendancePanel` overlay,
+  launched from the Party tab's "ATTEND A WEEKEND" button. New
+  `partyAttendance.smoke.ts` (18 checks) pins bootstrap, clock, schedule,
+  deadlines, compo resolution, needs decay, and summary coherence.
+- **Partygoer Dialogue System ("Walk the Floor")** — the living party floor.
+  Hundreds of procedurally generated sceners populate the active party, each
+  with a personality, role (coder/musician/graphician/organizer/visitor/
+  newcomer), country, age, group affiliation, and a current project. The
+  pure DialogueEngine (`sim/domain/partygoers.ts`) turns a dialogue context
+  (role × personality × party phase × player reputation × friendship) into
+  context-aware lines from curated pools (`sim/data/partygoers.ts`):
+  reputation-based greetings, event reactions, location ambient, scene
+  knowledge, and pre/post-compo chatter. A RelationshipManager tracks
+  friendship / respect / rivalry with the player across repeated
+  conversations, so the same scener remembers you. Surfaced as the "Walk the
+  Floor" overlay (`PartygoerPanel`) driven by `usePartygoerSimulation`,
+  opened from the Party tab. New `partygoers.smoke.ts` (25 checks) pins the
+  deterministic generators, dialogue lookup, and relationship deltas.
+- **Rival sim now writes the rivalry heatmap** — `simulateRivalGroups`
+  finally populates `RivalGroupState.rivalries` instead of leaving it
+  `{}` forever. Sign convention matches GroupDossierPanel: **intensity
+  > 0 = hostile, < 0 = friendly**, range −100…+100. Five writers:
+  bootstrap historical seeds (future_crew↔razor_1911 60,
+  fairlight↔razor_1911 55, future_crew↔fairlight 40, … — symmetric,
+  guarded against dangling keys), same-month release races (winner
+  gains +10 disdain, loser +20 resentment), member-poaching shocks
+  (deterministic poacher pick from other active groups, +25 both
+  ways), splits (parent resents the breakaway +40 in the sim AND the
+  reducer's `RivalGroupFormed` case seeds the new group's reciprocal
+  +40 while preserving the parent's pre-existing rivalries), and rare
+  per-pair collaboration rolls (+0.6%/pair/month → −15 friendly,
+  logged to the activity feed). This makes the spyline scandal gate's
+  `heatmapHostile` branch and the GroupDossierPanel rivalry heatmap
+  light up from real simulated relationships instead of dead code.
+  New `rivalryHeatmap.smoke.ts` (16 checks) pins the sign convention,
+  all four in-sim writers, the reducer split seeding, 40-year bounds,
+  and pure-function determinism — its shock/collab rolls are PREDICTED
+  via replicated hash helpers, so no assertion ever waits on chance.
+- **WorldState migration completion** — 12+ redundant `useState` mirrors removed
+  from `src/App.tsx` (currentYear, currentMonth, playerMoney, playerReputation,
+  researchPoints, playerHandle, playerGroupName, activePlatform, ownedRigs,
+  unlockedTechs, hiredCrewIds, myReleases, newsLog). Game state now reads
+  exclusively from the event-sourced WorldState via `useSimulationSelector`
+  (`wsYear`, `wsMonth`, `wsMoney`, `wsReputation`, `wsPlayerHandle`,
+  `wsPlayerGroupName`, `wsActivePlatform`, `wsOwnedRigs`, `wsUnlockedTechs`,
+  `wsHiredCrewIds`, `wsMyReleases`, `wsNewsLog`). New Game and scenario loads
+  reset state through chained `dispatch()` calls per item, so the append-only
+  event log stays the single source of truth.
+- **`useKeyboardShortcuts` hook (`src/hooks/useKeyboardShortcuts.ts`)** —
+  single-listener global shortcut system driven by a spec → handler map.
+  Spec syntax: bare keys (`l`), chords (`mod+shift+d`), named keys
+  (`escape`, `enter`, ` `); `mod`/`ctrl`/`meta`/`cmd` alias to Ctrl-OR-Meta.
+  Chords are exact and matched before bare keys; `ignoreWhenTyping` guard
+  (INPUT/TEXTAREA/SELECT/contentEditable) is on by default with per-entry
+  override; `enabled` gate per call. Pure `parseShortcut` / `matchesShortcut`
+  / `normalizeKey` helpers are exported and unit-tested by a new 30-check
+  smoke test (`sim/__tests__/keyboardShortcuts.smoke.ts`). Replaces the two
+  hand-rolled `useEffect` listeners in App.tsx.
+- **New keyboard shortcuts `M` and `S`** — M opens the Music library,
+  S opens Settings, joining the existing L (logo generator) and
+  Ctrl/Cmd+Shift+D (dev mode). All gameplay keys back off while the
+  fullscreen demo overlay is open (it owns M = tracker mute and S =
+  scanlines). Adding a shortcut is now one line in the shortcut map.
+- **`ScenarioPreset` type + shared constants** — typed data contract in
+  `packages/types/src/shared.ts` (year, money, reputation, researchPoints,
+  rigs, techs, crewHires, seedReleases, crtEffects, crtDemoName,
+  npcGroupAssignments, article) with `SCENARIO_PRESET_1985 / _1991 / _1998`
+  constants exported from `sim/engine/reducer.ts`. `loadScenario` in App.tsx
+  shrinks from a ~100-line 3-way if/else to a 10-line call to the shared
+  `applyScenarioPreset()` helper, which rewrites seed-release `groupName` to
+  the player's current crew at apply time.
+- **`NewsLogReset` event** — new event type + reducer case so scenario and
+  New Game resets can clear `press.newsLog` before seeding the era article,
+  closing the append-only gap for all reset sites.
+- **Shared seed article constants** — `SEED_SCENE_ARTICLE` and
+  `SCENARIO_ARTICLE_1985 / _1991 / _1998` exported from `sim/engine/reducer.ts`
+  and referenced by `emptyWorldState()`, `handleNewGame`, and `loadScenario`
+  — eliminating three inline article literals and the seed-article duplication.
+- **ScenarioEditor devtools tab (`src/devtools/editors/ScenarioEditor.tsx`)**
+  — runtime balancing/playtest tool: pick a preset, edit money, reputation,
+  research points, year/month (with green/red delta indicators vs the live
+  sim), rig checkbox grid, comma-separated tech/crew IDs, and a Seed Releases
+  JSON textarea that injects `DemoCompiled` events into production history
+  mid-game. APPLY dispatches the correct event chain (ScenarioLoaded,
+  MonthAdvanced, MoneyChanged/ReputationChanged/ResearchPointsChanged,
+  add-missing-only RigPurchased/TechResearched/CrewHired, NewsLogReset +
+  NewsArticlePublished). Wired into DevMenu as the SCENARIO EDITOR tab.
+- **BBS thread library expansion** — seed BBS library grows from 48 to 383
+  threads covering music gear debates, demo style analysis, scene economy,
+  pixel art tutorials, competition recaps, tracker debates (FastTracker vs
+  Impulse Tracker, ProTracker sample packs), hardware failures at parties,
+  cracktro ethics, sizecoding challenges, emulator accuracy, real-hardware
+  compatibility reports, and more. Generated deterministically from ~65 base
+  templates × year/NPC variations via `tmp/gen_bbs_200.py`.
+
+### Changed
+- **SPYLINE_TEMPLATES era-gated + relationship-gated** — the rumor-spyline
+  pool is the last BBS content source that wasn't era-indexed:
+  `SpylineTemplate` gained an `era` field, the 4 existing templates were
+  tagged (`early` ×3 dialup/floppy/radio, `mid` BBS logs), a second `mid`
+  template added (stolen courier disk), and 6 new drama templates for
+  `late` (IRC log dumps, forum raids) and `modern` (Discord raids, stream
+  screen captures, AI voice-clone storms, messenger-backup leaks). The
+  App.tsx rumor-propagation picker filters the pool with `getEra(wsYear)`
+  (falling back to the whole pool if the era bucket is empty), so a
+  1985-era dialup leak headline is never served alongside a 2023-era
+  thread. On top of the era gate, the scandal article now only fires when
+  the rumor's two endpoints have a REAL relationship in WorldState — a
+  hostile rivalry heatmap entry (`rivals.groups[id].rivalries` > 0, the
+  GroupDossierPanel sign convention; the sim now writes it via release
+  races, poaching, splits, and collaborations), an existing `rivalry`
+  edge in the social graph, or fresh split/disband/
+  member-drama in `rivals.activityLog` within the last 6 months, and the
+  rumor must be negative/sabotaging — a positive "glorifying" rumor
+  between rivals is praise, not a leaked-deals story, so it never yields a
+  scandal headline. Rumors between unrelated nodes still mutate graph
+  weights + story log, but no fabricated leak headline is published about
+  a non-rivalry. Smoke now asserts the `era` field ∈ the closed union AND
+  full-population coverage (every era bucket has ≥1 template).
+- **`package.json`** — bumped `0.7.3` → `0.7.4`; new smoke scripts
+  `test:keyboard-shortcuts`, `test:save-load`, `test:rivalry-heatmap`,
+  `test:party-attendance`, and `test:partygoers` wired into `test:all`
+  (32 smoke suites now).
+- **`src/App.tsx`** — keyboard handling migrated to `useKeyboardShortcuts`;
+  scenario loading refactored onto `applyScenarioPreset()`; New Game resets
+  rewritten as chained dispatches against WorldState.
+- **`sim/engine/reducer.ts`** — +~200 lines of scenario preset and seed
+  article constants; `NewsLogReset` reducer case added.
+- **`sim/events/eventTypes.ts`** — `NewsLogResetEvent` added to the
+  `SimEvent` union.
+- **`src/devtools/DevMenu.tsx`** — SCENARIO EDITOR tab added with `Sliders`
+  icon.
+
+### Fixed
+- **Platforms smoke window stale since v0.5.1** — the v0.5.1 "year
+  range expansion" added `PC_CORE_DUO` (2006) to
+  `sim/data/platforms.ts` but `platforms.smoke.ts` still asserted
+  `year ∈ [1982, 2005]`. Window updated to `[1982, 2006]`.
+- **BBS thread expansion duplicate IDs + stale infoType union** — the
+  383-thread expansion in `sim/data/bbsMessages.ts` reused 6 base
+  template IDs for its variant-pass copies (`thread_hardware_101/102`,
+  `thread_fasttracker_vs_it_103/104`, `thread_demo_vs_game_112`,
+  `thread_flame_war_125`); renamed the copies to collision-free IDs
+  (`_121/_122/_106/_107/_121/_131`). Also `technical_discovery` was
+  missing from `bbsMessages.smoke.ts`'s `VALID_INFO_TYPES` set even
+  though it is a member of the `BBSInfoType` closed union — to make
+  that drift class structurally impossible, `BBSInfoType` is now
+  DERIVED from a canonical `BBS_INFO_TYPES` const array in
+  `packages/types/src/bbs.ts` and the smoke builds its set from that
+  array, so the union and the runtime set can never diverge.
+- **Party-calendar smoke window stale since v0.5.1** — the v0.5.1 "year
+  range expansion" extended `sim/data/partyCalendar.ts` to the HD era
+  (1985–2026, e.g. `revision_2006` … `flashback_2026`) but never
+  updated `sim/__tests__/partyCalendar.smoke.ts`'s sim-window assertion,
+  which still demanded `year ∈ [1985, 2005]` — 13 modern-era parties
+  failed the check. Window updated to `[1985, 2026]` to match the era
+  config (`toYear: 2026`).
+- **Remaining `[1985, 2005]` sim-window pins swept to 2026** — the same
+  v0.5.1 expansion left three more smoke tests capping content at 2005
+  even though the era config's sim window now runs to 2026:
+  `jobTemplates.smoke.ts` (`availableFromYear`/`availableToYear`),
+  `rivalReleases.smoke.ts` (`year` + `disbandedAfter`), and
+  `softwareCatalog.smoke.ts` (`releaseYear`). All three were latent —
+  they passed only because their seed data happened to sit under the
+  2005 cap, and any post-2005 content addition would have failed.
+  Windows updated to `[1985, 2026]`, consistent with the era config's
+  `toYear: 2026`.
+- **Shared sim-window constants (`SIM_WINDOW_MIN` / `SIM_WINDOW_MAX`)**
+  — exported from `sim/data/eraConfig.ts`, derived from `ERA_BOUNDARIES`
+  (1982–2026) so the world timeline can never drift from the era table.
+  The five year-window smokes (partyCalendar, platforms, jobTemplates,
+  rivalReleases, softwareCatalog) now import these instead of hardcoding
+  bounds — extending an era updates every pin in one place.
+- **BBS seed-thread date pin** — `bbsMessages.smoke.ts` now asserts every
+  seed thread's `year` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX] and `month` ∈
+  [1, 12] (382 threads, all within 1985–2023), so future thread
+  generators can't emit out-of-world dates.
+- **BBS era-pool audit vs the sim window** — audited the era-indexed
+  pools (`CATEGORY_MESSAGES`, `ERA_TOPICS`, `VOICE_PROFILES`,
+  `SPYLINE_TEMPLATES`): `getEra()` maps every year in the window into
+  the closed `early`/`mid`/`late` union with no gaps, all explicit year
+  mentions in pool content are in-window, and `SPYLINE_TEMPLATES` is
+  year-agnostic. Fixed the stale module header doc that still claimed
+  `late (1996-2005)` — the v0.5.1 expansion folded 2006–2026
+  (ERA_HD_SHADER) into the `late` bucket, which the header now states.
+  `bbsMessages.smoke.ts` gained a `getEra()` mapping pin (bucket
+  boundaries at 1989/1995/1996 + an exhaustive per-year sweep) so the
+  BBS era model can't drift from the sim window.
+- **BBS era model split: 3 → 4 buckets (`modern` era added)** — the
+  `late` bucket previously folded the whole 1996–2026 span (its header
+  even documented 1996–2005, the pre-v0.5.1 window). `getEra()` now
+  returns `early` (<1990), `mid` (1990–1995), `late` (1996–2005), and
+  the new `modern` (2006–2026, the ERA_HD_SHADER era). All four
+  era-indexed pools gained hand-written `modern` content — HD/streaming/
+  AI-era topics for `CATEGORY_MESSAGES` (6 categories), `ERA_TOPICS`
+  (7 boards), `VOICE_PROFILES` (8 specialties), and `BBS_PERSONALITIES`
+  (9 personalities) — so a 2020 thread gets GPU/raymarching/AI talk
+  instead of Voodoo 3 nostalgia. `BbsTab.tsx`'s inline era mapping
+  (a hand-rolled copy of `getEra`) replaced with the real function so
+  the two can never diverge. Smoke `VALID_ERAS` + `getEra` mapping pin
+  updated (boundary assertions at 1989/1995/2005/2006 + exhaustive
+  45-year sweep over the 4-value union). The `bbs_reply` LLM prompt in
+  `src/ai/textGenerator.ts` now injects era-specific jargon
+  (SID/raster for early → compute shaders/raymarching for modern) so
+  AI-generated BBS replies stay period-accurate for 2006+ threads.
+- **Scoring smoke fixtures stale after the v0.7.3 mood stage** — the
+  v0.7.3 release added the production-mood scoring stage and started
+  passing `mood: "Neon Retro"` through `runPipeline` in
+  `sim/__tests__/scoring.smoke.ts`, but the pinned `EXPECTED_*`
+  breakdowns were never regenerated — leaving 23 checks red since
+  v0.7.3. Regenerated every pinned value against the current engine
+  (which is unchanged) via `tmp/discover-scoring-fixtures.ts`;
+  Neon Retro (graphics ×1.15, music ×1.1, originality ×0.9,
+  audienceAppeal ×1.15) now flows through all scenarios, e.g.
+  S1 overall 44→46, S6 originality 100→90.
+- **Save/load key-mismatch regression (Continue reset progress)** — the
+  v0.7.4 WorldState migration renamed App.tsx state mirrors to `ws*`
+  (`wsMoney`, `wsOwnedRigs`, ...) and the autosave writer
+  (`triggerAutoSave`) was updated to emit those names, but the two
+  readers (`loadSavedGame` and the mount-time hydrate effect) were left
+  reading the pre-migration legacy keys (`playerMoney`, `ownedRigs`,
+  `playerHandle`, ...). Because `data.playerMoney` never matched the
+  stored `wsMoney` key, every `?? fallback` fired and a save→load cycle
+  reset money / reputation / rigs / techs / crew / releases to defaults.
+  Fixed with a shared canonical contract in `src/utils/saveGame.ts`:
+  `AutosaveData` (single shape + `SAVE_VERSION = 2`), `migrateSave()`
+  (normalizes both legacy pre-migration keys and buggy-window `ws*`
+  keys into the canonical shape, stamps the version), and both readers
+  now go through it. The saved `activePlatform` is now restored too
+  (re-dispatched as the final `RigPurchased` so it becomes the active
+  rig). New `sim/__tests__/saveLoadRoundtrip.smoke.ts` (24 checks)
+  pins the contract — canonical round-trip, legacy migration, no-version
+  `ws*` saves, corrupt input → null, canonical-wins precedence, and
+  missing-keys-stay-undefined. Wired in as `test:save-load`.
+- **Space-bar keyboard shortcut spec** — `parseShortcut(" ")` previously
+  trimmed into a never-matching `unknown` spec; the empty-part guard now
+  preserves a lone space as the space-bar key (with the truly-empty-string
+  case still short-circuiting).
+- **Object.entries narrowing in the shortcut hook** — the handler extraction
+  loop inferred `[string, unknown][]` under React 19's nullable ref typing;
+  cast to the `ShortcutHandler | ShortcutDef` union so the function check
+  narrows correctly.
+
 ## [0.7.3] - 2026-07-22
 
 ### Added

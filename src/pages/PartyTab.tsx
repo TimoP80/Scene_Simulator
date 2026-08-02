@@ -1,5 +1,5 @@
 import React from 'react';
-import { Trophy, Gamepad2, ChevronLeft, ChevronRight, ArrowUp, MessageSquare, Award } from 'lucide-react';
+import { Trophy, Gamepad2, ChevronLeft, ChevronRight, ArrowUp, MessageSquare, Award, Users, CalendarDays } from 'lucide-react';
 import type { PartyEvent, Production, DemoSummary, RivalGroupAI } from '@packages/types';
 import { PARTY_CALENDAR } from '@sim/data/partyCalendar';
 
@@ -32,10 +32,12 @@ interface PartyTabProps {
   currentYear: number;
   lastDemoSummary: DemoSummary | null;
   startCompetition: (config: any) => void;
+  onOpenPartygoers: () => void;
+  onOpenAttendance: () => void;
 }
 
 export default function PartyTab(props: PartyTabProps) {
-  const { isPartyRunning, activeParty, partyStep, partyRivals, partyVoteTally, partySelectedProdId, partyContestLogger, currentMonth, playerMoney, activePlatform, playerGroupName, playerReputation, myReleases, getMonthName, setActiveParty, setIsPartyRunning, setPartyStep, setPartyVoteTally, setPartySelectedProdId, setPlayerMoney, setPlayerReputation, openPartyPanel, startPartyVotingProcess, currentYear, lastDemoSummary, startCompetition } = props;
+  const { isPartyRunning, activeParty, partyStep, partyRivals, partyVoteTally, partySelectedProdId, partyContestLogger, currentMonth, playerMoney, activePlatform, playerGroupName, playerReputation, myReleases, getMonthName, setActiveParty, setIsPartyRunning, setPartyStep, setPartyVoteTally, setPartySelectedProdId, setPlayerMoney, setPlayerReputation, openPartyPanel, startPartyVotingProcess, currentYear, lastDemoSummary, startCompetition, onOpenPartygoers, onOpenAttendance } = props;
   return (
               <div className="bg-[#18181b] p-4 rounded border border-[#27272a] space-y-6 shadow-lg font-mono">
                 <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3 border-b border-[#27272a] pb-2 mb-3">
@@ -43,7 +45,25 @@ export default function PartyTab(props: PartyTabProps) {
                     <Trophy className="text-[#facc15] w-4 h-4" />
                     <h3 className="font-bold text-[#d4d4d8] text-xs uppercase">Underground Competitive Party Contests</h3>
                   </div>
-                  <p className="text-[10px] text-[#a1a1aa]">Parties occur during specific months of the year. Build demos matched to target processors to compete.</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      id="btn-open-partygoers"
+                      onClick={onOpenPartygoers}
+                      className="bg-[#818cf8]/15 hover:bg-[#818cf8]/25 border border-[#818cf8]/30 text-[#a5b4fc] text-[10px] uppercase font-extrabold tracking-wider px-3 py-1.5 rounded transition cursor-pointer active:scale-95 flex items-center gap-1.5"
+                    >
+                      <Users className="w-3.5 h-3.5" />
+                      Walk the Floor
+                    </button>
+                    <button
+                      id="btn-open-attendance"
+                      onClick={onOpenAttendance}
+                      className="bg-[#4ade80]/15 hover:bg-[#4ade80]/25 border border-[#4ade80]/30 text-[#86efac] text-[10px] uppercase font-extrabold tracking-wider px-3 py-1.5 rounded transition cursor-pointer active:scale-95 flex items-center gap-1.5"
+                    >
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      Attend a Weekend
+                    </button>
+                    <p className="text-[10px] text-[#a1a1aa]">Parties occur during specific months of the year. Build demos matched to target processors to compete.</p>
+                  </div>
                 </div>
 
                 {!isPartyRunning ? (

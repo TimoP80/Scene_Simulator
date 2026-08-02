@@ -47,7 +47,9 @@ export type ModalId =
   | "shader"
   | "compilingOverlay"
   | "monthlySummary"
-  | "demoStudio";
+  | "demoStudio"
+  | "partygoer"
+  | "attendance";
 
 export function useModal() {
   const [activeModal, setActiveModal] = useState<ModalId | null>(null);
@@ -82,6 +84,14 @@ export function useModal() {
     () => setActiveModal("demoStudio"),
     [],
   );
+  const openPartygoer = useCallback(
+    () => setActiveModal("partygoer"),
+    [],
+  );
+  const openAttendance = useCallback(
+    () => setActiveModal("attendance"),
+    [],
+  );
 
   return {
     /** Current modal name, or null when closed. */
@@ -108,5 +118,9 @@ export function useModal() {
     openCompilingOverlay,
     /** Convenience: open("demoStudio") */
     openDemoStudio,
+    /** Convenience: open("partygoer") — the living party floor overlay. */
+    openPartygoer,
+    /** Convenience: open("attendance") — the full-weekend party life overlay. */
+    openAttendance,
   } as const;
 }

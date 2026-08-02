@@ -42,6 +42,40 @@ export type { SoftwareOffering } from "@packages/types";
 export { SPONSORSHIP_CATALOG } from "./sponsorshipCatalog";
 export type { SponsorshipOffering } from "@packages/types";
 
+// ---- Party Attendance Mode ----
+export {
+  ATTENDANCE_VENUE_DEFS,
+  ATTENDANCE_VENUES_LIST,
+  PARTY_WEEKEND_SCHEDULE,
+  COMPETITION_CATEGORIES,
+  RANDOM_PARTY_EVENTS,
+  ATTENDANCE_ACTIVITIES,
+} from "./partyAttendance";
+
+// ---- Partygoer dialogue system ----
+export {
+  HANDLE_PREFIXES,
+  HANDLE_SUFFIXES,
+  COUNTRY_POOL,
+  REAL_FIRST_NAMES,
+  REAL_LAST_NAMES,
+  PROJECTS_BY_ROLE,
+  GENERIC_GROUP_NAMES,
+  PARTYGOER_DIALOGUE,
+  PRE_COMPO_DIALOGUE,
+  COMPO_RUNNING_DIALOGUE,
+  POST_RESULTS_DIALOGUE,
+  EVENT_REACTIONS,
+  LOCATION_AMBIENT,
+  AMBIENT_CHATTER,
+  REPUTATION_GREETINGS,
+  SCENE_KNOWLEDGE,
+  OPENER_LINES,
+} from "./partygoers";
+// NOTE: PLATFORM_LABELS intentionally NOT exported from the barrel — no
+// consumer uses it yet (the panel renders favoritePlatform raw). Keep it in
+// the data file for future UI work; export on first real use.
+
 // ---- BBS message variety ----
 export {
   getEffectIdsAvailableAtYear,

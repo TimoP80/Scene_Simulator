@@ -201,7 +201,13 @@ async function waitFor(
   predicate: () => boolean,
   options: { timeoutMs?: number; intervalMs?: number; label?: string } = {},
 ): Promise<void> {
-  const { timeoutMs = 3000, intervalMs = 10, label = "predicate" } = options;
+  // Timeout budget: App's splash boot sequence (14 staggered phases in
+  // src/App.tsx, 120–500ms each ≈ 3.3s) must finish before MainMenu
+  // renders #btn-toggle-dev-mode. A 3s default made this flaky under
+  // `npm run test:all` (sequential suites push event-loop latency over
+  // the edge). 10s gives the boot a comfortable margin while keeping
+  // failures loud (the button either appears or it doesn't).
+  const { timeoutMs = 10000, intervalMs = 10, label = "predicate" } = options;
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
     if (predicate()) return;

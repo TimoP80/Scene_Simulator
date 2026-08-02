@@ -36,3 +36,9 @@ export * from "./virus";
 
 // ---- Living rival group simulation (v0.6.1) ----
 export * from "./rivalGroups";
+
+// ---- Living demoparty / partygoer dialogue system ----
+export * from "./partygoers";
+
+// ---- Party Attendance Mode (full-weekend party life sim) ----
+export * from "./partyAttendance";

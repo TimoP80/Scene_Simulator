@@ -9,7 +9,9 @@
  *     (every enum value has a config entry) and have no extras
  *   - every entry's inner `id` matches its record key
  *   - `name`, `audioTech`, `graphicsTech`, `description` are non-empty
- *   - `year` ∈ [1982, 2005]
+ *   - `year` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX] (derived from
+ *     `ERA_BOUNDARIES` in `sim/data/eraConfig.ts`; the catalogue spans
+ *     the C64 → modern PC era)
  *   - `cost`, `cpuLimit`, `ramLimitKb`, `audioChannels` are positive
  *     integers
  *   - `graphicsMaxColors` is a power-of-2 (16, 256, 64K, 16.7M all valid;
@@ -25,6 +27,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { HISTORICAL_PLATFORMS } from "@sim/data/platforms";
 import { PlatformId } from "@packages/types";
 
@@ -94,10 +97,10 @@ check("platforms: every record key matches the inner `id` (key/id guard)", () =>
 // SCENARIO 1 — Numeric ranges
 console.log("\n=== SCENARIO 1 — Numeric ranges ===");
 
-check("platforms: every year ∈ [1982, 2005]", () => {
+check(`platforms: every year ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}]`, () => {
   const bad: string[] = [];
   for (const [key, p] of Object.entries(HISTORICAL_PLATFORMS)) {
-    if (!Number.isInteger(p.year) || p.year < 1982 || p.year > 2005) bad.push(`${key}: ${p.year}`);
+    if (!Number.isInteger(p.year) || p.year < SIM_WINDOW_MIN || p.year > SIM_WINDOW_MAX) bad.push(`${key}: ${p.year}`);
   }
   assert.equal(bad.length, 0, bad.join("; "));
 });

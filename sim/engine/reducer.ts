@@ -29,6 +29,7 @@ import {
   type PartyEvent,
   type Production,
   type SceneMagazine,
+  type ScenarioPreset,
   type SocialEdge,
   type SocialNode,
   type ReputationVector,
@@ -40,6 +41,7 @@ import {
   reputationVectorToLegacy,
 } from "@packages/types";
 import type { SimEvent } from "../events/eventTypes";
+import { SPLIT_RIVALRY_SHIFT } from "../domain/rivalGroups";
 
 // ---------------------------------------------------------------------------
 // World state shape
@@ -163,6 +165,137 @@ export interface WorldState {
 // ---------------------------------------------------------------------------
 // Initial seed
 // ---------------------------------------------------------------------------
+
+/** Canonical seed article shown on the splash screen and every fresh non-scenario game start. */
+export const SEED_SCENE_ARTICLE: SceneMagazine = {
+  id: "seed_editorial_001",
+  title: "SCENE DESK #01",
+  year: 1985,
+  month: 1,
+  headline: "WELCOME TO THE DEMOSCENE — PUSH THE LIMITS OF YOUR MACHINE",
+  body: "The bedroom coding revolution has begun. Armed with a second-hand Commodore 64 and a cassette tape drive, you're about to enter a world where teenagers write tighter code than commercial software houses and release it for free at legendary parties. Build your group, master raster effects, compose tracker music, and fight for glory at Assembly, The Party, and Breakpoint. Every byte counts. Every frame matters. Welcome to the scene.",
+  type: "editorial",
+};
+
+/** 1985 8-bit scenario seed article — DISK MAG REVIEW. */
+export const SCENARIO_ARTICLE_1985: SceneMagazine = {
+  id: "log_pres_1985",
+  title: "DISK MAG REVIEW",
+  year: 1985,
+  month: 1,
+  headline: "BEDROOM 8-BIT AGE HAS BEGUN",
+  body: "You started in your parent's guest bedroom with a second-hand Commodore 64 and a cassette tape drive. Make us proud by assembly-hacking code registers!",
+  type: "editorial",
+};
+
+/** 1991 16-bit scenario seed article — RAW METAL MAGAZINE. */
+export const SCENARIO_ARTICLE_1991: SceneMagazine = {
+  id: "log_pres_1991",
+  title: "RAW METAL MAGAZINE",
+  year: 1991,
+  month: 1,
+  headline: "A CHRONICLE OF AMIGA SUPREMACY",
+  body: "Our floppy disk boxes are packed with magnificent artwork. Amiga 500's custom Copper processor is the golden standard. Assemble awesome megademos!",
+  type: "editorial",
+};
+
+/** 1998 PC 3D scenario seed article — HUGI MAGAZINE REVIEW. */
+export const SCENARIO_ARTICLE_1998: SceneMagazine = {
+  id: "log_pres_1998",
+  title: "HUGI MAGAZINE REVIEW",
+  year: 1998,
+  month: 1,
+  headline: "3DFX ACCELERATORS ARE DESTROYING SOFTWARE RENDERING!",
+  body: "Some purists claim real demosceners write flat frame buffers under MS-DOS Assembly. Yet, modern PCI accelerator cards present glowing lights and cloth physics that are hard to ignore. Squeeze your graphics inside a 64KB Intro binary config!",
+  type: "editorial",
+};
+
+/**
+ * 1985 8-bit scenario — the dawn of the Commodore 64 scene.
+ * Player starts with a C64, raster_sync, and simple effects.
+ */
+export const SCENARIO_PRESET_1985: ScenarioPreset = {
+  id: "1985_8bit",
+  year: 1985,
+  money: 200,
+  reputation: 15,
+  researchPoints: 25,
+  rigs: [PlatformId.C64],
+  techs: ["raster_sync"],
+  crewHires: [],
+  crtEffects: ["raster_bars", "sine_scroller"],
+  crtDemoName: "SINUS WAVES",
+  npcGroupAssignments: {},
+  article: SCENARIO_ARTICLE_1985,
+};
+
+/**
+ * 1991 16-bit scenario — Amiga glory days.
+ * Player starts with A500 + C64, copper/blitter techs, and two hired crew members.
+ */
+export const SCENARIO_PRESET_1991: ScenarioPreset = {
+  id: "1991_16bit",
+  year: 1991,
+  money: 1400,
+  reputation: 350,
+  researchPoints: 65,
+  rigs: [PlatformId.AMIGA_500, PlatformId.C64],
+  techs: ["raster_sync", "custom_spr_tricky", "copper_lists", "blitter_abuse", "tracker_mod_composition"],
+  crewHires: ["audio_drifter", "hype_ops"],
+  seedReleases: {
+    release_pro_1: {
+      id: "release_pro_1",
+      name: "LIQUID CHIPS",
+      year: 1990,
+      month: 6,
+      type: ProductionType.Cracktro,
+      platform: PlatformId.C64,
+      groupName: "Tricycle Crews",
+      effects: ["raster_bars", "sine_scroller"],
+      codingEffort: 50,
+      artEffort: 30,
+      musicEffort: 20,
+      optimizationLevel: 3,
+      compressionLevel: 2,
+      sizeB: 8192,
+      scoreTechnical: 68,
+      scoreAesthetic: 55,
+      scoreAudio: 42,
+      scoreOriginality: 60,
+      totalScore: 56,
+      reputationGained: 45,
+      placement: 3,
+      partyName: "Assembly Summer",
+    },
+  },
+  crtEffects: ["animated_plasma", "vector_cube"],
+  crtDemoName: "AMIGA MAGIC",
+  npcGroupAssignments: { audio_drifter: "player", hype_ops: "player" },
+  article: SCENARIO_ARTICLE_1991,
+};
+
+/**
+ * 1998 PC 3D scenario — the dawn of 3D acceleration.
+ * Player starts with Pentium II + C64 + A500, voxel/OpenGL techs, and two legendary coders.
+ */
+export const SCENARIO_PRESET_1998: ScenarioPreset = {
+  id: "1998_pc3d",
+  year: 1998,
+  money: 3200,
+  reputation: 800,
+  researchPoints: 140,
+  rigs: [PlatformId.PC_PENTIUM_II, PlatformId.C64, PlatformId.AMIGA_500],
+  techs: [
+    "raster_sync", "copper_lists", "tracker_mod_composition",
+    "vga_mode13h_flat", "asm3d_pipeline", "gus_hardware_mixing",
+    "voxel_heightfield", "opengl_direct3d",
+  ],
+  crewHires: ["unreal_coder", "skaven"],
+  crtEffects: ["voxel_hills", "texture_mapper"],
+  crtDemoName: "VOXELLOID",
+  npcGroupAssignments: { unreal_coder: "player", skaven: "player" },
+  article: SCENARIO_ARTICLE_1998,
+};
 
 export function emptyWorldState(): WorldState {
   return {
@@ -466,6 +599,8 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
           ),
         },
       };
+    case "NewsLogReset":
+      return { ...state, press: { newsLog: [] } };
     case "NewsArticlePublished":
       return { ...state, press: { newsLog: [event.article, ...state.press.newsLog] } };
     case "BbsThreadMutated": {
@@ -856,7 +991,11 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
         hqLocation: event.hqLocation,
         motto: event.motto,
         memberIds: event.memberIds,
-        rivalries: {},
+        // Splits are hostile by default: the breakaway resents the parent
+        // (the parent's reciprocal entry is set below, same constant).
+        rivalries: event.parentGroupId
+          ? { [event.parentGroupId]: SPLIT_RIVALRY_SHIFT }
+          : {},
       };
 
       // If formed from a parent group split, remove transferred members from parent
@@ -866,6 +1005,9 @@ export function reduce(state: WorldState, event: SimEvent): WorldState {
           ...parent,
           memberIds: parent.memberIds.filter((id) => !event.memberIds.includes(id)),
           morale: Math.max(10, parent.morale - 20),
+          // Reciprocal heatmap entry — the split strains the relationship
+          // in both directions (same constant as the sim's split pass).
+          rivalries: { ...parent.rivalries, [event.groupId]: SPLIT_RIVALRY_SHIFT },
         };
         updatedGroups[event.parentGroupId] = parentUpdated;
       }

@@ -65,6 +65,7 @@ import {
   BBS_MUTATIONS,
   VOICE_PROFILES,
   getSeedThreads,
+  getEra,
   generateFollowedReply,
   generateVirusDebateThread,
   colorForHandle,
@@ -82,7 +83,7 @@ import {
 } from "@sim/domain";
 import DemoScreen from "./components/DemoScreen";
 import ShaderEditor from "./components/ShaderEditor";
-import type { CustomShader } from "@packages/types";
+import type { CustomShader, ScenarioPreset } from "@packages/types";
 import { WorkspaceTab, CrewTab, ResearchTab, PartyTab, NewsTab, ScenariosTab, BbsTab, HistoryTab } from "./pages";
 import { generateRandomSlideShowConfig, generateSlideMetadata } from "./components/SlideShowRenderer";
 import { generateAiSlideImages } from "./ai/imageGenerator";
@@ -104,6 +105,11 @@ import {
   getAutoSavePrefs,
   isAutoSaveEnabled,
 } from "./utils/autoSavePrefs";
+import {
+  SAVE_VERSION,
+  migrateSave,
+  type AutosaveData,
+} from "./utils/saveGame";
 import MusicPlayer from "./components/MusicPlayer";
 import PlaylistManager from "./components/PlaylistManager";
 import DemoSummaryModal from "./components/DemoSummary";
@@ -119,8 +125,22 @@ import type { SceneEvent } from "@packages/types";
 import SplashScreen, { type SplashMessage } from "./components/SplashScreen";
 import { useSimulationSelector } from "./hooks/useSimulationSelector";
 import { useModal } from "./hooks/useModal";
+import { usePartygoerSimulation } from "./hooks/usePartygoerSimulation";
+import PartygoerPanel from "./components/PartygoerPanel";
+import { usePartyAttendanceMode } from "./hooks/usePartyAttendanceMode";
+import PartyAttendancePanel from "./components/PartyAttendancePanel";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useSimulationLoop } from "./hooks/SimulationLoopContext";
 import { getCurrentTick } from "@sim/events/appendEvent";
+import {
+  SEED_SCENE_ARTICLE,
+  SCENARIO_ARTICLE_1985,
+  SCENARIO_ARTICLE_1991,
+  SCENARIO_ARTICLE_1998,
+  SCENARIO_PRESET_1985,
+  SCENARIO_PRESET_1991,
+  SCENARIO_PRESET_1998,
+} from "@sim/engine/reducer";
 // Lazy-loaded tab panels — loaded on first tab switch, not at boot
 import { useCompetitionSystem } from "./hooks/useCompetitionSystem";
 import type { CompetitionCeremony, HallOfFameEntry, PlayerStatistics, ProductionHistoryRecord } from "@packages/types";
@@ -417,6 +437,20 @@ const distortText = (text: string, rate: number): string => {
   return text;
 };
 
+/**
+ * Whether the fullscreen demo overlay portal is currently mounted. The
+ * overlay (DemoScreen's FullscreenDemoView, id="demo-fullscreen-overlay")
+ * owns F/Space/S/M/ESC via its own window keydown listener, so global
+ * gameplay shortcuts (L/M/S) must back off while it is open — pressing M
+ * there should toggle the tracker, not open the playlist modal.
+ */
+function isDemoFullscreenOpen(): boolean {
+  return (
+    typeof document !== "undefined" &&
+    document.getElementById("demo-fullscreen-overlay") !== null
+  );
+}
+
 /** Generate default scenes for multi-scene productions. */
 function generateDefaultScenes(count: number, effects: string[]): DemoScene[] {
   const transitions: SceneTransition[] = [
@@ -445,46 +479,46 @@ export default function App() {
   // Global hotkey: Ctrl/Cmd+Shift+D toggles dev mode anywhere in the
   // app (main menu, the workspace, the BBS terminal, etc.).
   // preventDefault + stopPropagation escapes the browser's built-in
-  // bookmark-bar shortcut (same chord in Chrome).
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const isToggle =
-        (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "D" || e.key === "d");
-      if (!isToggle) return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      // Skip when the player is typing into an input field.
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
+  // bookmark-bar shortcut (same chord in Chrome). The typing guard
+  // (INPUT/TEXTAREA) is handled by useKeyboardShortcuts.
+  useKeyboardShortcuts({
+    "mod+shift+d": (e) => {
       e.preventDefault();
       e.stopPropagation();
       setDevMode(!isDevMode);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [isDevMode, setDevMode]);
+    },
+  });
 
   // --------- CORE SIMULATION STATE ---------
-  const [currentYear, setCurrentYear] = useState<number>(1985);
-  const [currentMonth, setCurrentMonth] = useState<number>(1); // January (1) to December (12)
-  const [playerMoney, setPlayerMoney] = useState<number>(250);
-  const [playerReputation, setPlayerReputation] = useState<number>(20); // 0-1000 range
   // v0.6.0 — WorldState-backed selectors (pilot migration). These read
   // directly from the SimulationLoop snapshot via useSyncExternalStore.
   // As more state migrates off useState, these replace their useState
   // counterparts above.
   //
-  // KNOWN TRANSITIONAL STATE: The useState mirrors below (currentYear,
-  // playerMoney, playerReputation) are still updated independently and
-  // WILL diverge from wsYear/wsMoney/wsReputation because the useState
-  // values are only synced to WorldState in specific handlers (New Game,
-  // save load), not on every dispatch. This is intentional — the selectors
-  // are the TRUE source of truth, and the useState mirrors will be removed
-  // as each consumer is migrated.
+  // MIGRATED: wsYear/wsMonth useState removed in v0.7.3.
+  // The WorldState-backed selectors (wsYear/wsMonth/wsMoney/wsReputation)
+  // are now the single source of truth for calendar and financial state.
+  // Scenario loading and save/load dispatch events through the simulation loop.
   const wsYear = useSimulationSelector((s) => s.calendar.year);
   const wsMoney = useSimulationSelector((s) => s.player.money);
+  const wsMonth = useSimulationSelector((s) => s.calendar.month);
   const wsReputation = useSimulationSelector((s) => s.player.reputation);
-  const [researchPoints, setResearchPoints] = useState<number>(30);
-  const [playerHandle, setPlayerHandle] = useState<string>("AssemblyKid");
-  const [playerGroupName, setPlayerGroupName] = useState<string>("Tricycle Crews");
+  const wsResearchPoints = useSimulationSelector((s) => s.player.researchPoints);
+  const wsActivePlatform = useSimulationSelector((s) => s.player.activePlatform);
+  const wsOwnedRigs = useSimulationSelector((s) => s.player.ownedRigs);
+  const wsUnlockedTechs = useSimulationSelector((s) => s.player.unlockedTechs);
+  const wsHiredCrewIds = useSimulationSelector((s) => s.crew.hiredIds);
+  const wsMyReleases = useSimulationSelector((s) => s.productions.mine);
+  const wsPlayerHandle = useSimulationSelector((s) => s.player.handle);
+  const wsPlayerGroupName = useSimulationSelector((s) => s.player.groupName);
+  const wsNewsLog = useSimulationSelector((s) => s.press.newsLog);
+  // Rival-group living state + activity history — used to gate the
+  // rumor-propagation spyline picker so a scandal headline only fires
+  // between groups with an actual relationship (rivalry heatmap entry,
+  // existing rivalry edge, or recent split/disband drama).
+  const wsRivalGroups = useSimulationSelector((s) => s.rivals.groups);
+  const wsRivalActivityLog = useSimulationSelector((s) => s.rivals.activityLog);
+
 
 
   // ----- Main-menu / identity-setup splash overlay -----
@@ -503,30 +537,32 @@ export default function App() {
   // button) and the floating Now-Playing bar.
   const modal = useModal();
 
-  // Global hotkey: L opens the Logo Generator from anywhere during
-  // gameplay (gated on showMainMenu being false so it does nothing
-  // on the title / main-menu screen). Skips when the player is
-  // typing into an input field, same as the dev-mode hotkey.
-  useEffect(() => {
-    if (showMainMenu) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "l" && e.key !== "L") return;
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      if (tag === "INPUT" || tag === "TEXTAREA") return;
-      e.preventDefault();
-      modal.open("logoGen");
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [showMainMenu, modal]);
+  // Global hotkeys during gameplay (gated on showMainMenu so they do
+  // nothing on the title / main-menu screen):
+  //   L → open the Logo Generator
+  //   M → open the music library / playlist manager
+  //   S → open Settings
+  // The typing guard (INPUT/TEXTAREA) is handled by the hook, and all
+  // three are suppressed while the fullscreen demo overlay is mounted
+  // (that portal owns M = tracker toggle and S = scanlines).
+  useKeyboardShortcuts(
+    {
+      l: () => {
+        if (!isDemoFullscreenOpen()) modal.openLogoGen();
+      },
+      m: () => {
+        if (!isDemoFullscreenOpen()) modal.openPlaylist();
+      },
+      s: () => {
+        if (!isDemoFullscreenOpen()) modal.openSettings();
+      },
+    },
+    { enabled: !showMainMenu }
+  );
 
   // Subscribe to the player engine so the MainMenu's track-count badge
   // stays in sync with the playlist.
   const playerState = useTrackerPlayer();
-
-  const [activePlatform, setActivePlatform] = useState<PlatformId>(PlatformId.C64);
-  const [ownedRigs, setOwnedRigs] = useState<PlatformId[]>([PlatformId.C64]);
-  const [unlockedTechs, setUnlockedTechs] = useState<string[]>(["raster_sync"]);
 
   // Game list of simulated characters (hired and freelancers)
   const [characters, setCharacters] = useState<Record<string, Character>>(() => {
@@ -538,10 +574,10 @@ export default function App() {
   });
 
   // Hired crew lists (player always has a custom active coder skill but starts solo)
-  const [hiredCrewIds, setHiredCrewIds] = useState<string[]>([]);
+
 
   // Player releases archives
-  const [myReleases, setMyReleases] = useState<Record<string, Production>>({});
+
 
   // Download tracking per production — used by the BBS advertise flow.
   const [productionDownloads, setProductionDownloads] = useState<Record<string, number>>({});
@@ -553,17 +589,7 @@ export default function App() {
   );
 
   // Chronological Scene Magazine / News Feed logs
-  const [newsLog, setNewsLog] = useState<SceneMagazine[]>([
-    {
-      id: "news_init",
-      title: "AMIGA WORLD SCENEDESK #01",
-      year: 1985,
-      month: 1,
-      headline: "A NEW ERA DAWNS IN COMPUTING HACKING!",
-      body: "Young computer teenagers across Europe are leaving conventional software houses and organizing underground demogroups. Fast horizontal scrolling, colorful copper lines, and custom sound synthesizer registers are the new weapon of cool.",
-      type: "editorial"
-    }
-  ]);
+
 
   // --------- SOCIAL GRAPH STATE DESIGN & SIMULATION ENGINE ---------
   const [graphNodes, setGraphNodes] = useState<SocialNode[]>(() => {
@@ -804,7 +830,7 @@ export default function App() {
       updatedAt: new Date().toISOString(),
       productionTitle: studioDemoName,
       competitionType: studioProdType,
-      activePlatform,
+      activePlatform: wsActivePlatform,
       duration: studioDuration,
       optimizationFocus: studioOptimizationFocus,
       artisticDirection: studioArtisticDirection,
@@ -821,7 +847,7 @@ export default function App() {
     saveBlueprint(bp);
     setBlueprints(listBlueprints());
   }, [
-    studioDemoName, studioProdType, activePlatform, studioDuration,
+    studioDemoName, studioProdType, wsActivePlatform, studioDuration,
     studioOptimizationFocus, studioArtisticDirection, productionMood,
     studioMusicTrackStoredName, studioSelectedEffects,
     effortCoding, effortArt, effortMusic, effortOptimization,
@@ -833,7 +859,7 @@ export default function App() {
     if (!bp) return;
     setStudioDemoName(bp.productionTitle);
     setStudioProdType(bp.competitionType);
-    setActivePlatform(bp.activePlatform);
+    simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: bp.activePlatform });
     setStudioDuration(bp.duration);
     setStudioOptimizationFocus(bp.optimizationFocus);
     setStudioArtisticDirection(bp.artisticDirection);
@@ -1051,7 +1077,7 @@ export default function App() {
   const [bbsFilterBoard, setBbsFilterBoard] = useState<string>("all");
   const [bbsSelectedThreadId, setBbsSelectedThreadId] = useState<string | null>(null);
   const [bbsTerminalLogs, setBbsTerminalLogs] = useState<string[]>([]);
-  const [bbsThreads, setBbsThreads] = useState<BBSThread[]>(() => getSeedThreads(playerGroupName));
+  const [bbsThreads, setBbsThreads] = useState<BBSThread[]>(() => getSeedThreads(wsPlayerGroupName));
 
   const [bbsCustomMessage, setBbsCustomMessage] = useState<string>("");
   const [bbsEffectNotification, setBbsEffectNotification] = useState<string | null>(null);
@@ -1059,14 +1085,14 @@ export default function App() {
   // --------- BBS SEED NAME REBIND (mount-time bake workaround) ---------
   // The bbsThreads seed at L~656 is constructed inside a `useState` initializer
   // that runs once on mount — BEFORE the MainMenu has applied the user's typed
-  // crew name. Any `${playerGroupName}` in that seed is therefore evaluated
+  // crew name. Any `${wsPlayerGroupName}` in that seed is therefore evaluated
   // against the default `"Tricycle Crews"` and baked in for the life of the
   // component. We rebind here whenever the player actually sets a custom
   // crew name, so the seed threads' reply/recruit bait matches what the
   // player just typed. scenarioPool threads are unaffected because they
   // are regenerated on every render via fresh template literals.
   useEffect(() => {
-    if (playerGroupName === "Tricycle Crews") return;
+    if (wsPlayerGroupName === "Tricycle Crews") return;
     setBbsThreads((prev) => {
       let touched = false;
       const rewritten = prev.map((t) => {
@@ -1077,8 +1103,8 @@ export default function App() {
             touched = true;
             return {
               ...c,
-              text: c.text.replace(/Tricycle Crews/g, playerGroupName),
-              effectDescription: c.effectDescription.replace(/Tricycle Crews/g, playerGroupName),
+              text: c.text.replace(/Tricycle Crews/g, wsPlayerGroupName),
+              effectDescription: c.effectDescription.replace(/Tricycle Crews/g, wsPlayerGroupName),
             };
           }
           return c;
@@ -1086,7 +1112,7 @@ export default function App() {
         const messages = t.messages.map((m) => {
           if (typeof m.text === "string" && m.text.includes("Tricycle Crews")) {
             touched = true;
-            return { ...m, text: m.text.replace(/Tricycle Crews/g, playerGroupName) };
+            return { ...m, text: m.text.replace(/Tricycle Crews/g, wsPlayerGroupName) };
           }
           return m;
         });
@@ -1112,13 +1138,13 @@ export default function App() {
         touched = true;
         return {
           ...n,
-          label: n.label.replace(/Tricycle Crews/g, playerGroupName),
-          details: (n.details ?? "").replace(/Tricycle Crews/g, playerGroupName),
+          label: n.label.replace(/Tricycle Crews/g, wsPlayerGroupName),
+          details: (n.details ?? "").replace(/Tricycle Crews/g, wsPlayerGroupName),
         };
       });
       return touched ? rewritten : prev;
     });
-  }, [playerGroupName]);
+  }, [wsPlayerGroupName]);
 
   // --------- CUSTOM SHADER STATE ---------
   const [customShaders, setCustomShaders] = useState<Record<string, CustomShader>>({});
@@ -1186,8 +1212,8 @@ export default function App() {
   const [gallerySearchQuery, setGallerySearchQuery] = useState<string>("");
 
   const unlockedEffectIds = useMemo(
-    () => getUnlockedEffectIds(unlockedTechs, [], currentYear),
-    [unlockedTechs, currentYear]
+    () => getUnlockedEffectIds(wsUnlockedTechs, [], wsYear),
+    [wsUnlockedTechs, wsYear]
   );
 
   const isEffectUnlocked = (effId: string) => unlockedEffectIds.has(effId);
@@ -1195,9 +1221,9 @@ export default function App() {
   // Keep modal platform sync with active platform when opened
   useEffect(() => {
     if (modal.isOpen("effectGallery")) {
-      setGallerySelectedPlatformId(activePlatform);
+      setGallerySelectedPlatformId(wsActivePlatform);
     }
-  }, [modal.activeModal, activePlatform]);
+  }, [modal.activeModal, wsActivePlatform]);
 
   // Auto-deselect effects incompatible with the active platform.
   // When the player switches from C64 to PC_CORE_DUO, C64-only effects
@@ -1211,10 +1237,10 @@ export default function App() {
       prev.filter((id) => {
         const eff = DEMO_EFFECTS.find((e) => e.id === id);
         if (!eff) return false;
-        return eff.compatiblePlatforms.includes(activePlatform);
+        return eff.compatiblePlatforms.includes(wsActivePlatform);
       })
     );
-  }, [activePlatform]);
+  }, [wsActivePlatform]);
 
   // --------- SCENARIO EMULATOR LOADS ---------
   const loadScenario = (preset: "1985_8bit" | "1991_16bit" | "1998_pc3d") => {
@@ -1222,149 +1248,12 @@ export default function App() {
       return;
     }
 
-    if (preset === "1985_8bit") {
-      setCurrentYear(1985);
-      setCurrentMonth(1);
-      setPlayerMoney(200);
-      setPlayerReputation(15);
-      setResearchPoints(25);
-      setActivePlatform(PlatformId.C64);
-      setOwnedRigs([PlatformId.C64]);
-      setUnlockedTechs(["raster_sync"]);
-      setHiredCrewIds([]);
+    const presetData =
+      preset === "1985_8bit" ? SCENARIO_PRESET_1985 :
+      preset === "1991_16bit" ? SCENARIO_PRESET_1991 :
+      SCENARIO_PRESET_1998;
 
-      // Reset character states
-      const resetNPCs = { ...INITIAL_NPCS };
-      setCharacters(resetNPCs);
-      setMyReleases({});
-      setProductionSummaries({});
-      setCrtActiveEffects(["raster_bars", "sine_scroller"]);
-      setCrtDemoName("SINUS WAVES");
-      setCrtMusicTrack("");
-
-      // Set logs
-      setNewsLog([
-        {
-          id: "log_pres_1985",
-          title: "DISK MAG REVIEW",
-          year: 1985,
-          month: 1,
-          headline: "BEDROOM 8-BIT AGE HAS BEGUN",
-          body: "You started in your parent's guest bedroom with a second-hand Commodore 64 and a cassette tape drive. Make us proud by assembly-hacking code registers!",
-          type: "editorial"
-        }
-      ]);
-    } else if (preset === "1991_16bit") {
-      setCurrentYear(1991);
-      setCurrentMonth(1);
-      setPlayerMoney(1400);
-      setPlayerReputation(350);
-      setResearchPoints(65);
-      setActivePlatform(PlatformId.AMIGA_500);
-      setOwnedRigs([PlatformId.C64, PlatformId.AMIGA_500]);
-      setUnlockedTechs(["raster_sync", "custom_spr_tricky", "copper_lists", "blitter_abuse", "tracker_mod_composition"]);
-
-      // Hire historical crew fellows for Amiga
-      setHiredCrewIds(["audio_drifter", "hype_ops"]);
-
-      // Give players some simulated history releases
-      const simulatedReleases: Record<string, Production> = {
-        "release_pro_1": {
-          id: "release_pro_1",
-          name: "LIQUID CHIPS",
-          year: 1990,
-          month: 6,
-          type: ProductionType.Cracktro,
-          platform: PlatformId.C64,
-          groupName: playerGroupName,
-          effects: ["raster_bars", "sine_scroller"],
-          codingEffort: 50,
-          artEffort: 30,
-          musicEffort: 20,
-          optimizationLevel: 3,
-          compressionLevel: 2,
-          sizeB: 8192,
-          scoreTechnical: 68,
-          scoreAesthetic: 55,
-          scoreAudio: 42,
-          scoreOriginality: 60,
-          totalScore: 56,
-          reputationGained: 45,
-          placement: 3,
-          partyName: "Assembly Summer"
-        }
-      };
-      setMyReleases(simulatedReleases);
-      setProductionSummaries({});
-
-      // Reset specific NPCs
-      const nlist = { ...INITIAL_NPCS };
-      nlist["audio_drifter"].groupId = "player";
-      nlist["hype_ops"].groupId = "player";
-      setCharacters(nlist);
-
-      setCrtActiveEffects(["animated_plasma", "vector_cube"]);
-      setCrtDemoName("AMIGA MAGIC");
-      setCrtMusicTrack("");
-
-      setNewsLog([
-        {
-          id: "log_pres_1991",
-          title: "RAW METAL MAGAZINE",
-          year: 1991,
-          month: 1,
-          headline: "A CHRONICLE OF AMIGA SUPREMACY",
-          body: "Our floppy disk boxes are packed with magnificent artwork. Amiga 500's custom Copper processor is the golden standard. Assemble awesome megademos!",
-          type: "editorial"
-        }
-      ]);
-    } else if (preset === "1998_pc3d") {
-      setCurrentYear(1998);
-      setCurrentMonth(1);
-      setPlayerMoney(3200);
-      setPlayerReputation(800);
-      setResearchPoints(140);
-      setActivePlatform(PlatformId.PC_PENTIUM_II);
-      setOwnedRigs([PlatformId.C64, PlatformId.AMIGA_500, PlatformId.PC_PENTIUM_II]);
-      setUnlockedTechs([
-        "raster_sync",
-        "copper_lists",
-        "tracker_mod_composition",
-        "vga_mode13h_flat",
-        "asm3d_pipeline",
-        "gus_hardware_mixing",
-        "voxel_heightfield",
-        "opengl_direct3d"
-      ]);
-
-      setHiredCrewIds(["unreal_coder", "skaven"]);
-
-      const nlist = { ...INITIAL_NPCS };
-      nlist["unreal_coder"].groupId = "player";
-      nlist["skaven"].groupId = "player";
-      setCharacters(nlist);
-
-      setMyReleases({});
-      setProductionSummaries({});
-      setCrtActiveEffects(["voxel_hills", "texture_mapper"]);
-      setCrtDemoName("VOXELLOID");
-      setCrtMusicTrack("");
-
-      setNewsLog([
-        {
-          id: "log_pres_1998",
-          title: "HUGI MAGAZINE REVIEW",
-          year: 1998,
-          month: 1,
-          headline: "3DFX ACCELERATORS ARE DESTROYING SOFTWARE RENDERING!",
-          body: "Some purists claim real demosceners write flat frame buffers under MS-DOS Assembly. Yet, modern PCI accelerator cards present glowing lights and cloth physics that are hard to ignore. Squeeze your graphics inside a 64KB Intro binary config!",
-          type: "editorial"
-        }
-      ]);
-    }
-
-    setSaveNotice("Scenario Loaded Successfully!");
-    setTimeout(() => setSaveNotice(""), 3000);
+    applyScenarioPreset(presetData);
   };
 
   // --------- HELPER MONTHLY DATE FORMAT ---------
@@ -1381,19 +1270,53 @@ export default function App() {
     return PARTY_CALENDAR.find((party) => party.month === m) || null;
   };
 
+  // --------- LIVING PARTY FLOOR (partygoer dialogue system) ---------
+  // Powers the "Walk the Floor" overlay: procedurally generated attendees,
+  // context-aware dialogue, ambient chatter, event reactions, and the
+  // player-relationship system. Runs on the active party (or the current
+  // month's party). Enabled only while the overlay is open (no background
+  // timer churn).
+  const partygoerSim = usePartygoerSimulation({
+    partyId: activeParty?.id ?? getPartyForMonth(wsMonth)?.id ?? "party_floor",
+    partyName: activeParty?.name ?? getPartyForMonth(wsMonth)?.name ?? "Local Scene Gathering",
+    year: wsYear,
+    playerHandle: wsPlayerHandle,
+    playerGroupName: wsPlayerGroupName,
+    playerReputation: wsReputation,
+    partyStep,
+    rivalGroupNames: partyRivals
+      .map((r) => r.group)
+      .filter((g: unknown): g is string => typeof g === "string" && g.length > 0),
+    enabled: modal.isOpen("partygoer"),
+  });
+
+  // --------- PARTY ATTENDANCE MODE (full-weekend party life sim) ---------
+  // "Attend a Weekend" overlay: Fri 16:00 → Sun 21:00 at a party venue.
+  // Balances needs, productions, competitions with deadlines, and a trip
+  // report. Runs on the active party (or the current month's party) and is
+  // gated on the overlay being open (no background timer churn).
+  const attendanceSim = usePartyAttendanceMode({
+    partyName: activeParty?.name ?? getPartyForMonth(wsMonth)?.name ?? "Weekend Party",
+    partyYear: wsYear,
+    playerHandle: wsPlayerHandle,
+    playerGroupName: wsPlayerGroupName,
+    playerReputation: wsReputation,
+    enabled: modal.isOpen("attendance"),
+  });
+
   // --------- RECRUITING FUNCTIONS ---------
   const hireMember = (id: string) => {
     const target = characters[id];
     if (!target) return;
 
-    if (playerMoney < target.salaryDemand) {
+    if (wsMoney < target.salaryDemand) {
       window.alert(`CRITICAL ERROR: Not enough pocket change money. You need $${target.salaryDemand} to supply disks & energy drinks for ${target.handle}!`);
       return;
     }
 
     // Deduct salary, update crew list and NPC state
-    setPlayerMoney((prev) => prev - target.salaryDemand);
-    setHiredCrewIds((prev) => [...prev, id]);
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: -target.salaryDemand, reason: "Hired crew" });
+    simLoop.dispatch({ type: "CrewHired", ts: getCurrentTick(), charId: id, cost: target.salaryDemand });
 
     setCharacters((prev) => ({
       ...prev,
@@ -1409,13 +1332,13 @@ export default function App() {
     const newlog: SceneMagazine = {
       id: `scramble_hire_${Date.now()}`,
       title: "SCENE RUMORS",
-      year: currentYear,
-      month: currentMonth,
-      headline: `${target.handle.toUpperCase()} JOINS ${playerGroupName.toUpperCase()}!`,
+      year: wsYear,
+      month: wsMonth,
+      headline: `${target.handle.toUpperCase()} JOINS ${wsPlayerGroupName.toUpperCase()}!`,
       body: `BBS chat lines are glowing after legendary scener '${target.handle}' announced they are leaving freelance status and joining forces with the player group. Future releases will benefit from their stellar knowledge!`,
       type: "scandal"
     };
-    setNewsLog((prev) => [newlog, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: newlog });
   };
 
   const fireMember = (id: string) => {
@@ -1426,7 +1349,7 @@ export default function App() {
       return;
     }
 
-    setHiredCrewIds((prev) => prev.filter((mId) => mId !== id));
+    simLoop.dispatch({ type: "CrewFired", ts: getCurrentTick(), charId: id });
     setCharacters((prev) => ({
       ...prev,
       [id]: {
@@ -1440,22 +1363,22 @@ export default function App() {
     const newlog: SceneMagazine = {
       id: `scramble_fire_${Date.now()}`,
       title: "SCENE RUMORS",
-      year: currentYear,
-      month: currentMonth,
-      headline: `${target.handle.toUpperCase()} DEPARTS FROM ${playerGroupName.toUpperCase()}!`,
+      year: wsYear,
+      month: wsMonth,
+      headline: `${target.handle.toUpperCase()} DEPARTS FROM ${wsPlayerGroupName.toUpperCase()}!`,
       body: `Following an internal split, '${target.handle}' has parted reasons with the group. Is this burnout, or is a brand-new demo group rivalry brewing?`,
       type: "scandal"
     };
-    setNewsLog((prev) => [newlog, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: newlog });
   };
 
   const handleMeltBurnout = (id: string) => {
     // Player can pay $50 for a scener to get therapy or send them on a holiday layout
-    if (playerMoney < 40) {
+    if (wsMoney < 40) {
       window.alert("You don't have enough money ($40) to send them to a real console arcade bar!");
       return;
     }
-    setPlayerMoney((prev) => prev - 40);
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: -40, reason: "Travel expense" });
     setCharacters((prev) => ({
       ...prev,
       [id]: {
@@ -1479,9 +1402,9 @@ const ERA_LABELS: Record<string, string> = {
 };
 // --------- RESEARCHING TECHNOLOGY GRAPH ---------
   const researchNode = (node: TechNode) => {
-    if (unlockedTechs.includes(node.id)) return;
+    if (wsUnlockedTechs.includes(node.id)) return;
 
-    if (researchPoints < node.costPoints) {
+    if (wsResearchPoints < node.costPoints) {
       window.alert(`Incomplete focus points! You need ${node.costPoints} research points to crack ${node.name}. Gain research points by waiting or compiling demos.`);
       return;
     }
@@ -1491,11 +1414,11 @@ const ERA_LABELS: Record<string, string> = {
     // `opengl_direct3d` (3D-shader era, starts 2001) while still in 1990
     // and being unable to ever compile its effects in the demo studio.
     const eraStart = ERA_START_YEAR[node.era] ?? 9999;
-    if (currentYear < eraStart) {
+    if (wsYear < eraStart) {
       const eraLabel = ERA_LABELS[node.era] ?? node.era;
       window.alert(
         `TIME ANOMALY: "${node.name}" is from the ${eraLabel} era and won't surface until ${eraStart}. ` +
-        `Your current year is ${currentYear} — advance the calendar first.`
+        `Your current year is ${wsYear} — advance the calendar first.`
       );
       return;
     }
@@ -1506,7 +1429,7 @@ const ERA_LABELS: Record<string, string> = {
     // (their `compatiblePlatforms` excludes the player's rigs), so
     // spending the research points is a dead-end.
     const hasRequiredRig = node.platformUnlocks.some(
-      (pId) => ownedRigs.includes(pId)
+      (pId) => wsOwnedRigs.includes(pId)
     );
     if (!hasRequiredRig) {
       const rigNames = node.platformUnlocks
@@ -1520,7 +1443,7 @@ const ERA_LABELS: Record<string, string> = {
     }
 
     // Check pre-requisites
-    const missingPre = node.preRequisiteIds.filter((pId) => !unlockedTechs.includes(pId));
+    const missingPre = node.preRequisiteIds.filter((pId) => !wsUnlockedTechs.includes(pId));
     if (missingPre.length > 0) {
       const names = missingPre.map((id) => {
         const found = TECHNOLOGY_TREE.find((t) => t.id === id);
@@ -1531,24 +1454,24 @@ const ERA_LABELS: Record<string, string> = {
     }
 
     // Spend and unlock
-    setResearchPoints((prev) => prev - node.costPoints);
-    setUnlockedTechs((prev) => [...prev, node.id]);
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: -node.costPoints, reason: "Tech research" });
+    simLoop.dispatch({ type: "TechResearched", ts: getCurrentTick(), techId: node.id });
 
     // Apply bonuses, if any
     if (node.bonusAttribute) {
-      setPlayerReputation((prev) => prev + 5);
+      simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: 5, reason: "Mailing completion" });
     }
 
     const nlog: SceneMagazine = {
       id: `tech_log_${Date.now()}`,
       title: "TECH WATCH",
-      year: currentYear,
-      month: currentMonth,
+      year: wsYear,
+      month: wsMonth,
       headline: `UNDERGROUND DISCOVERS: ${node.name.toUpperCase()}!`,
       body: `Hackers have cracked the math algorithms for ${node.name}. This is critical to building effects: ${node.effectUnlocks.join(", ") || "various systems optimizations"}.`,
       type: "tech_breakthrough"
     };
-    setNewsLog((prev) => [nlog, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: nlog });
   };
 
   // --------- SHOP & COMPUTER WORKSTATIONS ---------
@@ -1556,32 +1479,31 @@ const ERA_LABELS: Record<string, string> = {
     const config = HISTORICAL_PLATFORMS[platformId];
     if (!config) return;
 
-    if (ownedRigs.includes(platformId)) {
+    if (wsOwnedRigs.includes(platformId)) {
       // Just activate it
-      setActivePlatform(platformId);
+      simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId });
       return;
     }
 
-    if (playerMoney < config.cost) {
+    if (wsMoney < config.cost) {
       window.alert(`CRITICAL FUNDS SHORTAGE: Upgrading to ${config.name} requires $${config.cost}. Save cash by submitting cracktros or winning party contests!`);
       return;
     }
 
     // Buy it
-    setPlayerMoney((prev) => prev - config.cost);
-    setOwnedRigs((prev) => [...prev, platformId]);
-    setActivePlatform(platformId);
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: -config.cost, reason: "Hardware purchase" });
+    simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId });
 
     const nlog: SceneMagazine = {
       id: `shop_log_${Date.now()}`,
       title: "HARDWARE DESK",
-      year: currentYear,
-      month: currentMonth,
+      year: wsYear,
+      month: wsMonth,
       headline: `PLAYER UPGRADES WORKSTATION TO ${config.name.toUpperCase()}!`,
       body: `Equipped with an advanced ${config.graphicsTech} pipeline and ${config.audioTech}, our group moves to the frontier of creative demo coding.`,
       type: "editorial"
     };
-    setNewsLog((prev) => [nlog, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: nlog });
   };
 
   // --------- COMPILING STUDIO CONTROLLER ---------
@@ -1711,7 +1633,7 @@ const ERA_LABELS: Record<string, string> = {
   );
 
   // Calculate resources and constraints
-  const activeRigConfig = HISTORICAL_PLATFORMS[activePlatform];
+  const activeRigConfig = HISTORICAL_PLATFORMS[wsActivePlatform];
   const combinedCpuDemand = studioSelectedEffects.reduce((sum, effId) => {
     const found = DEMO_EFFECTS.find((e) => e.id === effId);
     return sum + (found ? found.cpuCost : 0);
@@ -1729,8 +1651,8 @@ const ERA_LABELS: Record<string, string> = {
     const assigned = taskAssignments[task];
     const candidateIds =
       assigned && assigned.length > 0
-        ? assigned.filter((id) => hiredCrewIds.includes(id))
-        : hiredCrewIds;
+        ? assigned.filter((id) => wsHiredCrewIds.includes(id))
+        : wsHiredCrewIds;
     const defaults: Record<ProductionTaskType, number> = {
       programming: 45,
       graphics: 35,
@@ -1767,8 +1689,8 @@ const ERA_LABELS: Record<string, string> = {
   const studioCompatibleEffects = (() => {
     const { compatible } = compatibleEffects(
       DEMO_EFFECTS,
-      activePlatform,
-      currentYear
+      wsActivePlatform,
+      wsYear
     );
     return new Set(compatible.map((e) => e.id));
   })();
@@ -1792,7 +1714,7 @@ const ERA_LABELS: Record<string, string> = {
       year: number;
     }> = [];
     for (const p of PARTY_CALENDAR) {
-      if (p.year > currentYear || (p.year === currentYear && p.month >= currentMonth)) {
+      if (p.year > wsYear || (p.year === wsYear && p.month >= wsMonth)) {
         out.push({
           id: p.id,
           name: p.name,
@@ -1837,7 +1759,7 @@ const ERA_LABELS: Record<string, string> = {
     const platformIncompatibleEffects = studioSelectedEffects
       .map((id) => DEMO_EFFECTS.find((e) => e.id === id))
       .filter((e): e is DemoEffect => e !== undefined)
-      .filter((e) => !e.compatiblePlatforms.includes(activePlatform));
+      .filter((e) => !e.compatiblePlatforms.includes(wsActivePlatform));
 
     if (platformIncompatibleEffects.length > 0) {
       const names = platformIncompatibleEffects
@@ -1845,7 +1767,7 @@ const ERA_LABELS: Record<string, string> = {
         .join(", ");
       const suggestions = platformIncompatibleEffects
         .map((eff) => {
-          const compatOwned = ownedRigs.filter((r) =>
+          const compatOwned = wsOwnedRigs.filter((r) =>
             eff.compatiblePlatforms.includes(r),
           );
           const rigNames = compatOwned
@@ -1857,7 +1779,7 @@ const ERA_LABELS: Record<string, string> = {
       window.alert(
         `HARDWARE INCOMPATIBILITY — ${names} cannot run on ${
           activeRigConfig.name
-        } (${activePlatform}).\n\n${suggestions}\n\nSwitch your active platform in the WORKSTATION desk or remove these effects from the demo.`,
+        } (${wsActivePlatform}).\n\n${suggestions}\n\nSwitch your active platform in the WORKSTATION desk or remove these effects from the demo.`,
       );
       return;
     }
@@ -1874,10 +1796,10 @@ const ERA_LABELS: Record<string, string> = {
     const bbsActive = Boolean(
       bbsDialed || bbsThreads.length > 0
     );
-    const hasAntivirus = unlockedTechs.includes("antivirus_scanning");
+    const hasAntivirus = wsUnlockedTechs.includes("antivirus_scanning");
     const virusOutcome = rollVirusInfection(
-      currentYear,
-      activePlatform,
+      wsYear,
+      wsActivePlatform,
       hasAntivirus,
       studioOptimizationFocus,
       bbsActive,
@@ -1967,7 +1889,7 @@ const ERA_LABELS: Record<string, string> = {
       creation: {
         name: studioDemoName,
         type: studioProdType,
-        platform: activePlatform,
+        platform: wsActivePlatform,
         duration: studioDuration,
         optimizationFocus: studioOptimizationFocus,
         artisticDirection: studioArtisticDirection,
@@ -1993,12 +1915,12 @@ const ERA_LABELS: Record<string, string> = {
       },
       musicModule,
       platform: {
-        id: activePlatform,
+        id: wsActivePlatform,
         cpuLimit: activeRigConfig.cpuLimit,
         ramLimitKb: activeRigConfig.ramLimitKb,
       },
       upcomingParties: upcomingPartiesForScoring,
-      currentYear,
+      currentYear: wsYear,
     });
 
     // Apply strict size penalties for 4k/64k intros on top of the
@@ -2031,25 +1953,14 @@ const ERA_LABELS: Record<string, string> = {
         const exists = prev.some((t) => t.id.startsWith("thread_virus_"));
         if (exists) return prev;
         const newThread = generateVirusDebateThread(
-          playerGroupName,
+          wsPlayerGroupName,
           virus.strain?.name ?? "Unknown",
-          currentYear,
-          currentMonth,
+          wsYear,
+          wsMonth,
         );
         return [newThread, ...prev];
       });
-      setNewsLog((prev) => [
-        ...prev,
-        {
-          id: `news_virus_bbs_${Date.now()}`,
-          title: "BBS VIRUS OUTBREAK THREAD",
-          year: currentYear,
-          month: currentMonth,
-          headline: `ANTIVIRUS DEBATE EXPLODES AFTER ${(virus.strain?.name ?? "UNKNOWN VIRUS").toUpperCase()} OUTBREAK`,
-          body: `The BBS is on fire. Sceners are arguing whether running antivirus software is "scene" or not after the ${virus.strain?.name ?? "unknown virus"} outbreak. Your production was affected. Join the debate to earn reputation or research points!`,
-          type: "scandal",
-        },
-      ]);
+      simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: { id: `news_virus_bbs_${Date.now()}`, title: "BBS VIRUS OUTBREAK THREAD", year: wsYear, month: wsMonth, headline: `ANTIVIRUS DEBATE EXPLODES AFTER ${(virus.strain?.name ?? "UNKNOWN VIRUS").toUpperCase()} OUTBREAK`, body: `The BBS is on fire. Sceners are arguing whether running antivirus software is "scene" or not after the ${virus.strain?.name ?? "unknown virus"} outbreak. Your production was affected. Join the debate to earn reputation or research points!`, type: "scandal" } });
     } else {
       setCurrentVirusGlitchVariant(null);
     }
@@ -2068,11 +1979,11 @@ const ERA_LABELS: Record<string, string> = {
     const newProd: Production = {
       id: `prod_${Date.now()}`,
       name: studioDemoName,
-      year: currentYear,
-      month: currentMonth,
+      year: wsYear,
+      month: wsMonth,
       type: studioProdType,
-      platform: activePlatform,
-      groupName: playerGroupName,
+      platform: wsActivePlatform,
+      groupName: wsPlayerGroupName,
       effects: [...studioSelectedEffects],
       codingEffort: effortCoding,
       artEffort: effortArt,
@@ -2103,10 +2014,7 @@ const ERA_LABELS: Record<string, string> = {
     modal.openDemoSummary();
 
     // Save release
-    setMyReleases((prev) => ({
-      ...prev,
-      [newProd.id]: newProd
-    }));
+    simLoop.dispatch({ type: "DemoCompiled", ts: getCurrentTick(), production: newProd });
 
     setLastCompiledRelease(newProd);
 
@@ -2122,7 +2030,7 @@ const ERA_LABELS: Record<string, string> = {
         updatedAt: new Date().toISOString(),
         productionTitle: studioDemoName,
         competitionType: studioProdType,
-        activePlatform,
+        activePlatform: wsActivePlatform,
         duration: studioDuration,
         optimizationFocus: studioOptimizationFocus,
         artisticDirection: studioArtisticDirection,
@@ -2165,7 +2073,7 @@ const ERA_LABELS: Record<string, string> = {
         targetType: "demo",
         type: "collaboration",
         weight: 95,
-        details: `Official creative release by ${playerGroupName}.`
+        details: `Official creative release by ${wsPlayerGroupName}.`
       });
 
       if (newProd.effects.includes("copper_colors") || newProd.effects.includes("raster_bars")) {
@@ -2192,7 +2100,7 @@ const ERA_LABELS: Record<string, string> = {
           details: "Cycle-exact 3D math routines compiled."
         });
       }
-      hiredCrewIds.forEach((cId) => {
+      wsHiredCrewIds.forEach((cId) => {
         newEdges.push({
           id: `${cId}-${newProd.id}`,
           source: cId,
@@ -2208,7 +2116,7 @@ const ERA_LABELS: Record<string, string> = {
       return newEdges;
     });
 
-    const releaseStory = `Y${currentYear} M${currentMonth}: [Demo Release] ${playerGroupName} released ${newProd.name.toUpperCase()} on ${newProd.platform}. Connected tools & crew nodes.`;
+    const releaseStory = `Y${wsYear} M${wsMonth}: [Demo Release] ${wsPlayerGroupName} released ${newProd.name.toUpperCase()} on ${newProd.platform}. Connected tools & crew nodes.`;
     setGraphStoryLogs((prev) => [releaseStory, ...prev].slice(0, 40));
 
     // Update screen canvas dynamically to render your compiled demo!
@@ -2218,13 +2126,13 @@ const ERA_LABELS: Record<string, string> = {
     setCrtMusicTrack(newProd.musicTrackStoredName ?? "");
 
     // Pay rewards / adjustments
-    setPlayerReputation((prev) => Math.min(prev + reputationIncrement, 1000));
-    setResearchPoints((prev) => prev + Math.floor(overallScore / 10) + 5);
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: Math.min(reputationIncrement, 1000 - wsReputation), reason: "Demo compilation" });
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: Math.floor(overallScore / 10) + 5, reason: "Demo compilation" });
 
     // Sceners accumulate burnout slightly after hard compile
     setCharacters((prev) => {
       const updated = { ...prev };
-      hiredCrewIds.forEach((cId) => {
+      wsHiredCrewIds.forEach((cId) => {
         updated[cId].burnout = Math.min(updated[cId].burnout + 12 + Math.floor(effortCoding / 10), 100);
         updated[cId].motivation = Math.max(updated[cId].motivation - 8, 10);
       });
@@ -2233,7 +2141,7 @@ const ERA_LABELS: Record<string, string> = {
 
     // Procedural review generator
     const phrases = [
-      `${playerGroupName} drops a mind-blowing binary.`,
+      `${wsPlayerGroupName} drops a mind-blowing binary.`,
       `This is packed with stellar Copper tricks and rotating coordinate planes.`,
       `We noticed some gorgeous music waves accompanying the visuals.`,
       `Perfect optimization. Truly is pixel-art masterpiece.`
@@ -2242,14 +2150,14 @@ const ERA_LABELS: Record<string, string> = {
     const targetRev: SceneMagazine = {
       id: `review_${Date.now()}`,
       title: "IMPHOBIA DISK MAG",
-      year: currentYear,
-      month: currentMonth,
-      headline: `REVIEW: "${newProd.name.toUpperCase()}" BY ${playerGroupName.toUpperCase()}`,
+      year: wsYear,
+      month: wsMonth,
+      headline: `REVIEW: "${newProd.name.toUpperCase()}" BY ${wsPlayerGroupName.toUpperCase()}`,
       body: `Our reviewers spent the entire weekend watching this release on a real ${activeRigConfig.name} CRT. It scores ${overallScore}% in our charts. ${phrases[Math.floor(Math.random() * phrases.length)]} Real size is ${newProd.sizeB} bytes. Highly recommended download!`,
       type: "review"
     };
 
-    setNewsLog((prev) => [targetRev, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: targetRev });
 
     // ---- Virus outbreak news ----
     // If the demo was infected, add a scandalous news item about the
@@ -2258,13 +2166,13 @@ const ERA_LABELS: Record<string, string> = {
       const virusNews: SceneMagazine = {
         id: `virus_${Date.now()}`,
         title: "DISK MAG ALERT",
-        year: currentYear,
-        month: currentMonth,
+        year: wsYear,
+        month: wsMonth,
         headline: `DISK VIRUS OUTBREAK: ${virus.strain.name.toUpperCase()} FOUND IN ${newProd.name.toUpperCase()}!`,
-        body: `Sources report that ${playerGroupName}'s latest release "${newProd.name}" was compiled on an infected floppy disk carrying the ${virus.strain.name} virus. ${virus.isBricked ? "The demo has been completely corrupted and will not boot on real hardware." : virus.scorePenalty > 0 ? `The infection has degraded the demo's quality and it may exhibit ${virus.manifestationType} symptoms during playback.` : "The infection appears to be cosmetic — the demo runs fine but the bootblock is marked. Sceners are advised to scan their disk collections."}`,
+        body: `Sources report that ${wsPlayerGroupName}'s latest release "${newProd.name}" was compiled on an infected floppy disk carrying the ${virus.strain.name} virus. ${virus.isBricked ? "The demo has been completely corrupted and will not boot on real hardware." : virus.scorePenalty > 0 ? `The infection has degraded the demo's quality and it may exhibit ${virus.manifestationType} symptoms during playback.` : "The infection appears to be cosmetic — the demo runs fine but the bootblock is marked. Sceners are advised to scan their disk collections."}`,
         type: "scandal",
       };
-      setNewsLog((prev) => [virusNews, ...prev]);
+      simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: virusNews });
     }
 
     setIsCompiling(false);
@@ -2273,12 +2181,12 @@ const ERA_LABELS: Record<string, string> = {
   // --------- PARTY VOTING TICKER CONTEST SYSTEM ---------
   const openPartyPanel = (party: PartyEvent) => {
     // Automatically match the latest compiled demo for this platform
-    const compatibleProds = (Object.values(myReleases) as Production[]).filter(
-      (p) => p.platform === activePlatform
+    const compatibleProds = (Object.values(wsMyReleases) as Production[]).filter(
+      (p) => p.platform === wsActivePlatform
     );
 
     if (compatibleProds.length === 0) {
-      window.alert(`Demoscene constraints: You have compiled no releases yet for your current hardware (${activePlatform})! Compile a demo under Workspace tab first before entering.`);
+      window.alert(`Demoscene constraints: You have compiled no releases yet for your current hardware (${wsActivePlatform})! Compile a demo under Workspace tab first before entering.`);
       return;
     }
 
@@ -2290,7 +2198,7 @@ const ERA_LABELS: Record<string, string> = {
   };
 
   const startPartyVotingProcess = () => {
-    const selectedProd = myReleases[partySelectedProdId];
+    const selectedProd = wsMyReleases[partySelectedProdId];
     if (!selectedProd) return;
 
     setPartyStep(1);
@@ -2306,12 +2214,12 @@ const ERA_LABELS: Record<string, string> = {
     // the inline rivals had before this migration).
     const playerFocus: PartyEvent["platformFocus"] =
       activeParty == null || activeParty.platformFocus === "all"
-        ? rivalFocusFor(activePlatform)
+        ? rivalFocusFor(wsActivePlatform)
         : activeParty.platformFocus;
     const isReleasedBefore = (r: RivalRelease): boolean =>
-      r.year < currentYear || (r.year === currentYear && r.month <= currentMonth);
+      r.year < wsYear || (r.year === wsYear && r.month <= wsMonth);
     const isDisbanded = (r: RivalRelease): boolean =>
-      r.disbandedAfter !== undefined && currentYear > r.disbandedAfter;
+      r.disbandedAfter !== undefined && wsYear > r.disbandedAfter;
     const focusMatches = (r: RivalRelease): boolean =>
       playerFocus === "all" || r.platformFocus === "all" || r.platformFocus === playerFocus;
     const eligibleRivals: RivalRelease[] = RIVAL_RELEASES.filter(
@@ -2329,7 +2237,7 @@ const ERA_LABELS: Record<string, string> = {
       {
         id: "player_entry",
         name: selectedProd.name,
-        group: playerGroupName,
+        group: wsPlayerGroupName,
         title: selectedProd.name,
         isPlayer: true as const,
         score: selectedProd.totalScore,
@@ -2423,32 +2331,30 @@ const ERA_LABELS: Record<string, string> = {
       repPrize = 15;
     }
 
-    setPlayerMoney((prev) => prev + cashPrize);
-    setPlayerReputation((prev) => Math.min(prev + repPrize, 1000));
-    setResearchPoints((prev) => prev + 30);
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: cashPrize, reason: "Party prize" });
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: Math.min(repPrize, 1000 - wsReputation), reason: "Party prize" });
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: 30, reason: "Party prize" });
 
     // Save placement reference in release history
-    setMyReleases((prev) => {
-      const updated = { ...prev };
-      if (updated[partySelectedProdId]) {
-        updated[partySelectedProdId].placement = placement;
-        updated[partySelectedProdId].partyName = activeParty?.name;
-      }
-      return updated;
-    });
+    // (productions.mine updated via DemoCompiled dispatch; placement/partyName set separately)
+    if (wsMyReleases[partySelectedProdId]) {
+      const existing = wsMyReleases[partySelectedProdId];
+      const updated = { ...existing, placement, partyName: activeParty?.name ?? undefined };
+      simLoop.dispatch({ type: "DemoCompiled", ts: getCurrentTick(), production: updated });
+    }
 
     // Write a news article about the party outcome
     const winArticle: SceneMagazine = {
       id: `party_article_${Date.now()}`,
       title: "SCENE DISK NEWSFLASH",
-      year: currentYear,
-      month: currentMonth,
+      year: wsYear,
+      month: wsMonth,
       headline: `${activeParty?.name.toUpperCase()} REVEALS COMPETITION WINNERS!`,
-      body: `The massive crowds at ${activeParty?.location} have spoken! In the competitive category, ${sorted[0].group}'s release "${sorted[0].name}" took absolute gold with ${tallyScores[sorted[0].id]} voter points. '${playerGroupName}' stood at rank #${placement} rendering "${myReleases[partySelectedProdId]?.name}". The parties are getting wilder!`,
+      body: `The massive crowds at ${activeParty?.location} have spoken! In the competitive category, ${sorted[0].group}'s release "${sorted[0].name}" took absolute gold with ${tallyScores[sorted[0].id]} voter points. '${wsPlayerGroupName}' stood at rank #${placement} rendering "${wsMyReleases[partySelectedProdId]?.name}". The parties are getting wilder!`,
       type: "party_results"
     };
 
-    setNewsLog((prev) => [winArticle, ...prev]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: winArticle });
 
     // Apply cognitive state reactions to all NPCs for the party event
     setCharacters((prev) => {
@@ -2467,7 +2373,7 @@ const ERA_LABELS: Record<string, string> = {
 
         // Determine if scener's own group won or got highly ranked
         const charGrp = char.groupId?.toLowerCase() || "";
-        const playerGrpNormalized = playerGroupName.toLowerCase();
+        const playerGrpNormalized = wsPlayerGroupName.toLowerCase();
         
         const isMemberOfWinner = charGrp && sorted[0].group.toLowerCase() === charGrp;
         const isMemberOfPlayer = charGrp === "player";
@@ -2481,7 +2387,7 @@ const ERA_LABELS: Record<string, string> = {
           opinions[sorted[0].group] = Math.min(100, (opinions[sorted[0].group] || 0) + 20);
         } else if (isMemberOfPlayer) {
           if (placement === 1) {
-            memoryDesc = `Our team at ${playerGroupName} took absolute first place gold! Thrilled to build the premier demogroup.`;
+            memoryDesc = `Our team at ${wsPlayerGroupName} took absolute first place gold! Thrilled to build the premier demogroup.`;
             sentiment = "positive";
             emotions.hype = 100;
             emotions.inspiration = Math.min(100, emotions.inspiration + 25);
@@ -2504,24 +2410,24 @@ const ERA_LABELS: Record<string, string> = {
 
           if (placement === 1) {
             if (friendlyWithPlayer) {
-              memoryDesc = `Our friend in ${playerGroupName} got rank #1 gold! Incredibly clean raster copper timing and visual art layouts.`;
+              memoryDesc = `Our friend in ${wsPlayerGroupName} got rank #1 gold! Incredibly clean raster copper timing and visual art layouts.`;
               sentiment = "positive";
               emotions.hype = Math.min(100, emotions.hype + 20);
               opinions["player_group"] = Math.min(100, (opinions["player_group"] || 0) + 15);
             } else if (rivalWithPlayer) {
               // BIAS REINFORCEMENT: A rival NPC interprets player gold as total voter coalition
-              memoryDesc = `${playerGroupName} won rank #1 gold, probably via organized BBS votepacks and floppy swap networks. Our demo is more technically advanced anyway.`;
+              memoryDesc = `${wsPlayerGroupName} won rank #1 gold, probably via organized BBS votepacks and floppy swap networks. Our demo is more technically advanced anyway.`;
               sentiment = "negative";
               emotions.stress = Math.min(100, emotions.stress + 20);
               opinions["player_group"] = Math.max(-100, (opinions["player_group"] || 0) - 20);
             } else {
-              memoryDesc = `${playerGroupName} surprise gold winner at ${activeParty?.name}. Fair play to their assembler loops.`;
+              memoryDesc = `${wsPlayerGroupName} surprise gold winner at ${activeParty?.name}. Fair play to their assembler loops.`;
               opinions["player_group"] = Math.min(100, (opinions["player_group"] || 0) + 8);
             }
           } else {
             // Player did not win, standard observation
             if (rivalWithPlayer) {
-              memoryDesc = `${playerGroupName} placed rank #${placement} at ${activeParty?.name}. Served them right. Their code splits are slow and unoptimized.`;
+              memoryDesc = `${wsPlayerGroupName} placed rank #${placement} at ${activeParty?.name}. Served them right. Their code splits are slow and unoptimized.`;
               sentiment = "positive"; // Rival happy!
               emotions.hype = Math.min(100, emotions.hype + 10);
             }
@@ -2532,7 +2438,7 @@ const ERA_LABELS: Record<string, string> = {
           id: `party_outcome_${Date.now()}_${id}`,
           type: "party_event",
           description: memoryDesc,
-          timestamp: `Y${currentYear} M${currentMonth}`,
+          timestamp: `Y${wsYear} M${wsMonth}`,
           strength: 100,
           sentiment
         };
@@ -2651,18 +2557,7 @@ const ERA_LABELS: Record<string, string> = {
       setGraphStoryLogs((prev) => [text, ...prev].slice(0, 40));
       
       // Inject scandal log in news section
-      setNewsLog((prevNews) => [
-        {
-          id: `news_graph_sim_${Date.now()}`,
-          title: "SCENE DESK SCHEMATICS",
-          year: nextY,
-          month: nextM,
-          headline: "RELATIONSHIP CORRELATIONS SHIFT",
-          body: text,
-          type: "editorial"
-        },
-        ...prevNews
-      ]);
+      simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: { id: `news_graph_sim_${Date.now()}`, title: "SCENE DESK SCHEMATICS", year: nextY, month: nextM, headline: "RELATIONSHIP CORRELATIONS SHIFT", body: text, type: "editorial" } });
     }
   };
 
@@ -2698,24 +2593,63 @@ const ERA_LABELS: Record<string, string> = {
     const sourceLabel = graphNodes.find(n => n.id === sourceId)?.label || sourceId;
     const targetLabel = graphNodes.find(n => n.id === targetId)?.label || targetId;
 
-    const logEntry = `Y${currentYear} M${currentMonth}: [Rumor Propagation] Whisper chain injected between ${sourceLabel} and ${targetLabel} (${sentiment === "positive" ? "glorifying" : "sabotaging"}). Graph values adjusted.`;
+    const logEntry = `Y${wsYear} M${wsMonth}: [Rumor Propagation] Whisper chain injected between ${sourceLabel} and ${targetLabel} (${sentiment === "positive" ? "glorifying" : "sabotaging"}). Graph values adjusted.`;
     setGraphStoryLogs((prev) => [logEntry, ...prev].slice(0, 40));
 
-    // Register scandal in scene magazines review section
-    const spyline = SPYLINE_TEMPLATES[Math.floor(Math.random() * SPYLINE_TEMPLATES.length)];
-    const spylineArticle = {
-      id: `rumor_magazine_${Date.now()}`,
-      title: "BBS TELEGRAM SPYLINE",
-      year: currentYear,
-      month: currentMonth,
-      headline: spyline.headline,
-      body: spyline.body(sourceLabel, targetLabel),
-      type: "scandal" as const
-    };
-    setNewsLog((prevNews) => [
-      spylineArticle,
-      ...prevNews
-    ]);
+    // Register scandal in scene magazines review section.
+    // Rival-relationship gate: a spyline scandal headline ("BBS TELEGRAM
+    // SPYLINE") only fires when the rumor's two endpoints have a real
+    // relationship in WorldState — a hostile rivalry heatmap entry, an
+    // existing rivalry edge in the social graph, or fresh split/disband/
+    // member-drama in the rival activity log. A rumor injected between
+    // unrelated nodes still mutates graph weights and the story log above,
+    // but no fabricated leak headline is published about a non-rivalry.
+    const srcRival = wsRivalGroups[sourceId];
+    const tgtRival = wsRivalGroups[targetId];
+    // GroupDossierPanel convention: intensity > 0 = HOSTILE (red bar),
+    // < 0 = FRIENDLY (cyan bar), 0 = neutral. The rival sim writes this
+    // heatmap (release races, poaching, splits, collaborations).
+    const heatmapHostile =
+      (srcRival?.rivalries[targetId] ?? 0) > 0 ||
+      (tgtRival?.rivalries[sourceId] ?? 0) > 0;
+    const existingRivalryEdge = graphEdges.some(
+      (e) =>
+        e.type === "rivalry" &&
+        ((e.source === sourceId && e.target === targetId) ||
+          (e.source === targetId && e.target === sourceId)),
+    );
+    // Drama within the last 6 months: splits (formed), disbandings, or
+    // members leaving are real-world scandal sources.
+    const dramaCutoffTick = wsYear * 12 + wsMonth - 6;
+    const recentDrama = wsRivalActivityLog.some(
+      (entry) =>
+        (entry.groupId === sourceId || entry.groupId === targetId) &&
+        (entry.type === "formed" || entry.type === "disbanded" || entry.type === "member_left") &&
+        entry.year * 12 + entry.month >= dramaCutoffTick,
+    );
+
+    // Scandal leak headlines only make sense for hostile/sabotaging
+    // gossip — a positive (glorifying) rumor between rivals is not a
+    // "leaked backroom deals" story, it's praise. Gate on sentiment too.
+    if (sentiment === "negative" && (heatmapHostile || existingRivalryEdge || recentDrama)) {
+      // Era-gate the spyline pool: an 1985-era dialup leak headline served
+      // alongside a 2023 Discord-era thread would break immersion, so only
+      // templates matching the current year's era bucket are eligible.
+      const spylineEra = getEra(wsYear);
+      const eraSpylines = SPYLINE_TEMPLATES.filter((t) => t.era === spylineEra);
+      const spylinePool = eraSpylines.length > 0 ? eraSpylines : SPYLINE_TEMPLATES;
+      const spyline = spylinePool[Math.floor(Math.random() * spylinePool.length)];
+      const spylineArticle = {
+        id: `rumor_magazine_${Date.now()}`,
+        title: "BBS TELEGRAM SPYLINE",
+        year: wsYear,
+        month: wsMonth,
+        headline: spyline.headline,
+        body: spyline.body(sourceLabel, targetLabel),
+        type: "scandal" as const,
+      };
+      simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: spylineArticle });
+    }
   };
 
   const handleProposeJointCollabOnGraph = (npcId: string) => {
@@ -2759,23 +2693,12 @@ const ERA_LABELS: Record<string, string> = {
     });
 
     const npcHandle = characters[npcId]?.handle || npcId;
-    const allianceMessage = `Y${currentYear} M${currentMonth}: [Collaboration Synergy] ${playerGroupName} signed an official collaborative joint release agreement with ${npcHandle}! Gained +50 reputation!`;
+    const allianceMessage = `Y${wsYear} M${wsMonth}: [Collaboration Synergy] ${wsPlayerGroupName} signed an official collaborative joint release agreement with ${npcHandle}! Gained +50 reputation!`;
     setGraphStoryLogs((prev) => [allianceMessage, ...prev].slice(0, 40));
-    setPlayerReputation((prev) => Math.min(prev + 55, 1000));
-    setResearchPoints((prev) => prev + 20);
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: Math.min(55, 1000 - wsReputation), reason: "Alliance synergy" });
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: 20, reason: "Alliance synergy" });
 
-    setNewsLog((prevNews) => [
-      {
-        id: `alliance_news_${Date.now()}`,
-        title: "SCENE DISK NEWSFLASH",
-        year: currentYear,
-        month: currentMonth,
-        headline: `${playerGroupName.toUpperCase()} FORMS ALLIANCE WITH ${npcHandle.toUpperCase()}!`,
-        body: `Exciting collaborative signatures! Player crew is teaming up with elite freelancer '${npcHandle}' to release a joint multi-platform executive presentation. The scene holds its breath!`,
-        type: "tech_breakthrough"
-      },
-      ...prevNews
-    ]);
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: { id: `alliance_news_${Date.now()}`, title: "SCENE DISK NEWSFLASH", year: wsYear, month: wsMonth, headline: `${wsPlayerGroupName.toUpperCase()} FORMS ALLIANCE WITH ${npcHandle.toUpperCase()}!`, body: `Exciting collaborative signatures! Player crew is teaming up with elite freelancer '${npcHandle}' to release a joint multi-platform executive presentation. The scene holds its breath!`, type: "tech_breakthrough" } });
   };
 
   const handleManualReputationDiffusion = () => {
@@ -2801,34 +2724,96 @@ const ERA_LABELS: Record<string, string> = {
       return copy;
     });
 
-    const diffusionLog = `Y${currentYear} M${currentMonth}: [Reputation Diffusion] Reputation energy shifted along active friendship, guidance and collaboration edges.`;
+    const diffusionLog = `Y${wsYear} M${wsMonth}: [Reputation Diffusion] Reputation energy shifted along active friendship, guidance and collaboration edges.`;
     setGraphStoryLogs((prev) => [diffusionLog, ...prev].slice(0, 40));
   };
 
   // --------- TICK GAME CALENDAR / FOCUS TICKER ---------
-  const advanceCalendarMonth = () => {
-    // Increment month
-    let nextM = currentMonth + 1;
-    let nextY = currentYear;
+  const simLoop = useSimulationLoop();
 
-    if (nextM > 12) {
-      nextM = 1;
-      nextY = currentYear + 1;
+  /**
+   * Apply a named ScenarioPreset — dispatches all events to bootstrap
+   * the player state to a historical starting point.
+   */
+  function applyScenarioPreset(preset: ScenarioPreset) {
+    simLoop.dispatch({
+      type: "MonthAdvanced",
+      ts: getCurrentTick(),
+      previousYear: wsYear,
+      previousMonth: wsMonth,
+      nextYear: preset.year,
+      nextMonth: 1,
+    });
+
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: preset.money - wsMoney, reason: `Scenario${preset.year}` });
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: preset.reputation - wsReputation, reason: `Scenario${preset.year}` });
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: preset.researchPoints - wsResearchPoints, reason: `Scenario${preset.year}` });
+
+    // Fire existing crew so the preset starts fresh
+    wsHiredCrewIds.forEach((_cid) => simLoop.dispatch({ type: "CrewFired", ts: getCurrentTick(), charId: _cid }));
+
+    // Buy preset rigs
+    preset.rigs.forEach((pid) => simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: pid }));
+
+    // Research preset techs
+    preset.techs.forEach((tid) => simLoop.dispatch({ type: "TechResearched", ts: getCurrentTick(), techId: tid }));
+
+    // Hire preset crew
+    preset.crewHires.forEach((cid) => simLoop.dispatch({ type: "CrewHired", ts: getCurrentTick(), charId: cid, cost: 0 }));
+
+    // Seed releases (rewrite groupName to the player's actual crew name)
+    if (preset.seedReleases) {
+      Object.values(preset.seedReleases).forEach((prod) =>
+        simLoop.dispatch({
+          type: "DemoCompiled",
+          ts: getCurrentTick(),
+          production: { ...prod, groupName: wsPlayerGroupName },
+        })
+      );
     }
+
+    // Reset characters and apply NPC group assignments
+    const resetNPCs = { ...INITIAL_NPCS };
+    const assignments = preset.npcGroupAssignments;
+    Object.keys(assignments).forEach((charId) => {
+      if (resetNPCs[charId]) {
+        resetNPCs[charId] = { ...resetNPCs[charId], groupId: assignments[charId] };
+      }
+    });
+    setCharacters(resetNPCs);
+    setProductionSummaries({});
+
+    // Set CRT preview state
+    setCrtActiveEffects(preset.crtEffects);
+    setCrtDemoName(preset.crtDemoName);
+    setCrtMusicTrack("");
+
+    // Reset news log and seed the scenario article
+    simLoop.dispatch({ type: "NewsLogReset", ts: getCurrentTick() });
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: { ...preset.article } });
+
+    setSaveNotice("Scenario Loaded Successfully!");
+    setTimeout(() => setSaveNotice(""), 3000);
+  }
+
+  const advanceCalendarMonth = () => {
+    // Advance the calendar through the event-sourced simulation loop.
+    // This updates the WorldState (via dispatch of monthAdvanced event)
+    // AND runs rival group simulation + tech auto-unlocks at year
+    // boundaries. Returns the new WorldState with updated calendar.
+    const nextState = simLoop.advanceMonth();
+    const nextY = nextState.calendar.year;
+    const nextM = nextState.calendar.month;
 
     if (nextY > 2026) {
       window.alert("Game Timeline complete! Under historical guidelines of 1985-2026, you have finished your career. Feel free to stay in sandbox mode and continue writing code!");
     }
-
-    setCurrentMonth(nextM);
-    setCurrentYear(nextY);
-
     // Trigger continuous graph-based social network periodic updates!
     runPeriodicGraphSimulation(nextY, nextM);
 
     // Give passive income/research points depending on crew organization skill
-    const totalOrg = hiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.organization, 15);
-    setResearchPoints((prev) => prev + Math.floor(totalOrg / 15) + 4);
+    const totalOrg = wsHiredCrewIds.reduce((sum, cId) => sum + characters[cId].skills.organization, 15);
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: Math.floor(totalOrg / 15) + 4, reason: "Monthly org bonus" });
 
     // Progress NPC cognitive simulator monthly (decays, drifts, distortions)
     setCharacters((prev) => {
@@ -2946,10 +2931,10 @@ const ERA_LABELS: Record<string, string> = {
         body: ev.body,
         type: "editorial"
       };
-      setNewsLog((prev) => [evLog, ...prev]);
-      if (ev.type === "money") setPlayerMoney((m) => Math.max(m + ev.amount, 0));
-      else if (ev.type === "reputation") setPlayerReputation((r) => Math.min(Math.max(r + ev.amount, 0), 1000));
-      else if (ev.type === "research") setResearchPoints((pts) => Math.max(pts + ev.amount, 0));
+      simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: evLog });
+      if (ev.type === "money") simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: ev.amount, reason: "BBS event" });
+      else if (ev.type === "reputation") simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: ev.amount, reason: "BBS event" });
+      else if (ev.type === "research") simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: ev.amount, reason: "BBS event" });
     }
 
     // BBS Monthly Tick & State updates
@@ -3001,7 +2986,7 @@ const ERA_LABELS: Record<string, string> = {
                   body: `In private conversations uploaded through high-priority BBS mailers, '${actor.handle}' announced they are officially leaving ${oldGroup}. Source couriers report high alignment with the player group. Will they join the ranks?`,
                   type: "scandal"
                 };
-                setNewsLog((prevNews) => [splitLog, ...prevNews]);
+                simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: splitLog });
               }
             } else if (th.playerActionTaken === "support") {
               // Increase friendship & motivation, reduce burnout
@@ -3216,7 +3201,7 @@ const ERA_LABELS: Record<string, string> = {
           );
 
           if (passiveShift !== 0) {
-            setPlayerReputation(prev => Math.max(0, Math.min(1000, prev + passiveShift)));
+            simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: passiveShift, reason: "Passive drift" });
             notificationsToInject.push({
               id: `passive_diffusion_drift_${updatedTh.id}_${nextY}_${nextM}_${Date.now()}`,
               title: "REPUTATION DRIFT",
@@ -3270,7 +3255,7 @@ const ERA_LABELS: Record<string, string> = {
 
       // Inject notifications into news feed if any
       if (notificationsToInject.length > 0) {
-        setNewsLog((prevNews) => [...notificationsToInject, ...prevNews]);
+        notificationsToInject.forEach((_n) => simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: _n }));
       }
 
       // Add newly cloned threads
@@ -3294,7 +3279,7 @@ const ERA_LABELS: Record<string, string> = {
         choices: [
           { text: "Agree with Ranger: Real assemblies are built cycle-by-cycle!", type: "support", effectDescription: "+25 Friendship with Ranger, +15 Motivation" },
           { text: "Flame Ranger: Flat memories allow gorgeous 3D calculations. 8-bit is done.", type: "flame", effectDescription: "-20 Friendship with Ranger" },
-          { text: `Recruit Ranger: Join ${playerGroupName} and show them the true power of assembly!`, type: "recruit", effectDescription: "+20 Friendship, recruiting discount on Ranger" }
+          { text: `Recruit Ranger: Join ${wsPlayerGroupName} and show them the true power of assembly!`, type: "recruit", effectDescription: "+20 Friendship, recruiting discount on Ranger" }
         ],
         interacted: false,
         playerActionTaken: null,
@@ -3323,7 +3308,7 @@ const ERA_LABELS: Record<string, string> = {
         choices: [
           { text: "Support Dxyre: Art is the soul of a demo, do not sacrifice your passion!", type: "support", effectDescription: "+25 Friendship with Dxyre, drops burnout by 20" },
           { text: "Flame Dxyre: Stop crying about group fights and draw faster logos.", type: "flame", effectDescription: "-30 Friendship, triggers motivation loss" },
-          { text: `Recruit Dxyre: Join ${playerGroupName} where pixel artists define the production direction!`, type: "recruit", effectDescription: "Triggers dynamic group split, recruits discount!" }
+          { text: `Recruit Dxyre: Join ${wsPlayerGroupName} where pixel artists define the production direction!`, type: "recruit", effectDescription: "Triggers dynamic group split, recruits discount!" }
         ],
         interacted: false,
         playerActionTaken: null,
@@ -3409,7 +3394,7 @@ const ERA_LABELS: Record<string, string> = {
         ],
         choices: [
           { text: "Support FC: We will be there in Finland to congratulate you in person!", type: "support", effectDescription: "+25 Friendship with Purple Motion, +10 motivation" },
-          { text: `Scoff announcement: ${playerGroupName} will outscore you. The throne is ours.`, type: "flame", effectDescription: "-20 Friendship, locks rivalry modifier" },
+          { text: `Scoff announcement: ${wsPlayerGroupName} will outscore you. The throne is ours.`, type: "flame", effectDescription: "-20 Friendship, locks rivalry modifier" },
           { text: "Hype alliance: Propose joint tracker disc swaps at the local hotel.", type: "recruit", effectDescription: "+20 Friendship, opens collaborative gateways" }
         ],
         interacted: false,
@@ -3468,7 +3453,7 @@ const ERA_LABELS: Record<string, string> = {
         choices: [
           { text: "Praise tool: This editor speeds up graphics layout tenfold!", type: "support", effectDescription: "+25 Friendship with Trix, +15 Research points" },
           { text: "Critique tool: It crashes on Standard Amigas due to chip RAM limits.", type: "flame", effectDescription: "-20 Friendship, increases Trix burnout" },
-          { text: `Recruit Trix: Paint with ${playerGroupName} using SceneDraw exclusively!`, type: "recruit", effectDescription: "+20 Friendship, recruits Trix with high motivation" }
+          { text: `Recruit Trix: Paint with ${wsPlayerGroupName} using SceneDraw exclusively!`, type: "recruit", effectDescription: "+20 Friendship, recruits Trix with high motivation" }
         ],
         interacted: false,
         playerActionTaken: null,
@@ -3531,7 +3516,7 @@ const ERA_LABELS: Record<string, string> = {
     let npcReply = "";
 
     // Default reply in case no keyword matches
-    npcReply = `Interesting comment, ${playerHandle}. Let's see how our next demo releases score. Keep swapping!`;
+    npcReply = `Interesting comment, ${wsPlayerHandle}. Let's see how our next demo releases score. Keep swapping!`;
     effectMsg = "Posted to thread. Small friendly bump! (+3 Friendship)";
 
     let friendshipChange = 3;
@@ -3544,11 +3529,11 @@ const ERA_LABELS: Record<string, string> = {
       friendshipChange = -15;
       motivationChange = -10;
       burnoutChange = 15;
-      npcReply = `Who are you calling lame, ${playerHandle}? Why don't you focus on optimizing your own unpeeled register buffers before writing trash on my boards!`;
+      npcReply = `Who are you calling lame, ${wsPlayerHandle}? Why don't you focus on optimizing your own unpeeled register buffers before writing trash on my boards!`;
       effectMsg = `Flamed host! Dramatic breakdown: -15 Friendship, +15 Host Burnout, -10 Motivation.`;
     } else if (isRecruit) {
       friendshipChange = 10;
-      npcReply = `${playerGroupName} is definitely a rising force in the demoscene. Let's keep talking off-board via encrypted letter swaps or meet at the next party!`;
+      npcReply = `${wsPlayerGroupName} is definitely a rising force in the demoscene. Let's keep talking off-board via encrypted letter swaps or meet at the next party!`;
       effectMsg = `Recruitment pitch registry! Host feels highly valued. (+10 Friendship, contract slot interest unlocked)`;
     } else if (isTech) {
       friendshipChange = 12;
@@ -3560,7 +3545,7 @@ const ERA_LABELS: Record<string, string> = {
       friendshipChange = 15;
       motivationChange = 20;
       burnoutChange = -15;
-      npcReply = `Cheers, ${playerHandle}! Real scene support like yours is what keeps us hacking till sunrise. Much respect!`;
+      npcReply = `Cheers, ${wsPlayerHandle}! Real scene support like yours is what keeps us hacking till sunrise. Much respect!`;
       effectMsg = `Highly supportive post! +15 Friendship, +20 Host Motivation, Host Burnout dropped by 15.`;
     }
 
@@ -3587,17 +3572,17 @@ const ERA_LABELS: Record<string, string> = {
         const newMemory: MemoryItem = {
           id: `bbs_custom_post_${Date.now()}`,
           type: "bbs_post",
-          description: `Player ${playerHandle} reply on [${thread.topic}]: "${textToPost.substring(0, 50)}..."`,
-          timestamp: `Y${currentYear} M${currentMonth}`,
+          description: `Player ${wsPlayerHandle} reply on [${thread.topic}]: "${textToPost.substring(0, 50)}..."`,
+          timestamp: `Y${wsYear} M${wsMonth}`,
           strength: 100,
           sentiment: sentimentType
         };
 
         // Bias reinforcement: customize host recollection details based on specialty/traits
         if (hostChar.specialty === SpecialtyType.AssemblyWizard && isTech) {
-          newMemory.description = `Analyzed advanced assembly timing register tricks posted by ${playerHandle}. Gained extreme inspiration!`;
+          newMemory.description = `Analyzed advanced assembly timing register tricks posted by ${wsPlayerHandle}. Gained extreme inspiration!`;
         } else if (hostChar.specialty === SpecialtyType.TrackerLegend && isPositive) {
-          newMemory.description = `Recieved outstanding and heartening audio composition reviews from ${playerHandle}.`;
+          newMemory.description = `Recieved outstanding and heartening audio composition reviews from ${wsPlayerHandle}.`;
         }
 
         const updatedShort = [newMemory, ...hostCog.shortTermMemory].slice(0, 10);
@@ -3651,8 +3636,8 @@ const ERA_LABELS: Record<string, string> = {
                   shortTermMemory: [{
                     id: `prop_flame_${Date.now()}`,
                     type: "bbs_post",
-                    description: `Host ${hostChar.handle} was aggressively flamed on forums by ${playerHandle}. Highly obnoxious.`,
-                    timestamp: `Y${currentYear} M${currentMonth}`,
+                    description: `Host ${hostChar.handle} was aggressively flamed on forums by ${wsPlayerHandle}. Highly obnoxious.`,
+                    timestamp: `Y${wsYear} M${wsMonth}`,
                     strength: 80,
                     sentiment: "negative"
                   }, ...otherCog.shortTermMemory].slice(0, 10),
@@ -3668,8 +3653,8 @@ const ERA_LABELS: Record<string, string> = {
                   shortTermMemory: [{
                     id: `prop_pos_${Date.now()}`,
                     type: "bbs_post",
-                    description: `Noticed professional scene synergy between ${hostChar.handle} and alignment group ${playerHandle}.`,
-                    timestamp: `Y${currentYear} M${currentMonth}`,
+                    description: `Noticed professional scene synergy between ${hostChar.handle} and alignment group ${wsPlayerHandle}.`,
+                    timestamp: `Y${wsYear} M${wsMonth}`,
                     strength: 75,
                     sentiment: "positive"
                   }, ...otherCog.shortTermMemory].slice(0, 10),
@@ -3687,7 +3672,7 @@ const ERA_LABELS: Record<string, string> = {
     }
 
     if (resPointsBonus > 0) {
-      setResearchPoints(prev => prev + resPointsBonus);
+      simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: resPointsBonus, reason: "BBS research bonus" });
     }
 
     // Add user message & secondary automatic computer-generated NPC retort to BBS Thread
@@ -3696,7 +3681,7 @@ const ERA_LABELS: Record<string, string> = {
         if (t.id === threadId) {
           const updatedMessages = [
             ...t.messages,
-            { sender: playerHandle, text: textToPost, color: "text-[#22d3ee]" },
+            { sender: wsPlayerHandle, text: textToPost, color: "text-[#22d3ee]" },
             { sender: actor?.handle || "SCENER", text: npcReply, color: isFlame ? "text-rose-400" : isTech ? "text-[#a855f7]" : "text-[#4ade80]" }
           ];
 
@@ -3728,13 +3713,13 @@ const ERA_LABELS: Record<string, string> = {
           credibilityScore: Math.min(100, (t.credibilityScore || 60) + 15),
           messages: [
             ...t.messages,
-            { sender: playerHandle, text: `[BOOST CHRONO INJECTION]: Verified transmission. Authentic registers confirmed at local German backup nodes. Keep spreading!`, color: "text-[#22d3ee]" }
+            { sender: wsPlayerHandle, text: `[BOOST CHRONO INJECTION]: Verified transmission. Authentic registers confirmed at local German backup nodes. Keep spreading!`, color: "text-[#22d3ee]" }
           ]
         };
       }
       return t;
     }));
-    setResearchPoints(prev => Math.max(0, prev - 10));
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: -10, reason: "BBS post penalty" });
     setBbsEffectNotification("Hype boost injected successfully! Thread propagation speed boosted.");
     setTimeout(() => setBbsEffectNotification(null), 4000);
   };
@@ -3755,7 +3740,7 @@ const ERA_LABELS: Record<string, string> = {
       }
       return t;
     }));
-    setPlayerReputation(prev => Math.max(0, prev - 15));
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: -15, reason: "Burnout penalty" });
     setBbsEffectNotification("SYSOP authority deployed: Thread suppressed & buried!");
     setTimeout(() => setBbsEffectNotification(null), 4000);
   };
@@ -3773,13 +3758,13 @@ const ERA_LABELS: Record<string, string> = {
           credibilityScore: Math.max(0, (t.credibilityScore || 60) - 15),
           messages: [
             ...t.messages,
-            { sender: playerHandle, text: `[MUTATION INTEGRATION]: Fact check warnings. This telemetry data has inverted cycle alignment. Original concepts corrupted!`, color: "text-amber-500" }
+            { sender: wsPlayerHandle, text: `[MUTATION INTEGRATION]: Fact check warnings. This telemetry data has inverted cycle alignment. Original concepts corrupted!`, color: "text-amber-500" }
           ]
         };
       }
       return t;
     }));
-    setResearchPoints(prev => Math.max(0, prev - 5));
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: -5, reason: "Signature penalty" });
     setBbsEffectNotification("Counter-leak injected! Information has successfully mutated.");
     setTimeout(() => setBbsEffectNotification(null), 4000);
   };
@@ -3806,21 +3791,22 @@ const ERA_LABELS: Record<string, string> = {
   // --------- PERSISTENCE / SAVING & LOADING ARCHITECTURE ---------
   const triggerAutoSave = (m: number, y: number) => {
     try {
-      const stateObj = {
-        playerMoney,
-        playerReputation,
+      const stateObj: AutosaveData = {
+        version: SAVE_VERSION,
+        wsMoney,
+        wsReputation,
         currentYear: y,
         currentMonth: m,
-        activePlatform,
-        ownedRigs,
-        unlockedTechs,
-        hiredCrewIds,
-        myReleases,
+        activePlatform: wsActivePlatform,
+        wsOwnedRigs,
+        wsUnlockedTechs,
+        wsHiredCrewIds,
+        wsMyReleases,
         productionSummaries,
         productionDownloads,
-        researchPoints,
-        playerHandle,
-        playerGroupName,
+        wsResearchPoints,
+        wsPlayerHandle,
+        wsPlayerGroupName,
         bbsDialed,
         bbsThreads,
         taskAssignments
@@ -3834,7 +3820,7 @@ const ERA_LABELS: Record<string, string> = {
   };
 
   const manualSaveGame = () => {
-    triggerAutoSave(currentMonth, currentYear);
+    triggerAutoSave(wsMonth, wsYear);
     setSaveNotice("Saved game to local storage slot successfully!");
     setTimeout(() => setSaveNotice(""), 3000);
   };
@@ -3887,22 +3873,44 @@ const ERA_LABELS: Record<string, string> = {
         console.warn("No autosaved file slot was discovered in local storage.");
         return;
       }
-      const data = JSON.parse(raw);
+      const data = migrateSave(raw);
+      if (!data) {
+        // Preserve the pre-fix user-facing alert: migrateSave returns null
+        // instead of throwing, so the outer catch below would never fire.
+        window.alert("CRITICAL CORRUPTED DATA ERROR: Failed to decode localStorage variables.");
+        return;
+      }
 
-      setPlayerMoney(data.playerMoney ?? 200);
-      setPlayerReputation(data.playerReputation ?? 20);
-      setCurrentYear(data.currentYear ?? 1985);
-      setCurrentMonth(data.currentMonth ?? 1);
-      setActivePlatform(data.activePlatform ?? PlatformId.C64);
-      setOwnedRigs(data.ownedRigs ?? [PlatformId.C64]);
-      setUnlockedTechs(data.unlockedTechs ?? ["raster_sync"]);
-      setHiredCrewIds(data.hiredCrewIds ?? []);
-      setMyReleases(data.myReleases ?? {});
+      // Restore WorldState money/reputation from saved data.
+      simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: (data.wsMoney ?? 200) - wsMoney, reason: "LoadGame restore" });
+      simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: (data.wsReputation ?? 20) - wsReputation, reason: "LoadGame restore" });
+      // Restore WorldState calendar from saved data.
+      simLoop.dispatch({
+        type: "MonthAdvanced",
+        ts: getCurrentTick(),
+        previousYear: wsYear,
+        previousMonth: wsMonth,
+        nextYear: data.currentYear ?? 1985,
+        nextMonth: data.currentMonth ?? 1,
+      });
+      const savedRigs = (data.wsOwnedRigs ?? [PlatformId.C64]) as PlatformId[];
+      savedRigs.forEach((p: PlatformId) => simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: p }));
+      // Restore the saved active platform LAST so RigPurchased's
+      // activePlatform side-effect lands on the rig the player had
+      // selected when the save was written. Only re-select rigs the
+      // save actually owns — a malformed save must not grant new
+      // hardware (RigPurchased would add an unowned platform).
+      if (data.activePlatform && savedRigs.includes(data.activePlatform)) {
+        simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: data.activePlatform });
+      }
+      const savedTechs = (data.wsUnlockedTechs ?? ["raster_sync"]) as string[];
+      savedTechs.forEach((t: string) => simLoop.dispatch({ type: "TechResearched", ts: getCurrentTick(), techId: t }));
+      (data.wsHiredCrewIds ?? []).forEach((_cid: string) => simLoop.dispatch({ type: "CrewHired", ts: getCurrentTick(), charId: _cid, cost: 0 }));
+      Object.entries(data.wsMyReleases ?? {}).forEach(([_, _prod]) => simLoop.dispatch({ type: "DemoCompiled", ts: getCurrentTick(), production: _prod as Production }));
       setProductionSummaries(data.productionSummaries ?? {});
       setProductionDownloads(data.productionDownloads ?? {});
-      setResearchPoints(data.researchPoints ?? 30);
-      setPlayerHandle(data.playerHandle ?? "AssemblyKid");
-      setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
+      simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: (data.wsResearchPoints ?? 30) - wsResearchPoints, reason: "LoadGame restore" });
+      simLoop.dispatch({ type: "PlayerIdentitySet", ts: getCurrentTick(), handle: data.wsPlayerHandle ?? "AssemblyKid", groupName: data.wsPlayerGroupName ?? "Tricycle Crews" });
       setTaskAssignments(data.taskAssignments ?? DEFAULT_TASK_ASSIGNMENTS);
       setBbsDialed(data.bbsDialed ?? false);
       if (data.bbsThreads) {
@@ -3911,7 +3919,7 @@ const ERA_LABELS: Record<string, string> = {
 
       // Reset NPC links in groups match
       const nlist = { ...INITIAL_NPCS };
-      (data.hiredCrewIds ?? []).forEach((cId: string) => {
+      (data.wsHiredCrewIds ?? []).forEach((cId: string) => {
         if (nlist[cId]) nlist[cId].groupId = "player";
       });
       setCharacters(nlist);
@@ -3919,22 +3927,16 @@ const ERA_LABELS: Record<string, string> = {
       setSaveNotice("Autosave Loaded Successfully!");
 
       try {
-        const parsed = JSON.parse(raw);
-        const handle =
-          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).playerHandle) || "AssemblyKid";
-        const group =
-          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).playerGroupName) || "Tricycle Crews";
-        const year =
-          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).currentYear) || 1985;
-        const month =
-          (parsed && typeof parsed === "object" && (parsed as Record<string, unknown>).currentMonth) || 1;
+        // Read from the migrated canonical data (same shape the writer
+        // emits) so the Continue-button summary can never drift from
+        // what loadSavedGame restored.
         setMainMenuSaveInfo({
-          summary: `${group} · ${year}/${String(month).padStart(2, "0")} · ${handle}`,
+          summary: `${data.wsPlayerGroupName || "Tricycle Crews"} · ${data.currentYear || 1985}/${String(data.currentMonth || 1).padStart(2, "0")} · ${data.wsPlayerHandle || "AssemblyKid"}`,
           timestamp: new Date().toISOString(),
         });
         setShowMainMenu(false);
       } catch {
-        // Best-effort parse; if parse fails, MainMenu still
+        // Best-effort parse; if it fails, MainMenu still
         // renders with hasLocalSave=false and the splash stays up.
       }
       setTimeout(() => setSaveNotice(""), 3000);
@@ -3975,21 +3977,26 @@ const ERA_LABELS: Record<string, string> = {
       handle,
       groupName,
     });
-    setPlayerHandle(handle);
-    setPlayerGroupName(groupName);
+    // Reset WorldState calendar to 1985/January for a fresh start.
+    simLoopDispatch.dispatch({
+      type: "MonthAdvanced",
+      ts: getCurrentTick(),
+      previousYear: wsYear,
+      previousMonth: wsMonth,
+      nextYear: 1985,
+      nextMonth: 1,
+    });
+    // (PlayerIdentitySet already dispatched above by simLoopDispatch)
 
     // Reset ALL game state to fresh defaults — otherwise the
     // mount-time hydration effect's saved data leaks through.
-    setCurrentYear(1985);
-    setCurrentMonth(1);
-    setPlayerMoney(250);
-    setPlayerReputation(20);
-    setResearchPoints(30);
-    setActivePlatform(PlatformId.C64);
-    setOwnedRigs([PlatformId.C64]);
-    setUnlockedTechs(["raster_sync"]);
-    setHiredCrewIds([]);
-    setMyReleases({});
+    simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: 250 - wsMoney, reason: "NewGame reset" });
+    simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: 20 - wsReputation, reason: "NewGame reset" });
+    simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: 30 - wsResearchPoints, reason: "NewGame reset" });
+    simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: PlatformId.C64 });
+    simLoop.dispatch({ type: "TechResearched", ts: getCurrentTick(), techId: "raster_sync" });
+    wsHiredCrewIds.forEach((_cid) => simLoop.dispatch({ type: "CrewFired", ts: getCurrentTick(), charId: _cid }));
+    // (myReleases can't be cleared via events — append-only)
     setProductionSummaries({});
     setCharacters(() => {
       const list = { ...INITIAL_NPCS };
@@ -4017,16 +4024,9 @@ const ERA_LABELS: Record<string, string> = {
     setCrtDemoName("SINUS WAVES");
     setCrtGroupName(groupName);
     setCrtMusicTrack("");
-    // Reset news log
-    setNewsLog([{
-      id: "news_init",
-      title: "AMIGA WORLD SCENEDESK #01",
-      year: 1985,
-      month: 1,
-      headline: "A NEW ERA DAWNS IN COMPUTING HACKING!",
-      body: "Young computer teenagers across Europe are leaving conventional software houses and organizing underground demogroups.",
-      type: "editorial"
-    }]);
+    // Reset news log, then re-seed the canonical bootstrap article
+    simLoop.dispatch({ type: "NewsLogReset", ts: getCurrentTick() });
+    simLoop.dispatch({ type: "NewsArticlePublished", ts: getCurrentTick(), article: { ...SEED_SCENE_ARTICLE } });
     // Reset BBS state
     setBbsDialed(false);
     setBbsDialing(false);
@@ -4157,31 +4157,48 @@ const ERA_LABELS: Record<string, string> = {
       // Continue just dismisses the menu. ALSO sets mainMenuSaveInfo
       // so the MainMenu Continue button shows as enabled (hasLocalSave).
       try {
-        const data = JSON.parse(raw);
-        setPlayerMoney(data.playerMoney ?? 200);
-        setPlayerReputation(data.playerReputation ?? 20);
-        setCurrentYear(data.currentYear ?? 1985);
-        setCurrentMonth(data.currentMonth ?? 1);
-        setActivePlatform(data.activePlatform ?? PlatformId.C64);
-        setOwnedRigs(data.ownedRigs ?? [PlatformId.C64]);
-        setUnlockedTechs(data.unlockedTechs ?? ["raster_sync"]);
-        setHiredCrewIds(data.hiredCrewIds ?? []);
-        setMyReleases(data.myReleases ?? {});
+        const data = migrateSave(raw);
+        if (!data) {
+          console.warn("Hydrating failed, using defaults");
+          return;
+        }
+        // Restore WorldState money/reputation from saved autosave data.
+        simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: (data.wsMoney ?? 200) - wsMoney, reason: "Hydrate restore" });
+        simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: (data.wsReputation ?? 20) - wsReputation, reason: "Hydrate restore" });
+        // Restore WorldState calendar from saved autosave data.
+        simLoop.dispatch({
+          type: "MonthAdvanced",
+          ts: getCurrentTick(),
+          previousYear: wsYear,
+          previousMonth: wsMonth,
+          nextYear: data.currentYear ?? 1985,
+          nextMonth: data.currentMonth ?? 1,
+        });
+        const _hydrateRigs = (data.wsOwnedRigs ?? [PlatformId.C64]) as PlatformId[];
+        _hydrateRigs.forEach((_p: PlatformId) => simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: _p }));
+        // Restore the saved active platform last (see loadSavedGame).
+        // Only re-select rigs the save owns to avoid granting hardware.
+        if (data.activePlatform && _hydrateRigs.includes(data.activePlatform)) {
+          simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: data.activePlatform });
+        }
+        const _hydrateTechs = (data.wsUnlockedTechs ?? ["raster_sync"]) as string[];
+        _hydrateTechs.forEach((_t: string) => simLoop.dispatch({ type: "TechResearched", ts: getCurrentTick(), techId: _t }));
+        (data.wsHiredCrewIds ?? []).forEach((_cid: string) => simLoop.dispatch({ type: "CrewHired", ts: getCurrentTick(), charId: _cid, cost: 0 }));
+        Object.entries(data.wsMyReleases ?? {}).forEach(([_, _prod]) => simLoop.dispatch({ type: "DemoCompiled", ts: getCurrentTick(), production: _prod as Production }));
         setProductionSummaries(data.productionSummaries ?? {});
-        setResearchPoints(data.researchPoints ?? 30);
-        setPlayerHandle(data.playerHandle ?? "AssemblyKid");
-        setPlayerGroupName(data.playerGroupName ?? "Tricycle Crews");
+        simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: (data.wsResearchPoints ?? 30) - wsResearchPoints, reason: "Hydrate restore" });
+        simLoop.dispatch({ type: "PlayerIdentitySet", ts: getCurrentTick(), handle: data.wsPlayerHandle ?? "AssemblyKid", groupName: data.wsPlayerGroupName ?? "Tricycle Crews" });
         setTaskAssignments(data.taskAssignments ?? DEFAULT_TASK_ASSIGNMENTS);
 
         const nlist = { ...INITIAL_NPCS };
-        (data.hiredCrewIds ?? []).forEach((cId: string) => {
+        (data.wsHiredCrewIds ?? []).forEach((cId: string) => {
           if (nlist[cId]) nlist[cId].groupId = "player";
         });
         setCharacters(nlist);
 
         // Set mainMenuSaveInfo so the Continue button appears enabled
         setMainMenuSaveInfo({
-          summary: `${data.playerGroupName || "Tricycle Crews"} · ${data.currentYear || 1985}/${String(data.currentMonth || 1).padStart(2, "0")} · ${data.playerHandle || "AssemblyKid"}`,
+          summary: `${data.wsPlayerGroupName || "Tricycle Crews"} · ${data.currentYear || 1985}/${String(data.currentMonth || 1).padStart(2, "0")} · ${data.wsPlayerHandle || "AssemblyKid"}`,
           timestamp: new Date().toISOString(),
         });
       } catch (e) {
@@ -4249,9 +4266,9 @@ const ERA_LABELS: Record<string, string> = {
       case "workspace":
         return (
           <WorkspaceTab
-            activePlatform={activePlatform}
-            setActivePlatform={setActivePlatform}
-            ownedRigs={ownedRigs}
+            activePlatform={wsActivePlatform}
+            setActivePlatform={(v: PlatformId | ((prev: PlatformId) => PlatformId)) => { const val = typeof v === 'function' ? v(wsActivePlatform) : v; simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: val }); }}
+            ownedRigs={wsOwnedRigs}
             buyRig={buyRig}
             studioDemoName={studioDemoName}
             setStudioDemoName={setStudioDemoName}
@@ -4268,8 +4285,8 @@ const ERA_LABELS: Record<string, string> = {
               setProductionMood={setProductionMood}
               studioSelectedEffects={studioSelectedEffects}
               toggleSelectEffect={toggleSelectEffect}
-            currentYear={currentYear}
-            unlockedTechs={unlockedTechs}
+            currentYear={wsYear}
+            unlockedTechs={wsUnlockedTechs}
             combinedCpuDemand={combinedCpuDemand}
             combinedRamDemand={combinedRamDemand}
             effortCoding={effortCoding}
@@ -4297,14 +4314,14 @@ const ERA_LABELS: Record<string, string> = {
             selectedShaderIds={selectedCustomShaderIds}
             onToggleShader={handleToggleShader}
             onOpenShaderEditor={handleOpenShaderEditor}
-            myReleases={myReleases}
+            myReleases={wsMyReleases}
             productionSummaries={productionSummaries}
             setCrtActiveEffects={setCrtActiveEffects}
             setCrtDemoName={setCrtDemoName}
             setCrtGroupName={setCrtGroupName}
             setLastDemoSummary={setLastDemoSummary}
             setShowDemoSummary={modal.openDemoSummary}
-            hiredCrew={hiredCrewIds.map((id) => characters[id]).filter(Boolean)}
+            hiredCrew={wsHiredCrewIds.map((id) => characters[id]).filter(Boolean)}
             taskAssignments={taskAssignments}
             onAssignTask={handleAssignTask}
             onClearTask={handleClearTask}
@@ -4319,9 +4336,9 @@ const ERA_LABELS: Record<string, string> = {
         return (
           <CrewTab
             characters={characters}
-            hiredCrewIds={hiredCrewIds}
-            playerGroupName={playerGroupName}
-            playerHandle={playerHandle}
+            hiredCrewIds={wsHiredCrewIds}
+            playerGroupName={wsPlayerGroupName}
+            playerHandle={wsPlayerHandle}
             expandedCognitiveNpcId={expandedCognitiveNpcId}
             setExpandedCognitiveNpcId={setExpandedCognitiveNpcId}
             hireMember={hireMember}
@@ -4334,8 +4351,8 @@ const ERA_LABELS: Record<string, string> = {
       case "research":
         return (
           <ResearchTab
-            researchPoints={researchPoints}
-            unlockedTechs={unlockedTechs}
+            researchPoints={wsResearchPoints}
+            unlockedTechs={wsUnlockedTechs}
             researchNode={researchNode}
           />
         );
@@ -4349,31 +4366,39 @@ const ERA_LABELS: Record<string, string> = {
             partyVoteTally={partyVoteTally}
             partySelectedProdId={partySelectedProdId}
             partyContestLogger={partyContestLogger}
-            currentMonth={currentMonth}
-            playerMoney={playerMoney}
-            activePlatform={activePlatform}
-            playerGroupName={playerGroupName}
-            playerReputation={playerReputation}
-            myReleases={myReleases}
+            currentMonth={wsMonth}
+            playerMoney={wsMoney}
+            activePlatform={wsActivePlatform}
+            playerGroupName={wsPlayerGroupName}
+            playerReputation={wsReputation}
+            myReleases={wsMyReleases}
             getMonthName={getMonthName}
             setActiveParty={setActiveParty}
             setIsPartyRunning={setIsPartyRunning}
             setPartyStep={setPartyStep}
             setPartyVoteTally={setPartyVoteTally}
             setPartySelectedProdId={setPartySelectedProdId}
-            setPlayerMoney={setPlayerMoney}
-            setPlayerReputation={setPlayerReputation}
+            setPlayerMoney={(v: number | ((prev: number) => number)) => {
+              const val = typeof v === "function" ? v(wsMoney) : v;
+              simLoop.dispatch({ type: "MoneyChanged", ts: getCurrentTick(), delta: val - wsMoney, reason: "PartyTab" });
+            }}
+            setPlayerReputation={(v: number | ((prev: number) => number)) => {
+              const val = typeof v === "function" ? v(wsReputation) : v;
+              simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: val - wsReputation, reason: "PartyTab" });
+            }}
             openPartyPanel={openPartyPanel}
             startPartyVotingProcess={startPartyVotingProcess}
-            currentYear={currentYear}
+            currentYear={wsYear}
             lastDemoSummary={lastDemoSummary}
             startCompetition={startCompetition}
+            onOpenPartygoers={modal.openPartygoer}
+            onOpenAttendance={modal.openAttendance}
           />
         );
       case "news":
         return (
           <NewsTab
-            newsLog={newsLog}
+            newsLog={wsNewsLog}
             getMonthName={getMonthName}
           />
         );
@@ -4400,16 +4425,16 @@ const ERA_LABELS: Record<string, string> = {
             bbsCustomMessage={bbsCustomMessage}
             bbsEffectNotification={bbsEffectNotification}
             bbsTerminalLogs={bbsTerminalLogs}
-            playerHandle={playerHandle}
-            playerGroupName={playerGroupName}
-            playerReputation={playerReputation}
-            researchPoints={researchPoints}
-            currentYear={currentYear}
-            currentMonth={currentMonth}
+            playerHandle={wsPlayerHandle}
+            playerGroupName={wsPlayerGroupName}
+            playerReputation={wsReputation}
+            researchPoints={wsResearchPoints}
+            currentYear={wsYear}
+            currentMonth={wsMonth}
             groups={groupsMap}
             characters={characters}
-            hiredCrewIds={hiredCrewIds}
-            myReleases={myReleases}
+            hiredCrewIds={wsHiredCrewIds}
+            myReleases={wsMyReleases}
             productionDownloads={productionDownloads}
             setBbsDialed={setBbsDialed}
             setBbsDialing={setBbsDialing}
@@ -4419,9 +4444,15 @@ const ERA_LABELS: Record<string, string> = {
             setBbsCustomMessage={setBbsCustomMessage}
             setBbsEffectNotification={setBbsEffectNotification}
             setBbsTerminalLogs={setBbsTerminalLogs}
-            setPlayerReputation={setPlayerReputation}
+            setPlayerReputation={(v: number | ((prev: number) => number)) => {
+              const val = typeof v === "function" ? v(wsReputation) : v;
+              simLoop.dispatch({ type: "ReputationChanged", ts: getCurrentTick(), delta: val - wsReputation, reason: "BbsTab" });
+            }}
             setCharacters={setCharacters}
-            setResearchPoints={setResearchPoints}
+            setResearchPoints={(v: number | ((prev: number) => number)) => {
+              const val = typeof v === "function" ? v(wsResearchPoints) : v;
+              simLoop.dispatch({ type: "ResearchPointsChanged", ts: getCurrentTick(), delta: val - wsResearchPoints, reason: "BbsTab" });
+            }}
             setProductionDownloads={setProductionDownloads}
             toggleFollowBbsThread={toggleFollowBbsThread}
           />
@@ -4435,8 +4466,8 @@ const ERA_LABELS: Record<string, string> = {
               edges={combinedGraphEdges}
               storyLogs={graphStoryLogs}
               characters={characters}
-              playerHandle={playerHandle}
-              playerGroupName={playerGroupName}
+              playerHandle={wsPlayerHandle}
+              playerGroupName={wsPlayerGroupName}
               onInjectRumor={handleInjectRumorOnGraph}
               onProposeJointCollab={handleProposeJointCollabOnGraph}
               onTriggerReputationDiffusion={handleManualReputationDiffusion}
@@ -4497,12 +4528,12 @@ const ERA_LABELS: Record<string, string> = {
           <div className="hidden md:block h-4 w-[1px] bg-[#3f3f46]"></div>
           
           <div className="flex flex-wrap items-center gap-3 text-xs text-[#a1a1aa]">
-            <span>GROUP: <span id="header-group-name" className="text-white font-bold">{playerGroupName.toUpperCase()}</span></span>
+            <span>GROUP: <span id="header-group-name" className="text-white font-bold">{wsPlayerGroupName.toUpperCase()}</span></span>
             <span className="hidden md:inline text-[#3f3f46]">|</span>
             <span className="flex items-center gap-1">
               <span>DATE:</span>
               <span id="header-calendar-date" className="text-[#22d3ee] font-bold bg-[#1a1b1e] px-1.5 py-0.5 rounded border border-[#3f3f46]">
-                {getMonthName(currentMonth).toUpperCase()} {wsYear}
+                {getMonthName(wsMonth).toUpperCase()} {wsYear}
               </span>
             </span>
             <span className="hidden md:inline text-[#3f3f46]">|</span>
@@ -4527,7 +4558,7 @@ const ERA_LABELS: Record<string, string> = {
           <div className="flex items-center gap-1.5 bg-[#18181b] border border-[#27272a] px-2.5 py-1 rounded" title="Research Points represent modular mathematical focus to acquire advanced algorithms">
             <Zap className="w-3.5 h-3.5 text-[#818cf8]" />
             <span className="text-[#a1a1aa] font-bold">RESEARCH:</span>
-            <span id="player-hud-research" className="text-[#818cf8] font-bold">{researchPoints} RP</span>
+            <span id="player-hud-research" className="text-[#818cf8] font-bold">{wsResearchPoints} RP</span>
           </div>
 
           {/* Trigger chronological Month Advance */}
@@ -4570,22 +4601,22 @@ const ERA_LABELS: Record<string, string> = {
           <div className="bg-[#18181b] p-3 rounded border border-[#27272a] text-xs shadow-md">
             <div className="flex items-center justify-between text-[#a1a1aa] font-bold border-b border-[#27272a] pb-1.5 mb-2">
               <span className="text-[10px] text-[#facc15] font-bold tracking-widest uppercase">ACTIVE CREW</span>
-              <span className="text-[10px] text-[#22d3ee]">SIZE: {hiredCrewIds.length + 1}</span>
+              <span className="text-[10px] text-[#22d3ee]">SIZE: {wsHiredCrewIds.length + 1}</span>
             </div>
             <div className="space-y-1.5 font-mono">
               <div id="crew-item-player" className="flex items-center justify-between bg-[#09090b] p-2 rounded border border-[#27272a]">
                 <div className="flex items-center gap-1.5">
                   <span className="w-1.5 h-1.5 rounded-full bg-[#facc15]" />
-                  <span className="font-bold text-white">{playerHandle} (YOU)</span>
+                  <span className="font-bold text-white">{wsPlayerHandle} (YOU)</span>
                 </div>
                 <div className="flex items-center gap-2 text-[#a1a1aa] font-bold text-[10.5px]">
                   <span>CODE: 45</span>
                   <span className="text-[#3f3f46]">|</span>
-                  <span className="text-[#22d3ee]">{activePlatform}</span>
+                  <span className="text-[#22d3ee]">{wsActivePlatform}</span>
                 </div>
               </div>
 
-              {hiredCrewIds.map((cId) => {
+              {wsHiredCrewIds.map((cId) => {
                 const char = characters[cId];
                 if (!char) return null;
                 return (
@@ -4707,7 +4738,7 @@ const ERA_LABELS: Record<string, string> = {
               <div className="flex items-center gap-1.5 focus:outline-none">
                 <Trophy className="w-3.5 h-3.5" />
                 <span>04_PARTIES</span>
-                {getPartyForMonth(currentMonth) && (
+                {getPartyForMonth(wsMonth) && (
                   <span className="absolute -top-0.5 -right-0.5 flex h-2 w-2 select-none">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
@@ -5112,7 +5143,7 @@ const ERA_LABELS: Record<string, string> = {
                       <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pb-1">
                         {Object.values(PlatformId).map((pId) => {
                           const config = HISTORICAL_PLATFORMS[pId];
-                          const isActiveHardware = pId === activePlatform;
+                          const isActiveHardware = pId === wsActivePlatform;
                           const isSelectedSim = pId === gallerySelectedPlatformId;
 
                           return (
@@ -5279,16 +5310,24 @@ const ERA_LABELS: Record<string, string> = {
 
       {modal.isOpen("logoGen") && <LogoGeneratorModal onClose={modal.close} />}
 
+      {modal.isOpen("partygoer") && (
+        <PartygoerPanel sim={partygoerSim} onClose={modal.close} />
+      )}
+
+      {modal.isOpen("attendance") && (
+        <PartyAttendancePanel sim={attendanceSim} onClose={modal.close} />
+      )}
+
       {modal.isOpen("monthlySummary") && (
         <MonthlySummaryModal
-          newsLog={newsLog}
-          currentYear={currentYear}
-          currentMonth={currentMonth}
-          playerMoney={playerMoney}
-          playerReputation={playerReputation}
-          researchPoints={researchPoints}
-          playerHandle={playerHandle}
-          playerGroupName={playerGroupName}
+          newsLog={wsNewsLog}
+          currentYear={wsYear}
+          currentMonth={wsMonth}
+          playerMoney={wsMoney}
+          playerReputation={wsReputation}
+          researchPoints={wsResearchPoints}
+          playerHandle={wsPlayerHandle}
+          playerGroupName={wsPlayerGroupName}
           onClose={modal.close}
         />
       )}
@@ -5302,9 +5341,9 @@ const ERA_LABELS: Record<string, string> = {
           onTitleChange={setStudioDemoName}
           competitionType={studioProdType}
           onCompetitionTypeChange={setStudioProdType}
-          activePlatform={activePlatform}
-          setActivePlatform={setActivePlatform}
-          ownedRigs={ownedRigs}
+          activePlatform={wsActivePlatform}
+          setActivePlatform={(v: PlatformId | ((prev: PlatformId) => PlatformId)) => { const val = typeof v === 'function' ? v(wsActivePlatform) : v; simLoop.dispatch({ type: "RigPurchased", ts: getCurrentTick(), platformId: val }); }}
+          ownedRigs={wsOwnedRigs}
           duration={studioDuration}
           onDurationChange={setStudioDuration}
           optimizationFocus={studioOptimizationFocus}
@@ -5316,12 +5355,12 @@ const ERA_LABELS: Record<string, string> = {
           onMusicTrackStoredNameChange={setStudioMusicTrackStoredName}
           selectedEffects={studioSelectedEffects}
           onToggleSelectEffect={toggleSelectEffect}
-          currentYear={currentYear}
-          unlockedTechs={unlockedTechs}
+          currentYear={wsYear}
+          unlockedTechs={wsUnlockedTechs}
           combinedCpuDemand={combinedCpuDemand}
           combinedRamDemand={combinedRamDemand}
-          platformCpuLimit={(HISTORICAL_PLATFORMS[activePlatform]?.cpuLimit ?? 20000)}
-          platformRamLimitKb={(HISTORICAL_PLATFORMS[activePlatform]?.ramLimitKb ?? 512)}
+          platformCpuLimit={(HISTORICAL_PLATFORMS[wsActivePlatform]?.cpuLimit ?? 20000)}
+          platformRamLimitKb={(HISTORICAL_PLATFORMS[wsActivePlatform]?.ramLimitKb ?? 512)}
           effortCoding={effortCoding}
           effortArt={effortArt}
           effortMusic={effortMusic}
@@ -5352,12 +5391,12 @@ const ERA_LABELS: Record<string, string> = {
           onSaveCurrentAsBlueprint={handleSaveBlueprint}
           onLoadBlueprint={handleLoadBlueprint}
           onDeleteBlueprint={handleDeleteBlueprint}
-          hiredCrew={hiredCrewIds.map((id) => characters[id]).filter(Boolean)}
+          hiredCrew={wsHiredCrewIds.map((id) => characters[id]).filter(Boolean)}
           taskAssignments={taskAssignments}
           onAssignTask={handleAssignTask}
           onClearTask={handleClearTask}
           totalEffects={DEMO_EFFECTS.length}
-          platformName={HISTORICAL_PLATFORMS[activePlatform]?.name ?? activePlatform}
+          platformName={HISTORICAL_PLATFORMS[wsActivePlatform]?.name ?? wsActivePlatform}
         />
       )}
 
@@ -5371,10 +5410,10 @@ const ERA_LABELS: Record<string, string> = {
             ceremony={compCeremony}
             onClose={() => {
               compCloseCeremony();
-              compRecomputeStats(playerReputation);
+              compRecomputeStats(wsReputation);
             }}
             onAnimationComplete={() => {
-              compRecomputeStats(playerReputation);
+              compRecomputeStats(wsReputation);
             }}
           />
         </React.Suspense>

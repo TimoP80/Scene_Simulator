@@ -9,7 +9,9 @@
  *   - every entry has a unique id
  *   - every `type` is in the closed seed-set
  *   - every `purchasePrice` is a positive integer
- *   - every `releaseYear` ∈ [1985, 2005] (full simulation window)
+ *   - every `releaseYear` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX] (full
+ *     simulation window — derived from `ERA_BOUNDARIES` in
+ *     `sim/data/eraConfig.ts`)
  *   - every `effectUnlocks[]` entry resolves against `DEMO_EFFECTS` ids
  *     (catches string-typed ids slipped in via `as string` casts —
  *      e.g. "procedural_textures" was never a DemoEffect id in the seed)
@@ -20,6 +22,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { SOFTWARE_CATALOG } from "@sim/data/softwareCatalog";
 import { DEMO_EFFECTS } from "@sim/data/demoEffects";
 
@@ -101,13 +104,13 @@ check("softwareCatalog: every purchasePrice is a positive integer", () => {
   assert.equal(bad.length, 0, bad.join("; "));
 });
 
-check("softwareCatalog: every releaseYear ∈ [1985, 2005]", () => {
+check(`softwareCatalog: every releaseYear ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}]`, () => {
   const bad: string[] = [];
   for (const s of CATALOG) {
     if (
       !Number.isInteger(s.releaseYear) ||
-      s.releaseYear < 1985 ||
-      s.releaseYear > 2005
+      s.releaseYear < SIM_WINDOW_MIN ||
+      s.releaseYear > SIM_WINDOW_MAX
     ) {
       bad.push(`${s.id}: ${s.releaseYear}`);
     }

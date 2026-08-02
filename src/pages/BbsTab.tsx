@@ -3,7 +3,7 @@ import { Terminal, PhoneCall, Bell, PlusCircle, Megaphone, Download, MessageSqua
 import { useTextGenerator } from '../hooks/useTextGenerator';
 import { useBbsThreadMutations } from '../hooks/useBbsThreadMutations';
 import BBSThreadView from '../components/BBSThreadView';
-import type { Group, Character, BBSThread, CustomBBSMessage, Production } from '@packages/types';
+import type { Group, Character, BBSThread, CustomBBSMessage, BBSMessage, Production } from '@packages/types';
 import { colorForHandle, generateFollowedReply, generatePersonalityMessage, getEra, getSeedThreads, SYSOP_MODERATION_MESSAGES, type BBSCategory } from '@sim/data/bbsMessages';
 
 interface BbsTabProps {
@@ -112,7 +112,7 @@ export default function BbsTab(props: BbsTabProps) {
   );
 
   const handleAiGenerateReply = useCallback((thread: any) => {
-    const era = thread.year < 1990 ? "early" : thread.year < 1996 ? "mid" : "late";
+    const era = getEra(thread.year);
     const board = thread.board || "CODERS_CORNER";
     const prevMessages = thread.messages.slice(-3).map((m: any) => `${m.sender}: ${m.text}`).join("\n") || "";
 

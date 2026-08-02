@@ -6,7 +6,10 @@
  *
  * Pins the invariants the time-step + contest pipeline relies on:
  *   - every PartyEvent has a unique id
- *   - `month` ∈ [1, 12] ; `year` ∈ [1985, 2005]
+ *   - `month` ∈ [1, 12] ; `year` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX]
+ *     (derived from `ERA_BOUNDARIES` in `sim/data/eraConfig.ts`; the
+ *     v0.5.1 "year range expansion" extended the calendar to the HD
+ *     era without updating this check)
  *   - `platformFocus` ∈ { "all" | "amiga" | "c64" | "pc" }
  *   - every competition's `type` ∈ ProductionType closed enum
  *   - `attendance`, `prestige`, competition `prizePool` are non-negative integers
@@ -24,6 +27,7 @@
 
 import { strict as assert } from "node:assert";
 import { PARTY_CALENDAR } from "@sim/data/partyCalendar";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { ProductionType } from "@packages/types";
 
 const EVENTS = PARTY_CALENDAR;
@@ -90,10 +94,10 @@ check("partyCalendar: isAnnual is boolean", () => {
 // narrows or removes it would silently break the year-aware filter.
 console.log("\n=== SCENARIO 1 — Date + platformFocus ===");
 
-check("partyCalendar: every year ∈ [1985, 2005] (sim window)", () => {
+check(`partyCalendar: every year ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}] (sim window)`, () => {
   const bad: string[] = [];
   for (const e of EVENTS) {
-    if (!Number.isInteger(e.year) || e.year < 1985 || e.year > 2005) {
+    if (!Number.isInteger(e.year) || e.year < SIM_WINDOW_MIN || e.year > SIM_WINDOW_MAX) {
       bad.push(`${e.id}: ${e.year}`);
     }
   }

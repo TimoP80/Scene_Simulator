@@ -13,11 +13,13 @@
  *   SCENARIO 0 — BBS_BOARDS, BBS_PERSONALITIES, BBS_SCRIBES, SYSOP_REPLIES,
  *                SYSOP_MODERATION_MESSAGES (read-only ever-present)
  *   SCENARIO 1 — Era-aware seed data (CATEGORY_MESSAGES, ERA_TOPICS,
- *                VOICE_PROFILES) — full-population invariant over the
- *                closed union of categories / boards / specialties × eras
+ *                VOICE_PROFILES, getEra bucket mapping) — full-population
+ *                invariant over the closed union of categories / boards /
+ *                specialties × eras
  *   SCENARIO 2 — SPYLINE_TEMPLATES, BBS_RANDOM_EVENTS, BBS_MUTATIONS
  *   SCENARIO 3 — getSeedThreads output (id unique, board ∈ BBS_BOARDS,
- *                actorId ∈ INITIAL_NPCS, choices non-empty, infoType
+ *                actorId ∈ INITIAL_NPCS, dates ∈ [SIM_WINDOW_MIN,
+ *                SIM_WINDOW_MAX] × [1, 12], choices non-empty, infoType
  *                closed union)
  *   SCENARIO 4 — Idempotence across all static exports
  */
@@ -35,25 +37,25 @@ import {
   SYSOP_REPLIES,
   SYSOP_MODERATION_MESSAGES,
   VOICE_PROFILES,
+  getEra,
   getSeedThreads,
   type BBSBoard,
   type BBSCategory,
 } from "@sim/data/bbsMessages";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { INITIAL_NPCS } from "@sim/data/initialNpcs";
-import { SpecialtyType } from "@packages/types";
+import { BBS_INFO_TYPES, SpecialtyType } from "@packages/types";
 
 const SIM_GROUP = "Smoke-Test Crew";
 const THREADS = getSeedThreads(SIM_GROUP);
 const NPC_IDS: ReadonlySet<string> = new Set(Object.keys(INITIAL_NPCS));
 const BOARD_SET: ReadonlySet<string> = new Set(BBS_BOARDS);
-const VALID_INFO_TYPES: ReadonlySet<string> = new Set([
-  "criticism",
-  "rumor",
-  "tool_release",
-  "party_gossip",
-  "leak",
-  "demo_announcement",
-]);
+// Derived from the canonical BBS_INFO_TYPES array in
+// packages/types/src/bbs.ts (the type is derived from the same array),
+// so this set can never drift from the union in either direction — the
+// exact drift class that broke this check when the 383-thread expansion
+// started using `technical_discovery`.
+const VALID_INFO_TYPES: ReadonlySet<string> = new Set<string>(BBS_INFO_TYPES);
 const VALID_RANDOM_EVENT_TYPES: ReadonlySet<string> = new Set([
   "money",
   "reputation",
@@ -70,6 +72,7 @@ const VALID_ERAS: string[] = [
   "early",
   "mid",
   "late",
+  "modern",
 ];
 const VALID_SPECIALTIES: ReadonlySet<string> = new Set(
   Object.values(SpecialtyType),
@@ -234,18 +237,58 @@ check(
   },
 );
 
+check(
+  `bbsMessages: getEra() maps every year ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}] into the closed era union (no gaps in the sim window)`,
+  () => {
+    // Canonical coarse buckets (see the module header doc):
+    //   early = [SIM_WINDOW_MIN, 1989]  mid = [1990, 1995]  late = [1996, SIM_WINDOW_MAX]
+    assert.equal(getEra(SIM_WINDOW_MIN), "early");
+    assert.equal(getEra(1989), "early");
+    assert.equal(getEra(1990), "mid");
+    assert.equal(getEra(1995), "mid");
+    assert.equal(getEra(1996), "late");
+    assert.equal(getEra(2005), "late");
+    assert.equal(getEra(2006), "modern");
+    assert.equal(getEra(SIM_WINDOW_MAX), "modern");
+    // Exhaustive: every in-window year lands in a valid bucket. A year
+    // that fell through the mapping would break era-appropriate pool
+    // picks for threads / personality replies at that calendar year.
+    for (let y = SIM_WINDOW_MIN; y <= SIM_WINDOW_MAX; y++) {
+      const era = getEra(y);
+      assert.ok(
+        era === "early" || era === "mid" || era === "late" || era === "modern",
+        `year ${y} mapped to unknown era ${era}`,
+      );
+    }
+  },
+);
+
 // SCENARIO 2 — Spyline templates + random events + mutation registry
 console.log("\n=== SCENARIO 2 — Spyline + random events + mutations ===");
 
-check("bbsMessages: SPYLINE_TEMPLATES every entry has non-empty headline and body function", () => {
+check("bbsMessages: SPYLINE_TEMPLATES every entry has non-empty headline, body function, and valid era field", () => {
   const bad: string[] = [];
   for (let i = 0; i < SPYLINE_TEMPLATES.length; i++) {
     const t = SPYLINE_TEMPLATES[i];
     if (typeof t.headline !== "string" || t.headline.length === 0) bad.push(`#${i}: headline`);
     if (typeof t.body !== "function") bad.push(`#${i}: body not function`);
+    if (typeof t.era !== "string" || !VALID_ERAS.includes(t.era)) bad.push(`#${i}: era=${t.era}`);
   }
   assert.equal(bad.length, 0, bad.join("; "));
 });
+
+check(
+  "bbsMessages: SPYLINE_TEMPLATES — every era bucket has ≥1 template (era-gated picker full-population coverage)",
+  () => {
+    // App.tsx filters the pool by getEra(wsYear) and falls back to the
+    // whole pool when the era bucket is empty. An empty bucket would
+    // silently serve out-of-era headlines, so the full-population
+    // invariant over the era union must hold.
+    const covered = new Set<string>(SPYLINE_TEMPLATES.map((t) => t.era));
+    const missing = VALID_ERAS.filter((e) => !covered.has(e));
+    assert.equal(missing.length, 0, `no spyline template for era(s): ${missing.join(", ")}`);
+  },
+);
 
 check(
   "bbsMessages: BBS_RANDOM_EVENTS every entry has non-empty head/body, valid type (money/reputation/research), finite amount",
@@ -320,6 +363,22 @@ check("bbsMessages: every thread has ≥1 message and ≥1 choice", () => {
   }
   assert.equal(bad.length, 0, bad.join("; "));
 });
+
+check(
+  `bbsMessages: every thread date ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}] × [1, 12] (sim window)`,
+  () => {
+    const bad: string[] = [];
+    for (const t of THREADS) {
+      if (!Number.isInteger(t.year) || t.year < SIM_WINDOW_MIN || t.year > SIM_WINDOW_MAX) {
+        bad.push(`${t.id}.year=${t.year}`);
+      }
+      if (!Number.isInteger(t.month) || t.month < 1 || t.month > 12) {
+        bad.push(`${t.id}.month=${t.month}`);
+      }
+    }
+    assert.equal(bad.length, 0, bad.join("; "));
+  },
+);
 
 check("bbsMessages: every thread.infoType ∈ closed union", () => {
   const bad: string[] = [];

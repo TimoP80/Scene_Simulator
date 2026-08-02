@@ -177,6 +177,10 @@ export interface EdgeWeightChangedEvent extends BaseEvent {
 
 // --- BBS / scene press ------------------------------------------------------
 
+export interface NewsLogResetEvent extends BaseEvent {
+  type: "NewsLogReset";
+}
+
 export interface NewsArticlePublishedEvent extends BaseEvent {
   type: "NewsArticlePublished";
   article: SceneMagazine;
@@ -391,6 +395,7 @@ export type SimEvent =
   | NodeAddedEvent
   | EdgeAddedEvent
   | EdgeWeightChangedEvent
+  | NewsLogResetEvent
   | NewsArticlePublishedEvent
   | BbsThreadMutatedEvent
   | NpcMemoryTransformedEvent

@@ -5,14 +5,22 @@
  * BBS types — messages, threads, info economy classification.
  */
 
-export type BBSInfoType =
-  | "rumor"
-  | "leak"
-  | "technical_discovery"
-  | "demo_announcement"
-  | "party_gossip"
-  | "tool_release"
-  | "criticism";
+/**
+ * Canonical member list for BBSInfoType. The type is DERIVED from this
+ * array so consumers can build runtime sets (e.g. smoke-test union
+ * checks) without a hand-maintained duplicate that can drift.
+ */
+export const BBS_INFO_TYPES = [
+  "rumor",
+  "leak",
+  "technical_discovery",
+  "demo_announcement",
+  "party_gossip",
+  "tool_release",
+  "criticism",
+] as const;
+
+export type BBSInfoType = (typeof BBS_INFO_TYPES)[number];
 
 export interface BBSMessage {
   sender: string;

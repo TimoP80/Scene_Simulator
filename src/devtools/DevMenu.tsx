@@ -30,6 +30,7 @@ import {
   Sparkles,
   FlaskConical,
   Newspaper,
+  Sliders,
   Group as GroupIcon,
   Music,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import { ResearchEditor } from "./editors/ResearchEditor";
 import { GroupEditor } from "./editors/GroupEditor";
 import { EventEditor } from "./editors/EventEditor";
 import { MusicEditor } from "./editors/MusicEditor";
+import { ScenarioEditor } from "./editors/ScenarioEditor";
 import EventInspectorPanel from "./EventInspectorPanel";
 
 type TabId =
@@ -55,6 +57,7 @@ type TabId =
   | "event"
   | "group"
   | "music"
+  | "scenario"
   | "events";
 
 interface TabDef {
@@ -72,6 +75,7 @@ const TABS: TabDef[] = [
   { id: "event",    label: "Event Editor",       icon: Newspaper     },
   { id: "group",    label: "Group Editor",       icon: GroupIcon     },
   { id: "music",    label: "Music Metadata",     icon: Music         },
+  { id: "scenario", label: "Scenario Editor",    icon: Sliders       },
   { id: "events",   label: "Event Log",          icon: History       },
 ];
 
@@ -266,6 +270,7 @@ export function DevMenu() {
           {activeTab === "party" && <PartyEditor />}
           {activeTab === "effect" && <EffectEditor />}
           {activeTab === "research" && <ResearchEditor />}
+          {activeTab === "scenario" && <ScenarioEditor />}
           {activeTab === "group" && <GroupEditor />}
           {activeTab === "event" && <EventEditor />}
           {activeTab === "music" && <MusicEditor />}

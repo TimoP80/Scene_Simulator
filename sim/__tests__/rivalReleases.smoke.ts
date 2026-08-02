@@ -9,7 +9,8 @@
  *   - every RivalRelease has a unique id
  *   - every `platform` ∈ PlatformId enum
  *   - every `platformFocus` ∈ { "all" | "amiga" | "c64" | "pc" }
- *   - `year` ∈ [1985, 2005] ; `month` ∈ [1, 12]
+ *   - `year` ∈ [SIM_WINDOW_MIN, SIM_WINDOW_MAX] (derived from
+ *     `ERA_BOUNDARIES` in `sim/data/eraConfig.ts`) ; `month` ∈ [1, 12]
  *   - `baselineScore` and `scoreVariance` are finite non-negative numbers
  *   - `disbandedAfter` (when present) is an integer ≥ `year`
  *   - every text field is a non-empty string
@@ -21,6 +22,7 @@
  */
 
 import { strict as assert } from "node:assert";
+import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
 import { RIVAL_RELEASES } from "@sim/data/rivalReleases";
 import { PlatformId } from "@packages/types";
 
@@ -98,10 +100,10 @@ check("rivalReleases: every platformFocus ∈ { all, amiga, c64, pc }", () => {
   assert.equal(bad.length, 0, `unknown platformFocus: ${bad.join(", ")}`);
 });
 
-check("rivalReleases: every year ∈ [1985, 2005]", () => {
+check(`rivalReleases: every year ∈ [${SIM_WINDOW_MIN}, ${SIM_WINDOW_MAX}]`, () => {
   const bad: string[] = [];
   for (const r of RIVALS) {
-    if (!Number.isInteger(r.year) || r.year < 1985 || r.year > 2005) {
+    if (!Number.isInteger(r.year) || r.year < SIM_WINDOW_MIN || r.year > SIM_WINDOW_MAX) {
       bad.push(`${r.id}: ${r.year}`);
     }
   }
@@ -148,7 +150,7 @@ check(
 );
 
 check(
-  "rivalReleases: disbandedAfter (when present) is an integer ≥ year (and ≤ 2005)",
+  `rivalReleases: disbandedAfter (when present) is an integer ≥ year (and ≤ ${SIM_WINDOW_MAX})`,
   () => {
     const bad: string[] = [];
     for (const r of RIVALS) {
@@ -156,7 +158,7 @@ check(
       if (
         !Number.isInteger(r.disbandedAfter) ||
         r.disbandedAfter < r.year ||
-        r.disbandedAfter > 2005
+        r.disbandedAfter > SIM_WINDOW_MAX
       ) {
         bad.push(`${r.id}.disbandedAfter=${r.disbandedAfter}`);
       }

@@ -51,6 +51,37 @@ const ABANDON_PROJECT_THRESHOLD = 20;
 /** Base disband monthly probability once 18+ months inactive. */
 const DISBAND_BASE_CHANCE = 0.025;
 
+// ─── Rivalry heatmap tuning ────────────────────────────────────────
+// Sign convention (matches GroupDossierPanel.tsx): intensity > 0 =
+// HOSTILE (red bar), intensity < 0 = FRIENDLY (cyan bar), 0 = neutral.
+// Values are clamped to [-100, 100] by shiftRivalry().
+/** Heatmap shift applied to BOTH sides of a group split (reciprocal). */
+export const SPLIT_RIVALRY_SHIFT = 40;
+/** Heatmap shift when a group poaches a member from another (both ways). */
+const POACH_RIVALRY_SHIFT = 25;
+/** Winner's disdain toward the group it beat in a same-month release race. */
+const RELEASE_RACE_WINNER_SHIFT = 10;
+/** Loser's resentment toward the group that beat it in the release race. */
+const RELEASE_RACE_LOSER_SHIFT = 20;
+/** Monthly per-pair probability that two active groups collaborate. */
+const COLLAB_BASE_CHANCE = 0.006;
+/** Friendly heatmap shift on collaboration (negative = friendly). */
+const COLLAB_RIVALRY_SHIFT = -15;
+
+/**
+ * Historical rivalries seeded at bootstrap so the heatmap isn't empty on
+ * day one. Positive = hostile. Applied only when BOTH groups exist in the
+ * bootstrap set (a removed id can't create a dangling heatmap key).
+ */
+const RIVALRY_SEEDS: ReadonlyArray<readonly [string, string, number]> = [
+  ["future_crew", "razor_1911", 60],
+  ["fairlight", "razor_1911", 55],
+  ["future_crew", "fairlight", 40],
+  ["spaceballs", "future_crew", 35],
+  ["cncd", "future_crew", 30],
+  ["farbrausch", "future_crew", 25],
+];
+
 const SHOCK_EVENTS: Array<{
   id: string;
   weight: number;
@@ -94,6 +125,23 @@ const TYPES_BY_ERA: Record<string, ProductionType[]> = {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
+}
+
+/**
+ * Apply a signed delta to one entry of a group's rivalry heatmap,
+ * clamping to [-100, 100]. Positive = hostile, negative = friendly.
+ * Returns a NEW map (immutable), or the SAME reference when the shift
+ * clamps to the current value so no-op changes don't churn state.
+ */
+function shiftRivalry(
+  rivalries: Record<string, number>,
+  targetId: string,
+  delta: number,
+): Record<string, number> {
+  const current = rivalries[targetId] ?? 0;
+  const next = clamp(current + delta, -100, 100);
+  if (next === current) return rivalries;
+  return { ...rivalries, [targetId]: next };
 }
 
 /** Simple deterministic hash for seeding decisions. */
@@ -206,6 +254,9 @@ export function simulateRivalGroups(
 ): RivalSimResult {
   const events: SimEvent[] = [];
   const activityLog: RivalActivityEntry[] = [];
+  // Groups that released this month (score-tracked) — used by the
+  // same-month "release race" heatmap pass (beat-at-party proxy).
+  const releasesThisMonth: Array<{ groupId: string; totalScore: number }> = [];
   // Clone the groups record — we never mutate inputs
   const updated: Record<string, RivalGroupState> = {};
   for (const [k, v] of Object.entries(groups)) {
@@ -309,6 +360,9 @@ export function simulateRivalGroups(
           productionId: prodId,
           productionName: releaseName,
         });
+
+        // Remember the release for the same-month race pass below.
+        releasesThisMonth.push({ groupId, totalScore: scores.totalScore });
 
         updated[groupId] = {
           ...updated[groupId],
@@ -431,6 +485,27 @@ export function simulateRivalGroups(
           ...updated[groupId]!,
           memberIds: updated[groupId]!.memberIds.filter((id) => id !== poachedMember),
         };
+
+        // Rivalry heatmap: pick a deterministic poacher from the other
+        // active groups — member theft is a classic feud source — and
+        // shift hostility in BOTH directions (positive = hostile).
+        const activeOthers = Object.entries(updated).filter(
+          ([id, g]) => id !== groupId && g.activityStatus === "active",
+        );
+        if (activeOthers.length > 0) {
+          const poacherIdx = hashSeed(`poacher_${groupId}_${year}_${month}`) % activeOthers.length;
+          const poacherId = activeOthers[poacherIdx]![0];
+          const victimState = updated[groupId]!;
+          const poacherState = updated[poacherId]!;
+          updated[groupId] = {
+            ...victimState,
+            rivalries: shiftRivalry(victimState.rivalries, poacherId, POACH_RIVALRY_SHIFT),
+          };
+          updated[poacherId] = {
+            ...poacherState,
+            rivalries: shiftRivalry(poacherState.rivalries, groupId, POACH_RIVALRY_SHIFT),
+          };
+        }
       }
 
       activityLog.push({
@@ -558,6 +633,10 @@ export function simulateRivalGroups(
           morale: Math.max(15, stateFinal.morale - 10),
           motivation: Math.max(15, stateFinal.motivation - 5),
           reputation: Math.max(100, stateFinal.reputation - 100),
+          // The split itself is hostile — the parent resents the breakaway.
+          // The new group's reciprocal entry is seeded by the reducer's
+          // RivalGroupFormed case (same constant, same sign).
+          rivalries: shiftRivalry(stateFinal.rivalries, newGroupId, SPLIT_RIVALRY_SHIFT),
         };
 
         events.push({
@@ -593,6 +672,55 @@ export function simulateRivalGroups(
           description: `${newGroupName} formed from a split of ${stateFinal.name}`,
         });
       }
+    }
+  }
+
+  // ── 5d. Same-month release race — beating a rival (party proxy) ──
+  // Groups that release in the same month are implicitly competing for
+  // scene attention; the higher-scoring release "wins" the month. The
+  // loser resents the winner more than the winner disdains the loser,
+  // and both directions of the heatmap tick up (positive = hostile).
+  for (let i = 0; i < releasesThisMonth.length; i++) {
+    for (let j = i + 1; j < releasesThisMonth.length; j++) {
+      const ra = releasesThisMonth[i]!;
+      const rb = releasesThisMonth[j]!;
+      const ga = updated[ra.groupId];
+      const gb = updated[rb.groupId];
+      if (!ga || !gb) continue;
+      if (ra.totalScore >= rb.totalScore) {
+        updated[ra.groupId] = { ...ga, rivalries: shiftRivalry(ga.rivalries, rb.groupId, RELEASE_RACE_WINNER_SHIFT) };
+        updated[rb.groupId] = { ...gb, rivalries: shiftRivalry(gb.rivalries, ra.groupId, RELEASE_RACE_LOSER_SHIFT) };
+      } else {
+        updated[ra.groupId] = { ...ga, rivalries: shiftRivalry(ga.rivalries, rb.groupId, RELEASE_RACE_LOSER_SHIFT) };
+        updated[rb.groupId] = { ...gb, rivalries: shiftRivalry(gb.rivalries, ra.groupId, RELEASE_RACE_WINNER_SHIFT) };
+      }
+    }
+  }
+
+  // ── 5e. Collaboration — friendly heatmap shift ──
+  // Rare per-pair monthly roll: two active groups team up on a joint
+  // release, deepening their bond (negative intensity = friendly).
+  const activeCollabIds = Object.keys(updated).filter(
+    (k) => updated[k]!.activityStatus === "active",
+  );
+  for (let i = 0; i < activeCollabIds.length; i++) {
+    for (let j = i + 1; j < activeCollabIds.length; j++) {
+      const aId = activeCollabIds[i]!;
+      const bId = activeCollabIds[j]!;
+      const collabRoll = hashFloat(`collab_${aId}_${bId}_${year}_${month}`);
+      if (collabRoll >= COLLAB_BASE_CHANCE) continue;
+      const ga = updated[aId]!;
+      const gb = updated[bId]!;
+      updated[aId] = { ...ga, rivalries: shiftRivalry(ga.rivalries, bId, COLLAB_RIVALRY_SHIFT) };
+      updated[bId] = { ...gb, rivalries: shiftRivalry(gb.rivalries, aId, COLLAB_RIVALRY_SHIFT) };
+      activityLog.push({
+        groupId: aId,
+        groupName: ga.name,
+        year,
+        month,
+        type: "morale_change",
+        description: `${ga.name} collaborated with ${gb.name} on a joint release`,
+      });
     }
   }
 
@@ -724,6 +852,15 @@ export function bootstrapRivalGroups(): Record<string, RivalGroupState> {
       memberIds: grp.memberIds,
       rivalries: {},
     };
+  }
+
+  // Seed historical rivalries so the heatmap isn't empty on day one.
+  for (const [aId, bId, intensity] of RIVALRY_SEEDS) {
+    const ga = groups[aId];
+    const gb = groups[bId];
+    if (!ga || !gb) continue;
+    groups[aId] = { ...ga, rivalries: { ...ga.rivalries, [bId]: intensity } };
+    groups[bId] = { ...gb, rivalries: { ...gb.rivalries, [aId]: intensity } };
   }
 
   return groups;
