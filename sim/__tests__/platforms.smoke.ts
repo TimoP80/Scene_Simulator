@@ -18,17 +18,23 @@
  *     the documented HAM exemptions are bookkeeping-base values, so
  *     the 32/4096 split lives in the `description` field, not `graphicsMaxColors`)
  *   - reads are idempotent
+ *   - SCENARIO 2 pins year-gated AVAILABILITY via `platformsAvailableAtYear`:
+ *     a platform is purchasable only from its own release year (Amiga 1200
+ *     is locked in 1986, open from 1992), every platform is available at
+ *     its own year, and the shop window is monotonic (a rig can appear,
+ *     never disappear). The WorkspaceTab rig shop renders exactly this set.
  *
- * Note: we don't pin year-monotonicity across the catalogue. The Record
+ * Note: we don't pin year-MONOTONICITY of the catalogue ORDER. The Record
  * is insertion-ordered by family (C64 → ZX → Amiga → ST → Amiga 1200 → PC
  * chain) rather than strictly chronological — re-ordering the seed to
  * fix a "fail" would force a costly cross-module diff without gameplay
- * benefit. Year-range only.
+ * benefit. Availability monotonicity (SCENARIO 2) is a different property
+ * and IS pinned.
  */
 
 import { strict as assert } from "node:assert";
 import { SIM_WINDOW_MAX, SIM_WINDOW_MIN } from "@sim/data/eraConfig";
-import { HISTORICAL_PLATFORMS } from "@sim/data/platforms";
+import { HISTORICAL_PLATFORMS, platformsAvailableAtYear } from "@sim/data/platforms";
 import { PlatformId } from "@packages/types";
 
 /** True iff `n` is a positive integer that is a power of 2. */
@@ -131,8 +137,74 @@ check("platforms: graphicsMaxColors is a positive power of 2", () => {
   assert.equal(bad.length, 0, `non-power-of-2 graphicsMaxColors: ${bad.join(", ")}`);
 });
 
-// SCENARIO 2 — Idempotence
-console.log("\n=== SCENARIO 2 — Idempotence ===");
+// SCENARIO 2 — Year-gated availability (the rig-shop window)
+//
+// The WorkspaceTab rig shop gates the BUY button on
+// `config.year <= currentYear` via `platformsAvailableAtYear` — a
+// future-dated platform (e.g. the Amiga 1200, released 1992) must NOT
+// be purchasable in 1986, while a contemporaneous one (Amiga 500,
+// 1987) must be. Pins the deterministic filter the shop renders from.
+console.log("\n=== SCENARIO 2 — Year-gated availability ===");
+
+check("platforms: Amiga 1200 (year 1992) is NOT available in 1986", () => {
+  const available = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1986);
+  assert.ok(
+    !available.includes(PlatformId.AMIGA_1200),
+    `AMIGA_1200 leaked into the 1986 shop window: ${available.join(", ")}`,
+  );
+});
+
+check("platforms: Amiga 500 (year 1987) is NOT available in 1986 — release boundary held", () => {
+  const available = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1986);
+  assert.ok(
+    !available.includes(PlatformId.AMIGA_500),
+    `AMIGA_500 (released 1987) leaked into the 1986 shop window: ${available.join(", ")}`,
+  );
+});
+
+check("platforms: Amiga 500 (year 1987) IS available from its release year 1987 onward", () => {
+  const available1987 = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1987);
+  assert.ok(
+    available1987.includes(PlatformId.AMIGA_500),
+    `AMIGA_500 missing from the 1987 shop window: ${available1987.join(", ")}`,
+  );
+});
+
+check("platforms: Amiga 1200 IS available from its release year 1992 onward", () => {
+  const available1992 = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1992);
+  assert.ok(
+    available1992.includes(PlatformId.AMIGA_1200),
+    `AMIGA_1200 missing from the 1992 shop window: ${available1992.join(", ")}`,
+  );
+});
+
+check("platforms: every platform is available at its own release year", () => {
+  const bad: string[] = [];
+  for (const [key, p] of Object.entries(HISTORICAL_PLATFORMS)) {
+    const available = platformsAvailableAtYear(HISTORICAL_PLATFORMS, p.year);
+    if (!available.includes(p.id)) bad.push(`${key} (year ${p.year})`);
+  }
+  assert.equal(bad.length, 0, `platforms not in their own release-year window: ${bad.join("; ")}`);
+});
+
+check("platforms: availability is monotonic — once released, never un-released", () => {
+  // Walk every year in the sim window: each year's shop window must be a
+  // superset of the previous year's (a rig can appear, never disappear).
+  let prev = platformsAvailableAtYear(HISTORICAL_PLATFORMS, SIM_WINDOW_MIN);
+  for (let y = SIM_WINDOW_MIN + 1; y <= SIM_WINDOW_MAX; y++) {
+    const curr = platformsAvailableAtYear(HISTORICAL_PLATFORMS, y);
+    for (const id of prev) {
+      assert.ok(
+        curr.includes(id),
+        `${id} (released ${HISTORICAL_PLATFORMS[id].year}) vanished from the shop window at year ${y}`,
+      );
+    }
+    prev = curr;
+  }
+});
+
+// SCENARIO 3 — Idempotence
+console.log("\n=== SCENARIO 3 — Idempotence ===");
 
 check("platforms: two reads return same key set in same order", () => {
   const a = Object.keys(HISTORICAL_PLATFORMS);
@@ -144,6 +216,12 @@ check("platforms: every inner id is stable across reads", () => {
   const a = Object.values(HISTORICAL_PLATFORMS).map((p) => p.id);
   const b = Object.values(HISTORICAL_PLATFORMS).map((p) => p.id);
   assert.deepEqual(a, b, "inner id order drifted between reads");
+});
+
+check("platforms: platformsAvailableAtYear is deterministic across reads", () => {
+  const a = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1992);
+  const b = platformsAvailableAtYear(HISTORICAL_PLATFORMS, 1992);
+  assert.deepEqual(a, b, "availability drifted between reads");
 });
 
 if (failed > 0) {

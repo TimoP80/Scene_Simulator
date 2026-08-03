@@ -14,7 +14,7 @@
 
 import React from "react";
 import { PlatformId } from "@packages/types";
-import { HISTORICAL_PLATFORMS } from "@sim/data";
+import { HISTORICAL_PLATFORMS, platformsAvailableAtYear } from "@sim/data";
 import type { DemoScene, Production, DemoSummary } from "@packages/types";
 import type { DemoDuration, OptimizationFocus, ArtisticDirection, ProductionMood } from "@packages/types";
 import type { ProductionType } from "@packages/types";
@@ -196,6 +196,12 @@ export default function WorkspaceTab({
 }: WorkspaceTabProps) {
   const activeRigConfig = HISTORICAL_PLATFORMS[activePlatform];
   const releaseList = Object.values(myReleases) as Production[];
+  // Year-gated availability — the single canonical rule (mirrors
+  // hardwareAvailableAtYear for the parts shop, and is pinned by
+  // platforms.smoke.ts SCENARIO 2). The shop renders ALL rigs (dimmed,
+  // not hidden — same convention as the era-gated effect grid), so we
+  // use the helper for the membership test rather than filtering.
+  const availableRigIds = platformsAvailableAtYear(HISTORICAL_PLATFORMS, currentYear);
 
   return (
     <div className="space-y-6">
@@ -216,18 +222,30 @@ export default function WorkspaceTab({
             const isOwned = ownedRigs.includes(pId);
             const config = HISTORICAL_PLATFORMS[pId];
             const isCurrent = activePlatform === pId;
+            // Year-gated availability: a rig can only be bought once its
+            // real release year has arrived (availableRigIds, from the
+            // shared platformsAvailableAtYear rule). The card stays
+            // visible but is dimmed + locked so the player sees the
+            // roadmap instead of a mystery gap (same "dim, don't hide"
+            // convention as the era-gated effect grid in DemoStudio).
+            const isReleased = availableRigIds.includes(pId);
+            const isLocked = !isOwned && !isReleased;
 
             return (
               <button
                 key={pId}
                 id={`shop-rig-${pId}`}
                 onClick={() => buyRig(pId)}
-                className={`p-2.5 rounded border text-xs text-left transition relative active:scale-95 flex flex-col justify-between cursor-pointer ${
+                disabled={isLocked}
+                title={isLocked ? `Released in ${config.year} — not available in ${currentYear}` : undefined}
+                className={`p-2.5 rounded border text-xs text-left transition relative flex flex-col justify-between ${
                   isCurrent
-                    ? "bg-[#facc15]/10 border-[#facc15] text-[#facc15] shadow-[0_0_12px_rgba(250,204,21,0.06)]"
+                    ? "bg-[#facc15]/10 border-[#facc15] text-[#facc15] shadow-[0_0_12px_rgba(250,204,21,0.06)] active:scale-95 cursor-pointer"
                     : isOwned
-                    ? "bg-[#09090b] border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a]"
-                    : "bg-[#09090b]/40 border-[#27272a]/80 text-[#71717a] hover:bg-[#09090b] hover:text-[#a1a1aa]"
+                    ? "bg-[#09090b] border-[#3f3f46] text-[#d4d4d8] hover:bg-[#27272a] active:scale-95 cursor-pointer"
+                    : isLocked
+                    ? "bg-[#09090b]/20 border-[#27272a]/40 text-[#52525b] cursor-not-allowed opacity-60"
+                    : "bg-[#09090b]/40 border-[#27272a]/80 text-[#71717a] hover:bg-[#09090b] hover:text-[#a1a1aa] active:scale-95 cursor-pointer"
                 }`}
               >
                 <div>
@@ -238,7 +256,12 @@ export default function WorkspaceTab({
                   <span className="text-[9px] block text-[#71717a] mt-1">ERA DESIGN: {config.year}</span>
                 </div>
 
-                {!isOwned && (
+                {isLocked && (
+                  <div className="mt-2 text-[10px] text-[#52525b] font-bold bg-[#09090b]/40 p-0.5 border border-[#27272a]/60 text-center rounded uppercase tracking-wider">
+                    🔒 RELEASES {config.year}
+                  </div>
+                )}
+                {!isOwned && !isLocked && (
                   <div className="mt-2 text-[10px] text-[#facc15] font-bold bg-[#facc15]/10 p-0.5 border border-[#facc15]/20 text-center rounded">
                     BUY (${config.cost})
                   </div>

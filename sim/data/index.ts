@@ -6,7 +6,7 @@
  * No React, no LLM. Anything in /sim or /apps reads seed data from here.
  */
 
-export { HISTORICAL_PLATFORMS } from "./platforms";
+export { HISTORICAL_PLATFORMS, platformsAvailableAtYear } from "./platforms";
 export { DEMO_EFFECTS } from "./demoEffects";
 export { TECHNOLOGY_TREE } from "./technologyTree";
 export {

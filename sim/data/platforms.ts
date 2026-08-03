@@ -8,6 +8,24 @@
 
 import { PlatformId, PlatformConfig } from "@packages/types";
 
+/**
+ * Public — returns the subset of `PlatformId` values whose platform
+ * exists (released) at `year`. Strictly deterministic: a platform is
+ * purchasable iff `config.year <= year`. Mirrors the hardware-catalog
+ * rule (`releaseYear <= currentYear`) so the rig shop and the parts
+ * shop agree on "what's in the shop window" at any calendar year.
+ *
+ * Consumers:
+ *   - WorkspaceTab rig shop (gates the BUY button per platform)
+ *   - platforms.smoke.ts (pins the availability window per platform)
+ */
+export function platformsAvailableAtYear(
+  platforms: Record<PlatformId, PlatformConfig>,
+  year: number,
+): PlatformId[] {
+  return Object.values(PlatformId).filter((id) => platforms[id].year <= year);
+}
+
 export const HISTORICAL_PLATFORMS: Record<PlatformId, PlatformConfig> = {
   [PlatformId.C64]: {
     id: PlatformId.C64,
