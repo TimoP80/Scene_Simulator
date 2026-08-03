@@ -7,20 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-- **macOS build support** — `electron-builder` now has a `mac` target block
-  (DMG + zip for both x64 and arm64, `public.app-category.games`, per-arch
-  artifact names), `npm run dist:mac` builds both archs through the shared
-  `scripts/dist.mjs` orchestrator, and `scripts/generate-icons.mjs` now also
-  emits `build/icon.icns` (a PNG-chunk macOS container covering 32/64/128/
-  256/512/1024, generated from the same 1024×1024 master as `icon.png` /
-  `icon.ico`). A new `build-macos` CI job in `.github/workflows/ci.yml` runs
-  on `macos-latest` (DMG creation needs `hdiutil`, which only exists on macOS
-  runners), gated like `capture-preview` (push to main or manual dispatch),
-  and uploads the `.dmg` artifacts. Docs updated in `CONTRIBUTING.md`'s
-  build/ship table.
-
 ## [0.7.4] - 2026-08-02
+
+### Added
+- **Windows + macOS desktop builds** — the packaging pipeline now produces
+  installers for both platforms through the shared `scripts/dist.mjs`
+  orchestrator: `npm run dist:win` (NSIS installer + portable EXE, x64) and
+  `npm run dist:mac` (DMG + zip for x64 and arm64, `public.app-category.games`,
+  per-arch artifact names). `scripts/generate-icons.mjs` now also emits
+  `build/icon.icns` (a PNG-chunk macOS container covering 32/64/128/256/512/
+  1024, generated from the same 1024×1024 master as `icon.png` / `icon.ico`).
+  Two CI jobs in `.github/workflows/ci.yml` package on tag pushes / main /
+  manual dispatch — `build-macos` on `macos-latest` (DMG creation needs
+  `hdiutil`, macOS-only) and `build-windows` on `windows-latest` — and
+  publish the artifacts to the GitHub Release for the tag via the
+  `RELEASE_TOKEN` repo secret (electron-builder runs with `--publish never`;
+  the CI `softprops` step owns uploading). Docs updated in `CONTRIBUTING.md`'s
+  build/ship table.
 
 ### Added
 - **Party Attendance Mode** — a brand-new game mode that simulates spending
@@ -177,6 +180,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   icon.
 
 ### Fixed
+- **Rig shop ignored hardware release years (Amiga 1200 buyable in 1986)** —
+  the rig shop in `src/pages/WorkspaceTab.tsx` iterated every `PlatformId`
+  with no year gate (`config.year` was only a label), so future hardware was
+  purchasable decades early. New pure `platformsAvailableAtYear()` helper in
+  `sim/data/platforms.ts` (barrel-exported) mirrors the parts shop's
+  `releaseYear` rule; the shop now single-sources availability through it
+  (unreleased rigs render dimmed with a `RELEASES {year}` badge and are not
+  buyable), and `platforms.smoke.ts` pins the boundaries (Amiga 1200 locked
+  in 1986 / open 1992+, Amiga 500 locked in 1986 / open 1987+, monotonic
+  availability across the full 1982–2026 window).
 - **Platforms smoke window stale since v0.5.1** — the v0.5.1 "year
   range expansion" added `PC_CORE_DUO` (2006) to
   `sim/data/platforms.ts` but `platforms.smoke.ts` still asserted

@@ -2,7 +2,7 @@
 
 **Release date:** 2026-08-02
 **Compare:** [v0.7.3...v0.7.4](https://github.com/TimoP80/Scene_Simulator/compare/v0.7.3...v0.7.4)
-**Commits on this tag:** 1 (the `chore(release): cut v0.7.4` commit — `2e5ee00`, 54 files, +22,951/−736, carrying the party systems, WorldState migration, and BBS era work against the v0.7.3 baseline).
+**Commits on this tag:** the v0.7.4 feature work (party systems, WorldState migration, BBS era split) **plus the new Windows + macOS desktop packaging pipeline** — CI now builds and publishes installers for both platforms on release tags.
 
 v0.7.4 is the biggest player-experience drop since the competition system landed. For the first time you can *live inside* a demoparty: walk the floor of a venue packed with hundreds of procedurally generated sceners who remember you, then spend a full Friday→Sunday weekend balancing demo deadlines, compos, sleep, and coffee against seven survival needs. Under the hood, the WorldState migration finishes making the event log the single source of truth, the rival sim finally writes real rivalry-heatmap relationships that feed the scene press, and the BBS rumor pool becomes era- and relationship-gated — including a brand-new `modern` era for the 2006–2026 world. Plus a save/load regression that silently reset progress on Continue is fixed.
 
@@ -31,6 +31,9 @@ The party floor is now alive. Hundreds of procedurally generated sceners populat
 
 ### 📡 BBS era model split: 3 → 4 buckets, with a new `modern` era
 The `late` bucket (which had folded the whole 1996–2026 span) is split: `early` (<1990), `mid` (1990–1995), `late` (1996–2005), and the new **`modern`** (2006–2026). All four era-indexed pools gained hand-written `modern` content — HD/streaming/AI-era topics for categories, boards, voice profiles, and personalities — so a 2020 thread gets GPU/raymarching/AI talk instead of Voodoo 3 nostalgia. The rumor-spyline pool is now **era-gated AND relationship-gated**: a scandal headline only fires when the rumor's endpoints have a real hostile relationship in WorldState, and a 1985-era dialup leak headline is never served alongside a 2023-era thread.
+
+### 🖥️ Windows + macOS desktop builds — installers ship with this release
+`npm run dist:win` (NSIS installer + portable EXE, x64) and `npm run dist:mac` (DMG + zip for x64 and arm64) now flow through one shared orchestrator, and the CI (`build-macos` on macos-latest, `build-windows` on windows-latest) packages both platforms on release tags and **uploads the artifacts straight to the GitHub Release**. The icon generator also emits a proper macOS `icon.icns`. macOS DMGs are built unsigned/ad-hoc in CI (no Apple signing cert in this repo yet).
 
 ### 💾 Save/load key-mismatch regression fixed (Continue reset progress)
 A v0.7.4-era regression where saving and reloading could silently reset money / reputation / rigs / techs / crew / releases to defaults is fixed with a canonical `AutosaveData` contract (`SAVE_VERSION = 2`), a `migrateSave()` normalizer that handles both legacy and buggy-window keys, and both readers routed through it. Your saved active platform is restored too.
@@ -74,6 +77,7 @@ A v0.7.4-era regression where saving and reloading could silently reset money / 
 - **BBS thread expansion duplicate IDs + stale infoType union** — 6 duplicate template IDs renamed; `BBSInfoType` now DERIVED from a canonical `BBS_INFO_TYPES` const array so the union and runtime sets can never diverge.
 - **Stale sim-window pins swept to 2026** — platforms, party-calendar, jobTemplates, rivalReleases, and softwareCatalog smokes now import shared `SIM_WINDOW_MIN`/`SIM_WINDOW_MAX` constants derived from `ERA_BOUNDARIES`.
 - **Space-bar keyboard shortcut spec** — `parseShortcut(" ")` now preserves a lone space as the space-bar key.
+- **Rig shop ignored hardware release years** — the Amiga 1200 (real release 1992) was buyable in 1986 because the shop never gated on `config.year`. Fixed with a pure `platformsAvailableAtYear()` helper; unreleased rigs now render dimmed with a `RELEASES {year}` badge and can't be bought until their actual release year.
 
 ---
 
@@ -97,6 +101,14 @@ npm install
 npm run build:all        # bundle worklet + renderer + host
 npm run dist:win         # NSIS installer + portable EXE under release/
 ```
+
+### Build the macOS app (DMG + zip, x64 + arm64)
+```sh
+npm install
+npm run build:all        # bundle worklet + renderer + host
+npm run dist:mac         # DMG + zip for x64 and arm64 under release/
+```
+> DMG creation needs `hdiutil`, so `npm run dist:mac` must run on macOS — the `build-macos` CI job does exactly this on release tags and uploads the DMGs/zips to this release.
 
 ### Verify the build
 ```sh
