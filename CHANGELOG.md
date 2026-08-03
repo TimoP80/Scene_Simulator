@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **macOS build support** — `electron-builder` now has a `mac` target block
+  (DMG + zip for both x64 and arm64, `public.app-category.games`, per-arch
+  artifact names), `npm run dist:mac` builds both archs through the shared
+  `scripts/dist.mjs` orchestrator, and `scripts/generate-icons.mjs` now also
+  emits `build/icon.icns` (a PNG-chunk macOS container covering 32/64/128/
+  256/512/1024, generated from the same 1024×1024 master as `icon.png` /
+  `icon.ico`). A new `build-macos` CI job in `.github/workflows/ci.yml` runs
+  on `macos-latest` (DMG creation needs `hdiutil`, which only exists on macOS
+  runners), gated like `capture-preview` (push to main or manual dispatch),
+  and uploads the `.dmg` artifacts. Docs updated in `CONTRIBUTING.md`'s
+  build/ship table.
+
 ## [0.7.4] - 2026-08-02
 
 ### Added

@@ -14,6 +14,7 @@
     "icons": "node scripts/generate-icons.mjs",
     "bundle:worklet": "node scripts/bundle-worklet.mjs",
     "dist:win": "node scripts/dist.mjs --win --x64",
+    "dist:mac": "node scripts/dist.mjs --mac --x64 --arm64",
     "dist:dir": "node scripts/dist.mjs --dir",
     "preview": "vite preview",
     "clean": "node -e \"['dist', 'server.js', 'dist-electron', 'public/worklets', 'release'].forEach(p => require('fs').rmSync(p, {recursive:true,force:true}))\"",
@@ -122,6 +123,21 @@
         {
           "target": "portable",
           "arch": "x64"
+        }
+      ]
+    },
+    "mac": {
+      "icon": "build/icon.icns",
+      "category": "public.app-category.games",
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["x64", "arm64"]
+        },
+        {
+          "target": "zip",
+          "arch": ["x64", "arm64"]
         }
       ]
     },

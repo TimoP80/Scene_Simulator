@@ -62,6 +62,58 @@ jobs:
       - name: vite build (renderer)
         run: npm run build
 
+  # macOS packaging job. DMG creation needs `hdiutil`, which only exists
+  # on macOS — electron-builder cannot produce .dmg on Linux/Windows
+  # runners — so this job runs on macos-latest. It is gated the same way
+  # as capture-preview (push to main OR manual dispatch) to keep the
+  # per-PR cost at zero; the produced .dmg/.zip artifacts are uploaded
+  # for the release engineer to attach to the GitHub Release.
+  build-macos:
+    name: package macOS (dmg + zip, x64 + arm64)
+    runs-on: macos-latest
+    needs: gate
+    if: >-
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+      github.event_name == 'workflow_dispatch'
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      # `build/` is gitignored (icons are generated, never committed), so
+      # regenerate icon.png / icon.ico / icon.icns before packaging.
+      - name: Generate app icons
+        run: npm run icons
+
+      # No signing identity on the runner — disable identity auto-
+      # discovery so electron-builder skips keychain probing and goes
+      # straight to an unsigned (ad-hoc) build deterministically. To
+      # publish a signed/notarized build, add the standard
+      # CSC_LINK / CSC_KEY_PASSWORD secrets and drop this env.
+      - name: Package macOS artifacts (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist:mac
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: demoscene-macos
+          path: |
+            release/*.dmg
+            release/*.zip
+          if-no-files-found: error
+          retention-days: 14
+
   # Manual opt-in workflow for the capture pipeline. Requires a Linux
   # runner that has system Chrome installed; the default ubuntu-latest
   # ships WITHOUT Chrome, so we skip the capture job on the regular gate

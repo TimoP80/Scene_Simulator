@@ -2,10 +2,11 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  *
- * Generates build/icon.png (1024x1024 master) and build/icon.ico
- * (256x256 PNG-encoded entry) for the Electron wrapper. Uses ONLY
- * Node built-ins (zlib, Buffer) so no extra runtime/dev dependencies
- * are pulled in.
+ * Generates build/icon.png (1024x1024 master), build/icon.ico
+ * (256x256 PNG-encoded entry), and build/icon.icns (PNG-chunk macOS
+ * container: 16/32/64/128/256/512/1024) for the Electron wrapper.
+ * Uses ONLY Node built-ins (zlib, Buffer) so no extra runtime/dev
+ * dependencies are pulled in.
  *
  * Design — a 1024x1024 demoscene-themed master:
  *   - Dark rounded square with a subtle radial cyan glow
@@ -18,7 +19,9 @@
  *
  * The ICO entry is a 256x256 box-filter downscale of the master.
  * Modern Windows (Vista+) accepts PNG-encoded entries and scales to
- * 16/32/48 at display time.
+ * 16/32/48 at display time. The ICNS container embeds the same PNG
+ * downscales tagged by standard macOS icon types (ic07/ic08/ic09/ic10
+ * for 128/256/512/1024 plus ic11/ic12/ic13/ic14 for the @2x pairs).
  *
  * Re-run after any design change with `node scripts/generate-icons.mjs`.
  */
@@ -377,6 +380,38 @@ function downscaleBox(src, srcW, srcH, dstW, dstH) {
   return dst;
 }
 
+// ---- ICNS encoding (PNG-chunk container, macOS) ----
+// The icns format is a flat sequence of type+length chunks after a
+// 8-byte header. Each chunk type is 4 ASCII chars; PNG-encoded types
+// map one-to-one to pixel sizes (see ICNS_SIZES below).
+function encodeIcns(pngsBySize) {
+  const chunkTypes = [
+    ['ic11', 32],
+    ['ic12', 64],
+    ['ic07', 128],
+    ['ic13', 256],
+    ['ic08', 256],
+    ['ic09', 512],
+    ['ic14', 512],
+    ['ic10', 1024],
+  ];
+  const chunks = [];
+  let total = 8;
+  for (const [type, size] of chunkTypes) {
+    const png = pngsBySize[size];
+    if (!png) continue;
+    const chunk = Buffer.alloc(8);
+    chunk.write(type, 0, 'ascii');
+    chunk.writeUInt32BE(8 + png.length, 4);
+    chunks.push(chunk, png);
+    total += 8 + png.length;
+  }
+  const header = Buffer.alloc(8);
+  header.write('icns', 0, 'ascii');
+  header.writeUInt32BE(total, 4);
+  return Buffer.concat([header, ...chunks]);
+}
+
 // ---- ICO encoding (single PNG-encoded entry) ----
 function encodeIco(pngBuf, size) {
   const icoHeader = Buffer.alloc(6);
@@ -406,12 +441,27 @@ const icoRgba = downscaleBox(masterBuf, MASTER_SIZE, MASTER_SIZE, ICO_SIZE, ICO_
 const icoPng = encodePng(ICO_SIZE, ICO_SIZE, icoRgba);
 const ico = encodeIco(icoPng, ICO_SIZE);
 
+// ICNS — box-downscale the master to every size macOS wants, PNG-encode
+// each, then pack into the icns container. The 1024 master reuses its
+// own PNG; everything else goes through the same downscale path.
+const ICNS_SIZES = [32, 64, 128, 256, 512, 1024];
+const pngsBySize = { [MASTER_SIZE]: masterPng };
+for (const size of ICNS_SIZES) {
+  if (size === MASTER_SIZE) continue;
+  const rgba = downscaleBox(masterBuf, MASTER_SIZE, MASTER_SIZE, size, size);
+  pngsBySize[size] = encodePng(size, size, rgba);
+}
+const icns = encodeIcns(pngsBySize);
+
 const outDir = resolve(__dirname, '..', 'build');
 mkdirSync(outDir, { recursive: true });
 const pngPath = join(outDir, 'icon.png');
 const icoPath = join(outDir, 'icon.ico');
+const icnsPath = join(outDir, 'icon.icns');
 writeFileSync(pngPath, masterPng);
 writeFileSync(icoPath, ico);
+writeFileSync(icnsPath, icns);
 
 console.log(`\u2713 build/icon.png  ${masterPng.length.toLocaleString()} bytes (${MASTER_SIZE}x${MASTER_SIZE} master)`);
 console.log(`\u2713 build/icon.ico  ${ico.length.toLocaleString()} bytes (${ICO_SIZE}x${ICO_SIZE} entry)`);
+console.log(`\u2713 build/icon.icns ${icns.length.toLocaleString()} bytes (macOS PNG-chunk container)`);
